@@ -464,7 +464,10 @@ async function calcularSugerenciasCatalogo(params) {
       totalPromMes = Math.round(presRef.reduce((s, p) => s + p.promMes, 0) * 10) / 10;
       totalPend    = Math.round(presRef.reduce((s, p) => s + p.pendientes, 0) * 100) / 100;
       const promDiarioTotal = totalPromMes / 30;
-      const totalSugerido   = Math.max(0, Math.ceil((promDiarioTotal * diasObj) - granelStockGrupo + totalPend));
+      // Lo que decide si hay que producir es el stock de las presentaciones (producto terminado), no solo la masa:
+      // se descuentan el stock de presentaciones en Casa Central y el del granel (ya hay masa para fraccionar).
+      const stockPresCentral = Math.round(presFinal.reduce((s, p) => s + (p.stockActual || 0), 0) * 100) / 100;
+      const totalSugerido   = Math.max(0, Math.ceil((promDiarioTotal * diasObj) - stockPresCentral - (granelStockGrupo || 0) + totalPend));
       const facturGrupoG = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
       const facturMensualG = Math.round(facturGrupoG * (30 / ventana) * 100) / 100;
       const stockSucGrupo = Math.round([...refInfo.bases.keys()].reduce((s, base) => s + (stockSucBase.get(base) || 0), 0) * 100) / 100;
@@ -481,7 +484,7 @@ async function calcularSugerenciasCatalogo(params) {
       const mayUnidadDe = p => mayUnidadBase.get(claveBase(p)) || [];
       const sinPeso = presFinal.filter(p => (porUnidadG && pesoKgDe(p) === null) || mayUnidadDe(p).some(m => m.pesoKg === null)).map(p => p.presentacion);
       grupos.push({ refId, productoRef: refInfo.productoRef, promPorDiasConVenta: usarPorDia, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
-        totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
+        totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo, stockPresCentral,
         plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, granelEnUnidades, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
         ventasMayoristaVentana: ventasMayoristaVentanaG, ventaDiariaMayorista: ventaDiariaMayoristaG,
         facturacionMensual: facturMensualG, presentaciones: [],
@@ -541,7 +544,8 @@ async function calcularSugerenciasCatalogo(params) {
       g.pesoUrgentePronto = peso.pesoUrgentePronto;
       g.umbralPeso = umbralPeso;
     } else {
-      const cobertura = calcularCobertura((g.granelStockGrupo || 0) + (g.stockSucGrupo || 0), g.ventaDiariaUrg);
+      // Granel: la cobertura mira el stock de las presentaciones (Casa Central + sucursales), no el de la masa.
+      const cobertura = calcularCobertura((g.stockPresCentral || 0) + (g.stockSucGrupo || 0), g.ventaDiariaUrg);
       g.coberturaDias = cobertura === null ? null : redondear1(cobertura);
       g.urgencia = nivelUrgencia(cobertura, g.claseABC, c.urgenciaDias);
     }

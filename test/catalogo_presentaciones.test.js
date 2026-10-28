@@ -268,6 +268,14 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     assert.strictEqual(d500.ventaDiariaMayorista, 2);
     // Las presentaciones suman lo mismo que el grupo.
     assert.strictEqual(g.desglose.reduce((s, d) => s + d.ventasVentana, 0), g.ventasVentana);
+    // Lo que decide si producir es el stock de las presentaciones: sugerido descuenta presentaciones en central + granel,
+    // y la cobertura es (presentaciones en central + sucursales) ÷ venta diaria (la masa no cuenta).
+    const stockPres = g.desglose.reduce((s, d) => s + d.stockCentral, 0);
+    assert.strictEqual(g.stockPresCentral, stockPres);
+    assert.ok(stockPres > 0);
+    assert.ok(g.totalPromMes - (g.granelStockGrupo || 0) + g.totalPend > g.totalSugerido); // el stock de presentaciones bajó el sugerido
+    assert.strictEqual(g.totalSugerido, Math.max(0, Math.ceil(g.totalPromMes / 30 * 30 - stockPres - (g.granelStockGrupo || 0) + g.totalPend)));
+    assert.strictEqual(g.coberturaDias, Math.round((stockPres + g.stockSucGrupo) / g.ventaDiariaUrg * 10) / 10);
     // Por kilo (sin "x unidad"): sin peso ni unidades en el desglose.
     assert.strictEqual(d500.pesoKg, null);
     assert.strictEqual(d500.unidadesVentana, null);

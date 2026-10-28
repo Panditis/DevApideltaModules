@@ -68,7 +68,7 @@ function renderGrupos() {
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
         </td>
         <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
-        <td class="text-right text-sm" style="white-space:nowrap">${stockCentralCell(g.granelStockGrupo != null ? g.granelStockGrupo + (g.granelEnUnidades ? ' u' : '') : '—', gi)}</td>
+        <td class="text-right text-sm" style="white-space:nowrap">${stockCentralCell(`${redondear(g.stockPresCentral || 0)}${g.granelStockGrupo != null ? ` <span class="text-sm" style="color:var(--muted)" title="Stock del granel (masa)">· granel ${g.granelStockGrupo}${g.granelEnUnidades ? ' u' : ''}</span>` : ''}`, gi)}</td>
         <td class="text-right text-sm" style="color:var(--muted);white-space:nowrap">${stockSucCell(g.stockSucGrupo, gi)}</td>
         <td style="white-space:nowrap"><button class="btn-add" onclick="abrirModalGranel(${gi})">+ Agregar</button></td>
       </tr>`;
@@ -387,7 +387,7 @@ function fmtDias(c, ...cortes) {
 
 // Valores del cálculo de una presentación, o del grupo entero si es granel (p = null).
 function datosUrgencia(g, p) {
-  const central = p ? (p.stockActual || 0) : (g.granelStockGrupo || 0);
+  const central = p ? (p.stockActual || 0) : (g.stockPresCentral || 0); // granel: stock de las presentaciones en Casa Central
   const suc = p ? (p.stockSucursales || 0) : (g.stockSucGrupo || 0);
   const diaria = (p ? p.ventaDiariaUrg : g.ventaDiariaUrg) || 0;
   // Parte mayorista de las ventas (Casa Central a clientes MAYORISTA): solo se muestra, no cambia el cálculo.
@@ -497,7 +497,7 @@ function htmlCalculoGrupo(g) {
   const baseDe = p => positivo(usarFact ? p.facturacionMensual : p.ventasVentana);
   const totalBase = presentaciones.reduce((t, p) => t + baseDe(p), 0);
   const lineas = g.esGranel
-    ? [{ nombre: 'Grupo granel', detalle: `granel central ${nfAR(g.granelStockGrupo || 0, 2)} + sucursales ${nfAR(g.stockSucGrupo || 0, 2)}`, d: datosUrgencia(g, null) }]
+    ? [{ nombre: 'Grupo granel', detalle: `presentaciones: central ${nfAR(g.stockPresCentral || 0, 2)} + sucursales ${nfAR(g.stockSucGrupo || 0, 2)} · granel ${nfAR(g.granelStockGrupo || 0, 2)} (no cuenta en la urgencia)`, d: datosUrgencia(g, null) }]
     : presentaciones.map(p => ({ nombre: p.presentacion || p.baseNombre, detalle: '', d: datosUrgencia(g, p), peso: totalBase > 0 ? baseDe(p) / totalBase : null }));
   // Resaltadas: las que cuentan para el nivel del grupo (urgentes si es Urgente; urgentes y pronto si es Pronto).
   // Granel (una sola fila): la de menor cobertura, como antes.
@@ -526,7 +526,7 @@ function htmlCalculoGrupo(g) {
   // Sugerido del grupo: granel = promedio mensual ÷ 30 × días a cubrir − stock del granel + pendientes; si no, la suma de sus presentaciones.
   const conDias = Number.isFinite(g.diasObjetivo);
   const lineaSugerido = !conDias ? '' : g.esGranel
-    ? `<br>Sugerido (${nfAR(g.diasObjetivo, 0)} días a cubrir): ${nfAR(g.totalPromMes || 0, 1)} ${unidad}/mes ÷ 30 × ${nfAR(g.diasObjetivo, 0)} − granel ${nfAR(g.granelStockGrupo || 0, 2)} + pendientes ${nfAR(g.totalPend || 0, 2)} = <strong>${nfAR(g.totalSugerido || 0, 0)} ${unidad}</strong>${g.promPorDiasConVenta ? ' <span class="text-sm">(granel sin stock: promedio = ventas ÷ días con venta)</span>' : ''}`
+    ? `<br>Sugerido (${nfAR(g.diasObjetivo, 0)} días a cubrir): ${nfAR(g.totalPromMes || 0, 1)} ${unidad}/mes ÷ 30 × ${nfAR(g.diasObjetivo, 0)} − presentaciones en central ${nfAR(g.stockPresCentral || 0, 2)} − granel ${nfAR(g.granelStockGrupo || 0, 2)} + pendientes ${nfAR(g.totalPend || 0, 2)} = <strong>${nfAR(g.totalSugerido || 0, 0)} ${unidad}</strong>${g.promPorDiasConVenta ? ' <span class="text-sm">(granel sin stock: promedio = ventas ÷ días con venta)</span>' : ''}`
     : `<br>Sugerido (${nfAR(g.diasObjetivo, 0)} días a cubrir): suma de las presentaciones = <strong>${nfAR(g.totalSugerido || 0, 0)} ${unidad}</strong> <span class="text-sm">(la cuenta de cada una, en su chip)</span>`;
   return `<div class="urg-nota">Período de datos: <strong>${textoPeriodo(g)}</strong>${lineaSugerido}<br>Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)}</div>
     <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta mayorista</th><th class="num">Venta diaria</th><th class="num">Stock total</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}<th class="num">Cobertura</th><th>Nivel</th></tr></thead>
