@@ -180,3 +180,59 @@ test('una bolsa de rubro Almacén ("Insumo Bolsa...") es insumo, no granel', asy
   assert.deepStrictEqual(f.graneles.map(g => g.granel), ['7474']);
   assert.deepStrictEqual(f.insumos, [{ plu: '7', nombre: 'Insumo Bolsa Apidelta Chica', factor: 1 }]);
 });
+
+// ── CSV "Descargar todo" del Historial ────────────────────────────────────────
+// Todas las cargas de todos los días, con fecha; distinto del CSV de importación a SIGA.
+function cargarHistorialCSV(histData, avisos, bajadas) {
+  return new Function('histData', 'apdAvisar', 'descargar', `
+    ${fuenteDe('_grnList')}
+    ${fuenteDe('lineasCSVHistorialTodo')}
+    ${fuenteDe('descargarTodoHistorial')}
+    return { lineasCSVHistorialTodo, descargarTodoHistorial };
+  `)(histData, m => avisos.push(m), (l, n) => bajadas.push({ l, n }));
+}
+
+const HIST = [
+  { id: 2, fecha: '2026-10-02', produccion: [
+    { plu: 'ACT', observacion: 'limpieza "general"', empleado: 'Ana', desde: '08:00', hasta: '09:00' },
+  ] },
+  { id: 1, fecha: '2026-10-01', produccion: [
+    { plu: 1015, nombre: 'Tutuca 100g', cantFraccionada: 5.256, desde: '10:00', hasta: '11:00', empleado: 'Luis',
+      granel: '9001', nombreGranel: 'Tutuca granel', granelConsumido: 5.2, lote: 'L1' },
+    { plu: 6171, nombre: 'Bandeja "Snack"', cantFraccionada: 10, empleado: 'Luis',
+      graneles: [
+        { granel: '7020', nombreGranel: 'Almendra', granelConsumido: 1 },
+        { granel: '7033', nombreGranel: 'Apimani', granelConsumido: 3.5 },
+      ] },
+  ] },
+];
+
+test('historial CSV: encabezado, orden por fecha, comillas escapadas y coma decimal', () => {
+  const m = cargarHistorialCSV([], [], []);
+  const l = m.lineasCSVHistorialTodo(HIST);
+  assert.strictEqual(l[0], 'Fecha;PLU;Producto;Cantidad;Desde;Hasta;Responsable;Cód. granel;Producto granel;Granel kg;Lote');
+  assert.strictEqual(l.length, 4);
+  assert.strictEqual(l[1], '"2026-10-01";"1015";"Tutuca 100g";5,26;"10:00";"11:00";"Luis";"9001";"Tutuca granel";5,2;"L1"');
+  assert.strictEqual(l[2], '"2026-10-01";"6171";"Bandeja ""Snack""";10;"";"";"Luis";"7020 | 7033";"Almendra | Apimani";"1 | 3,5";""');
+});
+
+test('historial CSV: la tarea extra sale con la observación como producto y sin cantidad ni granel', () => {
+  const l = cargarHistorialCSV([], [], []).lineasCSVHistorialTodo(HIST);
+  assert.strictEqual(l[3], '"2026-10-02";"ACT";"limpieza ""general""";;"08:00";"09:00";"Ana";"";"";;""');
+});
+
+test('historial CSV: no muta el historial ni usa filtros; sin cargas avisa y no descarga', () => {
+  const copia = JSON.stringify(HIST);
+  const avisos = [], bajadas = [];
+  cargarHistorialCSV(HIST, avisos, bajadas).descargarTodoHistorial();
+  assert.strictEqual(JSON.stringify(HIST), copia);
+  assert.strictEqual(avisos.length, 0);
+  assert.strictEqual(bajadas.length, 1);
+  assert.match(bajadas[0].n, /^fraccionado_historial_\d{4}-\d{2}-\d{2}\.csv$/);
+
+  const a2 = [], b2 = [];
+  cargarHistorialCSV([], a2, b2).descargarTodoHistorial();
+  cargarHistorialCSV([{ id: 9, fecha: '2026-10-03', produccion: [] }], a2, b2).descargarTodoHistorial();
+  assert.deepStrictEqual(a2, ['No hay registros en el historial.', 'No hay registros en el historial.']);
+  assert.strictEqual(b2.length, 0);
+});

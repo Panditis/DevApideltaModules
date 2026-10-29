@@ -605,6 +605,7 @@
       <button onclick="document.getElementById('histFiltroFecha').value='';renderHistorial()" style="font-size:12px;padding:5px 10px">Todas</button>
       <input type="search" id="histFiltroProd" placeholder="Buscar producto en todas las fechas…" oninput="renderHistorial()" style="width:250px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;outline:none">
       <input type="search" id="histFiltroResp" placeholder="Buscar responsable…" oninput="renderHistorial()" style="width:180px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;outline:none">
+      <button onclick="descargarTodoHistorial()" title="Descargar un CSV con todas las cargas de fraccionado del historial" style="font-size:12px;padding:5px 10px">⬇ Descargar todo</button>
       <span id="histResumen" style="font-size:11px;color:var(--faint)"></span>
     </div>
   </div>
@@ -4032,6 +4033,33 @@ async function descargarCSVHistorial(id) {
   const h = histData.find(x => x.id === id);
   if (!h || !h.produccion.length) return;
   descargar(await lineasCSVProduccion(h.produccion), `produccion_${h.fecha}.csv`);
+}
+// Todo el historial de fraccionado en un CSV (una fila por carga, con fecha). No es el formato de
+// importación a SIGA de lineasCSVProduccion: ese no lleva fecha ni responsable. Ignora los filtros.
+function lineasCSVHistorialTodo(entradas) {
+  const txt = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const num = v => (v == null || v === '' || !isFinite(v)) ? '' : String(+(+v).toFixed(2)).replace('.', ',');
+  const lineas = ['Fecha;PLU;Producto;Cantidad;Desde;Hasta;Responsable;Cód. granel;Producto granel;Granel kg;Lote'];
+  const ordenadas = [...entradas].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  for (const h of ordenadas) {
+    for (const r of (h.produccion || [])) {
+      const act = r.plu === 'ACT';
+      const gs = _grnList(r);
+      lineas.push([
+        txt(h.fecha), txt(r.plu), txt(act ? (r.observacion || 'Tarea extra') : r.nombre),
+        act ? '' : num(r.cantFraccionada), txt(r.desde), txt(r.hasta), txt(r.empleado),
+        txt(gs.map(g => g.granel).join(' | ')), txt(gs.map(g => g.nombreGranel).join(' | ')),
+        gs.length > 1 ? txt(gs.map(g => num(g.granelConsumido)).join(' | ')) : num(gs[0] && gs[0].granelConsumido),
+        txt(r.lote),
+      ].join(';'));
+    }
+  }
+  return lineas;
+}
+function descargarTodoHistorial() {
+  const lineas = lineasCSVHistorialTodo(histData);
+  if (lineas.length < 2) { apdAvisar('No hay registros en el historial.'); return; }
+  descargar(lineas, `fraccionado_historial_${new Date().toISOString().slice(0, 10)}.csv`);
 }
 async function eliminarHistorial(id) {
   const h = histData.find(x => x.id === id);
