@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd, fmtSug } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 const FCx = require('../lib/precios_fraccionado_costo');
 
@@ -233,4 +233,38 @@ test('igualarSigaMd Fraccionado: todas las presentaciones con vigente sin costo 
   const armar = vigentes => L.filaPublica(L.listadoFraccionado({ grupos, costos, vigentes, mayoristasDe: md, costeo: {}, cfg: CFG, costeoF })[0], true);
   assert.match(igualarSigaMd(armar(new Map([['101', 2100], ['102', 1800]])), 'fraccionado', 'sistema').motivo, /^Falta el costo real de las presentaciones \(insumos sin costo\)$/);
   assert.match(igualarSigaMd(armar(new Map()), 'fraccionado', 'sistema').motivo, /Sin precios vigentes en SIGA/); // sin vigentes sigue igual
+});
+
+test('pasosAjusteMd: precio fijo del producto → un renglón con el precio, el margen que resulta y el general', () => {
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 43.07, precioFijo: 3999, margenProductoModo: 'precio', margenGeneralPct: 40 }).map(p => p[1]),
+    [`precio fijo del producto $ ${fmtSug(3999)} → margen 43,07 % (general 40 %)`]);
+});
+
+test('generalesCanalMd: con precio fijo el general del canal es margenGeneralPct', () => {
+  const fila = { sugeridos: { sistema: { desglose: { minorista: { margenPct: 43.07, precioFijo: 3999, margenProductoModo: 'precio', margenGeneralPct: 40 }, porVinculo: {} } } }, mayoristas: [] };
+  assert.strictEqual(generalesCanalMd(fila, 'sistema').minorista, 40);
+});
+
+test('margenesDePrecioMd: margen de cada precio con el costo de la fuente, igual al que informa el motor; sin precio o sin desglose → no aparece', () => {
+  const vig = new Map();
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: vig });
+  const armar = costeo => L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: vig, mayoristasDe: md, costeo, cfg: CFG })[0], true);
+  const m = margenesDePrecioMd(armar({}), 'sistema', { minorista: 1830, pack: null, bulto: 0 });
+  assert.deepStrictEqual(Object.keys(m), ['minorista']);
+  const guardado = armar({ margenProducto: { 1: { modo: 'precio', minorista: 1830 } } });
+  assert.strictEqual(guardado.sugeridos.sistema.desglose.minorista.margenPct, m.minorista);
+  // Fuente sin desglose (ultimaCompra sin costo) → usa sistema, como "Igualar a SIGA".
+  assert.deepStrictEqual(margenesDePrecioMd(armar({}), 'ultimaCompra', { minorista: 1830 }), m);
+  assert.deepStrictEqual(margenesDePrecioMd({ sugeridos: {} }, 'sistema', { minorista: 1830 }), {});
+});
+
+test('pasosMinoristaMd / pasosMayoristaMd: el renglón final dice "precio fijo" sólo con margenProductoModo precio; sin modo, "redondeado"', () => {
+  const min = extra => ({ costo: 800, gastosPct: 10, costoConGastos: 880, minorista: { margenPct: 40, neto: 1232, extrasPct: 5, conExtras: 1293.6, ivaPct: 21, exacto: 1565.26, precio: 1550, ...extra } });
+  const ultimo = pasos => pasos[pasos.length - 1];
+  assert.deepStrictEqual(ultimo(pasosMinoristaMd(min({}), 'Costo')), ['=', 'Precio redondeado', 1550]);
+  assert.deepStrictEqual(ultimo(pasosMinoristaMd(min({ margenProductoModo: 'precio', precioFijo: 1550, margenGeneralPct: 35 }), 'Costo')), ['=', 'Precio fijo', 1550]);
+  const mayor = extra => ({ margenPct: 30, netoUnidad: 1144, unidades: 6, exactoNeto: 6864, neto: 6850, exactoIva: 8288.5, conIva: 8300, ...extra });
+  const sinIva = pasos => pasos.find(p => /^Sin IVA/.test(p[1]));
+  assert.deepStrictEqual(sinIva(pasosMayoristaMd(min({}), mayor({}))), ['=', 'Sin IVA redondeado', 6850]);
+  assert.deepStrictEqual(sinIva(pasosMayoristaMd(min({}), mayor({ margenProductoModo: 'precio', precioFijo: 6850, margenGeneralPct: 25 }))), ['=', 'Sin IVA (precio fijo)', 6850]);
 });

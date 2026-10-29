@@ -229,14 +229,19 @@ const celdaProveedor = f => `<td class="p-2 max-w-[180px] truncate"${f.proveedor
 const celdaTipoProveedor = f => `<td class="p-2">${f.tipoProveedor ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap ${
   f.tipoProveedor === 'directo' ? 'bg-verde/10 text-verde' : 'bg-ink/10 text-ink'}">${TXT_TIPO_PROVEEDOR[f.tipoProveedor]}</span>` : '<span class="text-gris">—</span>'}</td>`;
 // Margen del producto (sólo llega con el permiso de Configuración: CLAVES_OCULTAS lo saca sin él). "m=" margen fijo, "±m"
-// ajuste (sin modo = dato viejo, ajuste).
+// ajuste (sin modo = dato viejo, ajuste), "$=" precio fijo (sólo Reventa).
 const TXT_CANAL_LST = { minorista: 'Minorista', pack: 'Pack', bulto: 'Bulto' };
+const BADGE_MARGEN_LST = {
+  fijo: { marca: 'm=', titulo: 'Margen fijo', valor: v => `${fmtNum(v)} %` },
+  ajuste: { marca: '±m', titulo: 'Ajuste de margen', valor: v => `${v > 0 ? '+' : ''}${fmtNum(v)} %` },
+  precio: { marca: '$=', titulo: 'Precio fijo', valor: v => `$ ${fmtNum(v)}` },
+};
 const badgeMargenProducto = f => {
   if (preciosSinConfig || !f.margenProducto) return '';
   const { modo = 'ajuste', ...canales } = f.margenProducto;
-  const fijo = modo === 'fijo';
-  const t = Object.entries(canales).map(([c, v]) => `${TXT_CANAL_LST[c] || c} ${!fijo && v > 0 ? '+' : ''}${fmtNum(v)} %`).join(' · ');
-  return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${fijo ? 'Margen fijo' : 'Ajuste de margen'} del producto: ${esc(t)}">${fijo ? 'm=' : '±m'}</span>`;
+  const b = BADGE_MARGEN_LST[modo] || BADGE_MARGEN_LST.ajuste;
+  const t = Object.entries(canales).map(([c, v]) => `${TXT_CANAL_LST[c] || c} ${b.valor(v)}`).join(' · ');
+  return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${b.titulo} del producto: ${esc(t)}">${b.marca}</span>`;
 };
 // Avisos del costeo (⚠ n, detalle en el title) + subrubro · min/kg · máquina del granel. avisosCosto es público; costeoGranel no.
 const badgeAvisosCosto = f => ((f.avisosCosto || []).length

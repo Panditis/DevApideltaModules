@@ -182,7 +182,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   }));
 
   // Margen de un producto: body { modo, minorista?, pack?, bulto? } (validarMargenProducto). modo 'fijo' = el valor es el margen
-  // del canal; 'ajuste' (o sin modo) = puntos % que se suman al margen del canal (y en Producción al especial). Clave: PLU de Reventa, granel de Fraccionado (alcanza a sus presentaciones) o presentación
+  // del canal; 'ajuste' (o sin modo) = puntos % que se suman al margen del canal (y en Producción al especial); 'precio' = el valor es el precio del canal (sólo Reventa). Clave: PLU de Reventa, granel de Fraccionado (alcanza a sus presentaciones) o presentación
   // de Producción, como la decisión. Sin valores → se borra (pasa siempre: limpia PLUs que ya no están). Es
   // configuración: va bajo /config/ (RUTAS_CONFIG) y margenProducto está en CLAVES_OCULTAS.
   router.put('/api/precios/config/esquema/margen-producto/:plu', apiRoute(async (req) => {
@@ -192,8 +192,9 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     if (margen) {
       const costeo = await costeoVigente();
       const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
-      const { error } = L.filaDecidible({ almacen, fraccionado, produccion }, plu);
+      const { fila, error } = L.filaDecidible({ almacen, fraccionado, produccion }, plu);
       if (error) return { error };
+      if (margen.modo === 'precio' && fila.tipo !== 'almacen') return { error: 'El precio fijo sólo vale para productos de Reventa' };
     }
     const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
     const { [plu]: _viejo, ...resto } = costeo.margenProducto || {};
