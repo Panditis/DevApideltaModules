@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   recetaEfectiva, costearReceta, costearPresentacion, costearProducto, detectarCambios, resumenAlertas, snapshotDe,
-  validarProducto, validarMargenEspecial, validarMargenProducto, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
+  validarProducto, validarMargenEspecial, validarMargenProducto, validarPrecioFijo, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
   limpiarRecetas, plusVentaProduccion,
 } = require('../lib/precios_produccion');
 
@@ -257,14 +257,17 @@ test('validarMargenProducto: modo fijo (0 vale) | ajuste (0 se omite; sin modo =
   assert.throws(() => validarMargenProducto({ modo: 'fijo', bulto: -100 }), /margenProducto\.bulto: El margen/);
 });
 
-test('validarMargenProducto: modo precio — precio > 0 con hasta 2 decimales por canal (0, negativos y más decimales son error), vacío se omite, sin canales → null', () => {
-  assert.deepStrictEqual(validarMargenProducto({ modo: 'precio', minorista: 3999, pack: null, bulto: 12.5 }), { modo: 'precio', minorista: 3999, bulto: 12.5 });
+test('validarMargenProducto: el modo precio ya no existe (el precio fijo de Reventa es costeo.precioFijo, validarPrecioFijo)', () => {
+  assert.throws(() => validarMargenProducto({ modo: 'precio', minorista: 3999 }), /margenProducto\.modo: debe ser fijo o ajuste/);
+});
+
+test('validarPrecioFijo: precio > 0 con hasta 2 decimales por canal (0, negativos y más decimales son error), vacío se omite, sin canales → null', () => {
+  assert.deepStrictEqual(validarPrecioFijo({ minorista: 3999, pack: null, bulto: 12.5 }), { minorista: 3999, bulto: 12.5 });
   // Decimales de coma flotante típicos: el chequeo de 2 decimales no los rechaza.
-  assert.deepStrictEqual(validarMargenProducto({ modo: 'precio', minorista: 2999.99, pack: 4.35, bulto: 0.29 }), { modo: 'precio', minorista: 2999.99, pack: 4.35, bulto: 0.29 });
-  assert.strictEqual(validarMargenProducto({ modo: 'precio' }), null);
-  assert.strictEqual(validarMargenProducto({ modo: 'precio', minorista: null }), null);
-  for (const v of [0, -5, NaN, Infinity, '10', 3999.999]) assert.throws(() => validarMargenProducto({ modo: 'precio', minorista: v }), /margenProducto\.minorista: El precio debe ser mayor a 0/, String(v));
-  assert.throws(() => validarMargenProducto({ modo: 'precio', mayorista: 5 }), /margenProducto: canal desconocido/);
+  assert.deepStrictEqual(validarPrecioFijo({ minorista: 2999.99, pack: 4.35, bulto: 0.29 }), { minorista: 2999.99, pack: 4.35, bulto: 0.29 });
+  for (const body of [{}, null, { minorista: null }, { pack: null, bulto: null }]) assert.strictEqual(validarPrecioFijo(body), null);
+  for (const v of [0, -5, NaN, Infinity, '10', 3999.999]) assert.throws(() => validarPrecioFijo({ minorista: v }), /precioFijo\.minorista: El precio debe ser mayor a 0/, String(v));
+  assert.throws(() => validarPrecioFijo({ mayorista: 5 }), /precioFijo: canal desconocido "mayorista"/);
 });
 
 // Las presentaciones eligen una VARIEDAD (decisión 14), no la base.

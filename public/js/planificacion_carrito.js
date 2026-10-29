@@ -77,10 +77,13 @@ function guardarCarrito() {
   persistirCarrito();
   renderCarrito();
 }
-// Orden del carrito (mostrado y enviado): prioridad del grupo en el Resumen; sin rankingPos al final,
-// en orden de alta (el sort es estable).
+// Orden del carrito (mostrado y enviado): primero el nivel que elige el usuario en cada línea (urgente, alta,
+// media, baja; sin campo = media, así las líneas viejas del localStorage siguen andando) y, dentro del nivel, la
+// prioridad del grupo en el Resumen; sin rankingPos al final de su nivel, en orden de alta (el sort es estable).
+const NIVEL_PRIORIDAD = Object.freeze({ urgente: 0, alta: 1, media: 2, baja: 3 });
+const _nivelLinea = l => Object.hasOwn(NIVEL_PRIORIDAD, l.nivelPrioridad) ? l.nivelPrioridad : 'media';
 const _posLinea = l => l.rankingPos || Number.MAX_SAFE_INTEGER;
-const lineasOrdenadas = () => [...carrito.lineas].sort((a, b) => _posLinea(a) - _posLinea(b));
+const lineasOrdenadas = () => [...carrito.lineas].sort((a, b) => NIVEL_PRIORIDAD[_nivelLinea(a)] - NIVEL_PRIORIDAD[_nivelLinea(b)] || _posLinea(a) - _posLinea(b));
 const claveLinea = it => `${it.esGranel ? 'G' : 'F'}|${it.idProducto ?? it.producto}`;
 const pedirFechaCarrito = titulo => new Promise(res => abrirDiaPicker(titulo, res));
 
@@ -177,6 +180,14 @@ function selectCliente(l) {
   </select>`;
 }
 
+// Prioridad de la línea: reordena el carrito (editarLinea redibuja) y fija la prioridad numérica del envío.
+function selectNivel(l) {
+  const nivel = _nivelLinea(l);
+  return `<select class="cart-sel cart-prio" aria-label="Prioridad" title="Prioridad" onclick="event.stopPropagation()" onchange="editarLinea(${l._id},'nivelPrioridad',this.value)">
+    ${Object.keys(NIVEL_PRIORIDAD).map(n => `<option value="${n}"${n === nivel ? ' selected' : ''}>${n[0].toUpperCase() + n.slice(1)}</option>`).join('')}
+  </select>`;
+}
+
 // Segunda línea de cada ítem: resumen de lo que tiene cargado (el detalle completo se edita al desplegar).
 function resumenLinea(l) {
   const pk = packagingCache[String(l.idProducto)] || {};
@@ -216,6 +227,7 @@ function filaCarrito(l) {
           <button class="cart-step" title="Más" onclick="cambiarCantLinea(${id},1)">+</button>
           ${l.esGranel ? escHtml(l.unidadGranel || 'kg') : ''}
         </span>
+        ${selectNivel(l)}
         <button class="cart-x" title="Quitar" onclick="event.stopPropagation();quitarLinea(${id})">✕</button>
       </div>
       <div class="cart-row2" id="csum-${id}">${resumenLinea(l)}</div>
@@ -279,8 +291,8 @@ async function enviarCarrito() {
     toast(`Cantidad 0: ${sinCant.map(nombreLinea).join(', ')}. Completala o quitá la línea.`, true);
     return;
   }
-  // _id, _pkOk y rankingPos son del carrito (UI/orden): no viajan al servidor. prioridad = lugar en el orden mostrado.
-  const items = lineasOrdenadas().map(({ _id, _pkOk, rankingPos, ...it }, i) => ({ ...it, prioridad: i + 1 }));
+  // _id, _pkOk, rankingPos y nivelPrioridad son del carrito (UI/orden): no viajan al servidor. prioridad = lugar en el orden mostrado.
+  const items = lineasOrdenadas().map(({ _id, _pkOk, rankingPos, nivelPrioridad, ...it }, i) => ({ ...it, prioridad: i + 1 }));
   const fecha = carrito.fecha;
   const ok = await mostrarMPResumen(`📤 Enviar a producción · ${formatFecha(fecha)}`, items, await avisosCarrito(items));
   if (!ok) return;

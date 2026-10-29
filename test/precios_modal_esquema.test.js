@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd, fmtSug } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd, fmtSug, fuenteRefMd, canalesPrecioFijoMd, payloadPrecioFijoMd } =require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 const FCx = require('../lib/precios_fraccionado_costo');
 
@@ -251,8 +251,8 @@ test('margenesDePrecioMd: margen de cada precio con el costo de la fuente, igual
   const armar = costeo => L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: vig, mayoristasDe: md, costeo, cfg: CFG })[0], true);
   const m = margenesDePrecioMd(armar({}), 'sistema', { minorista: 1830, pack: null, bulto: 0 });
   assert.deepStrictEqual(Object.keys(m), ['minorista']);
-  const guardado = armar({ margenProducto: { 1: { modo: 'precio', minorista: 1830 } } });
-  assert.strictEqual(guardado.sugeridos.sistema.desglose.minorista.margenPct, m.minorista);
+  const guardado = armar({ precioFijo: { 1: { minorista: 1830 } } });
+  assert.strictEqual(guardado.sugeridos.precio.desglose.minorista.margenPct, m.minorista);
   // Fuente sin desglose (ultimaCompra sin costo) → usa sistema, como "Igualar a SIGA".
   assert.deepStrictEqual(margenesDePrecioMd(armar({}), 'ultimaCompra', { minorista: 1830 }), m);
   assert.deepStrictEqual(margenesDePrecioMd({ sugeridos: {} }, 'sistema', { minorista: 1830 }), {});
@@ -267,4 +267,59 @@ test('pasosMinoristaMd / pasosMayoristaMd: el renglón final dice "precio fijo" 
   const sinIva = pasos => pasos.find(p => /^Sin IVA/.test(p[1]));
   assert.deepStrictEqual(sinIva(pasosMayoristaMd(min({}), mayor({}))), ['=', 'Sin IVA redondeado', 6850]);
   assert.deepStrictEqual(sinIva(pasosMayoristaMd(min({}), mayor({ margenProductoModo: 'precio', precioFijo: 6850, margenGeneralPct: 25 }))), ['=', 'Sin IVA (precio fijo)', 6850]);
+});
+
+// ── Precio fijo como quinta card de Reventa ──
+const filaConPrecio = (precioFijo, extra = {}, costeo = {}, conDesglose = false) => L.filaPublica(L.listadoReventa({
+  universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000, ...extra }], vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes }),
+  costeo: { ...(precioFijo ? { precioFijo: { 1: precioFijo } } : {}), ...costeo }, cfg: CFG })[0], conDesglose);
+
+test('opcionesCosto: "Precio fijo" es la quinta card (sólo Reventa): siempre en el modal; en el select sólo con precio fijo guardado o decidida', () => {
+  const sin = filaConPrecio(null);
+  assert.deepStrictEqual(opcionesCosto(sin, 'almacen', { manualSiempre: true, precioSiempre: true }).map(o => o.valor), ['', 'sistema', 'ultimaCompra', 'manual', 'precio']);
+  const vacia = opcionesCosto(sin, 'almacen', { precioSiempre: true })[3];
+  assert.deepStrictEqual([vacia.valor, vacia.texto, vacia.disponible, vacia.motivo], ['precio', 'Precio fijo', false, 'Sin precio fijo']);
+  assert.deepStrictEqual(opcionesCosto(sin, 'almacen').map(o => o.valor), ['', 'sistema', 'ultimaCompra']); // select: sin precio fijo no se ofrece
+  const p = opcionesCosto(filaConPrecio({ minorista: 3999 }), 'almacen').at(-1);
+  assert.deepStrictEqual([p.valor, p.texto, p.precio, p.deltaPct, p.estado, p.disponible, p.motivo], ['precio', 'Precio fijo', 3999, 122.2, 'subir', true, null]);
+  const con = filaConPrecio({ minorista: 3999 });
+  assert.deepStrictEqual(opcionesCosto(con, 'produccion', { precioSiempre: true }).map(o => o.valor), ['', 'sistema']); // Producción y Fraccionado nunca
+  assert.ok(!opcionesCosto(con, 'fraccionado', { precioSiempre: true }).some(o => o.valor === 'precio'));
+});
+
+test('opcionesCosto: precio fijo guardado pero sin costo para calcular el margen → deshabilitada con su motivo; si es la decisión guardada sigue seleccionable', () => {
+  const f = filaConPrecio({ minorista: 3999 }, { costoSistema: null });
+  const p = opcionesCosto(f, 'almacen').at(-1);
+  assert.deepStrictEqual([p.valor, p.disponible, p.motivo], ['precio', false, 'Sin costo para calcular el margen']);
+  assert.strictEqual(opcionesCosto({ ...f, decision: { fuente: 'precio' } }, 'almacen').at(-1).disponible, true);
+});
+
+test('opcionesSelect: "Precio fijo · $ 3.999 (+122.2%)" sólo en Reventa con precio fijo guardado; estadoDecision dice "precio fijo"', () => {
+  const ops = opcionesSelect(filaConPrecio({ minorista: 3999 }), 'almacen');
+  assert.deepStrictEqual(ops.map(o => o.valor), ['', 'sistema', 'ultimaCompra', 'precio']);
+  assert.match(ops.at(-1).texto, /^Precio fijo · \$ 3\.999 \(\+122\.2%\)$/);
+  assert.strictEqual(ops.at(-1).disabled, false);
+  assert.strictEqual(estadoDecision({ decision: { fuente: 'precio' } }, 'almacen').texto, 'Se exporta con precio fijo');
+});
+
+test('fuenteRefMd: la del costo de referencia del precio fijo (sistema › última compra › manual); sin ninguna → null', () => {
+  assert.strictEqual(fuenteRefMd(filaConPrecio({ minorista: 3999 })), 'sistema');
+  assert.strictEqual(fuenteRefMd(filaConPrecio({ minorista: 3999 }, { costoSistema: null, costoMercaderia: 1500 })), 'ultimaCompra');
+  assert.strictEqual(fuenteRefMd(filaConPrecio(null, { costoSistema: null }, { costoPorProducto: { 1: 800 } })), 'manual'); // sin precio guardado: la primera con sugerido
+  assert.strictEqual(fuenteRefMd(filaConPrecio(null, { costoSistema: null })), null);
+});
+
+test('igualarSigaMd con la decisión "precio": iguala con el costo de referencia (no con un "costo precio")', () => {
+  const f = filaConPrecio({ minorista: 3999 }, {}, {}, true);
+  assert.deepStrictEqual(igualarSigaMd(f, 'almacen', 'precio'), igualarSigaMd(f, 'almacen', 'sistema'));
+  assert.strictEqual(igualarSigaMd(f, 'almacen', 'precio').fuente, 'sistema');
+});
+
+test('canalesPrecioFijoMd / payloadPrecioFijoMd: minorista siempre, pack y bulto sólo con vínculo; el body lleva los tres canales (null = sin precio)', () => {
+  assert.deepStrictEqual(canalesPrecioFijoMd(filaConPrecio(null)).map(([c]) => c), ['minorista', 'bulto']); // el Arroz del test tiene un bulto vinculado
+  assert.deepStrictEqual(canalesPrecioFijoMd({ mayoristas: [] }).map(([c]) => c), ['minorista']);
+  assert.deepStrictEqual(canalesPrecioFijoMd({ mayoristas: [{ tipo: 'bulto' }, { tipo: 'pack' }, { tipo: 'pack' }] }).map(([c]) => c), ['minorista', 'pack', 'bulto']);
+  assert.deepStrictEqual(payloadPrecioFijoMd({ minorista: 3999 }), { minorista: 3999, pack: null, bulto: null });
+  assert.deepStrictEqual(payloadPrecioFijoMd({ minorista: 0 }), { minorista: 0, pack: null, bulto: null }); // el 0 lo rechaza el server con su mensaje
+  assert.deepStrictEqual(payloadPrecioFijoMd(), { minorista: null, pack: null, bulto: null });
 });

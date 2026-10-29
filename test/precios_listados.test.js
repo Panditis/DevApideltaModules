@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst } = require('../public/js/precios_listados.js');
+  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -386,4 +386,11 @@ test('htmlBadgesActividadLst: badge REEFER y/o inactivo (con title); activo com�
   const ambos = htmlBadgesActividadLst(inactivo('4', ['otro"<'], { reefer: true }));
   assert.match(ambos, />REEFER<\/span>.*>inactivo<\/span>/);
   assert.match(ambos, /title="Inactivo: otro&quot;&lt;"/);
+});
+
+test('textoPrecioFijoLst: title del badge "$=" con el precio de cada canal fijado; sin precio fijo → vacío', () => {
+  const { fmtSug } = require('../public/js/precios_modal_esquema.js');
+  assert.strictEqual(textoPrecioFijoLst({ minorista: 3999, bulto: 12.5 }), `Minorista $ ${fmtSug(3999)} · Bulto $ ${fmtSug(12.5)}`);
+  assert.strictEqual(textoPrecioFijoLst({ pack: 800 }), `Pack $ ${fmtSug(800)}`);
+  assert.strictEqual(textoPrecioFijoLst(undefined), '');
 });

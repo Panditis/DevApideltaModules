@@ -368,7 +368,7 @@ test('Reventa y Producción: el "Ver detalle" sigue con sus bloques de pasos (Mi
   }
 });
 
-// "Margen de este producto": el modo "Precio fijo" es sólo de Reventa (el server lo rechaza en el resto); en ese modo cada canal es un $ con su margen debajo.
+// "Margen de este producto": sólo Margen fijo y Ajuste ± en los tres tipos (el precio fijo de Reventa es la quinta card del selector de costo).
 const reventaConDesglose = () => {
   const vig = new Map();
   return L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: vig,
@@ -376,53 +376,25 @@ const reventaConDesglose = () => {
 };
 const modosMargenProducto = html => [...html.matchAll(/class="seg-opt md-mp-modo" data-modo="(\w+)"/g)].map(m => m[1]);
 
-test('Margen de este producto: Reventa ofrece Margen fijo, Ajuste ± y Precio fijo; Fraccionado y Producción sólo los dos primeros', () => {
-  for (const [tipo, fila, esperados] of [['almacen', reventaConDesglose(), ['fijo', 'ajuste', 'precio']],
-    ['produccion', reventaConDesglose(), ['fijo', 'ajuste']], ['fraccionado', granel({ conPermiso: true }), ['fijo', 'ajuste']]]) {
+test('Margen de este producto: Reventa, Fraccionado y Producción ofrecen sólo Margen fijo y Ajuste ±', () => {
+  for (const [tipo, fila] of [['almacen', reventaConDesglose()], ['produccion', reventaConDesglose()], ['fraccionado', granel({ conPermiso: true })]]) {
     const dom = crearContexto();
     abrir(dom, tipo, fila);
-    assert.deepStrictEqual(modosMargenProducto(dom.cuerpo()), esperados, tipo);
+    assert.deepStrictEqual(modosMargenProducto(dom.cuerpo()), ['fijo', 'ajuste'], tipo);
   }
 });
 
-test('Margen de este producto en modo Precio fijo (Reventa): un $ y un margen por canal; el margen se recalcula al tipear el precio', () => {
-  const dom = crearContexto();
-  abrir(dom, 'almacen', reventaConDesglose());
-  dom.correr("mdMpModo = 'precio'; pintarModalEsquema()");
-  const html = dom.cuerpo();
-  assert.deepStrictEqual([...html.matchAll(/<span id="mdMpMargen-(\w+)" class="md-mp-margen text-xs text-gris tabular-nums min-w-\[6\.5rem\]" data-canal="\1"><\/span>/g)].map(m => m[1]), ['minorista', 'pack', 'bulto']);
-  assert.doesNotMatch(html, /md-mp-margen[^>]*aria-live/); // el margen no se anuncia dígito a dígito: cada campo lo referencia con aria-describedby
-  assert.strictEqual((html.match(/aria-describedby="mdMpMargen-(minorista|pack|bulto)"/g) || []).length, 3);
-  assert.match(html, /aria-label="Precio fijo Minorista en pesos"/);
-  assert.match(html, /placeholder="general"/);
-  // El DOM del harness no tiene campos reales: se simulan los del bloque y se dispara el "input".
-  const canales = ['minorista', 'pack', 'bulto'];
-  const campos = canales.map(canal => ({ dataset: { canal }, value: '', oninput: null }));
-  const margenes = canales.map(canal => ({ dataset: { canal }, textContent: 'x' }));
-  dom.ctx.document.querySelector = () => ({ querySelectorAll: sel => (sel === '.md-mp-in' ? campos : sel === '.md-mp-margen' ? margenes : []) });
-  dom.correr('conectarMargenProductoMd()');
-  assert.deepStrictEqual(margenes.map(s => s.textContent), ['', '', '']); // sin precios: sin margen
-  assert.strictEqual(typeof campos[0].oninput, 'function');
-  campos[0].value = '1830';
-  campos[0].oninput();
-  const esperado = L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: new Map(),
-    mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }), costeo: { margenProducto: { 1: { modo: 'precio', minorista: 1830 } } }, cfg: CFG })[0], true)
-    .sugeridos.sistema.desglose.minorista.margenPct;
-  assert.strictEqual(margenes[0].textContent, dom.correr(`'Margen ' + pctMd(${esperado})`)); // el mismo margen que informa el motor
-  assert.deepStrictEqual(margenes.slice(1).map(s => s.textContent), ['', '']);
-});
-
-test('Margen de este producto: campoU lleva "$" antes del campo (pre) sólo en modo Precio fijo; fijo y ajuste siguen con su unidad al final y sin aria-describedby', () => {
-  const casos = [['almacen', 'precio', '$', true], ['almacen', 'fijo', 'Margen %', false], ['almacen', 'ajuste', '+ pts %', false], ['fraccionado', 'ajuste', '+ pts %', false]];
-  for (const [tipo, modo, unidad, pre] of casos) {
+test('Margen de este producto: campoU lleva la unidad al final (sin "$" antes del campo) y no hay aria-describedby de margen', () => {
+  const casos = [['almacen', 'fijo', 'Margen %'], ['almacen', 'ajuste', '+ pts %'], ['fraccionado', 'ajuste', '+ pts %']];
+  for (const [tipo, modo, unidad] of casos) {
     const dom = crearContexto();
     const llamadas = [];
-    dom.ctx.campoU = (input, u, opc = {}) => { if (input.includes('md-mp-in')) llamadas.push([u, !!opc.pre]); return input; }; // sólo los campos del margen (el costo manual también usa campoU)
+    dom.ctx.campoU = (input, u, opc = {}) => { if (input.includes('md-mp-in')) llamadas.push([u, !!opc.pre]); return input; }; // sólo los campos del margen
     abrir(dom, tipo, tipo === 'fraccionado' ? granel({ conPermiso: true }) : reventaConDesglose());
-    llamadas.length = 0; // sólo el bloque repintado en el modo a probar
+    llamadas.length = 0;
     dom.correr(`mdMpModo = '${modo}'; pintarModalEsquema()`);
-    assert.deepStrictEqual(llamadas, Array(3).fill([unidad, pre]), `${tipo} ${modo}`);
-    assert.strictEqual(dom.cuerpo().includes('aria-describedby="mdMpMargen-'), pre, `${tipo} ${modo}`);
+    assert.deepStrictEqual(llamadas, Array(3).fill([unidad, false]), `${tipo} ${modo}`);
+    assert.ok(!dom.cuerpo().includes('aria-describedby="mdMpMargen-'), `${tipo} ${modo}`);
   }
 });
 
