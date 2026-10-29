@@ -100,40 +100,168 @@ test('HTML de los chips: "Usar" lleva el valor y un nombre accesible; pocos dato
   assert.strictEqual(H.htmlProductoHf(HIST, '999'), '');
 });
 
-// ── Histograma ──
+// ── Histograma: bordes redondos, atípicos agrupados, posición y marcas del eje ──
+const suma = h => h.barras.reduce((s, b) => s + b.n, 0);
+const esMultiplo = (x, paso) => Math.abs(x / paso - Math.round(x / paso)) < 1e-9;
+const entre = (min, max, n) => Array.from({ length: n }, (_, i) => min + ((max - min) * i) / (n - 1));
+// 12 productos entre 4 y 8 min/kg y dos muy lejos (60 y 400): Q3 + 3 × IQR = 14,125
+const CON_ATIPICOS = [4, 4.5, 5, 5, 5.5, 6, 6, 6.5, 7, 7, 7.5, 8, 60, 400];
+
 test('histogramaHf: vacío, un solo valor y todos iguales dan una sola barra; sin datos no hay barras', () => {
-  assert.deepStrictEqual(H.histogramaHf([]), { min: null, max: null, barras: [] });
-  assert.deepStrictEqual(H.histogramaHf([5]), { min: 5, max: 5, barras: [{ desde: 5, hasta: 5, n: 1 }] });
+  const vacio = H.histogramaHf([]);
+  assert.deepStrictEqual([vacio.min, vacio.max, vacio.barras, vacio.eje], [null, null, [], null]);
+  const uno = H.histogramaHf([5]);
+  assert.deepStrictEqual([uno.min, uno.max, uno.uno, uno.barras], [5, 5, true, [{ desde: 5, hasta: 5, n: 1 }]]);
   assert.deepStrictEqual(H.histogramaHf([5, 5, 5]).barras, [{ desde: 5, hasta: 5, n: 3 }]);
   assert.deepStrictEqual(H.histogramaHf([NaN, null, undefined, 'x', Infinity]).barras, []);
 });
 
-test('histogramaHf: 10 grupos de ancho parejo entre el mínimo y el máximo; el máximo cae en el último; ninguno se pierde', () => {
-  const h = H.histogramaHf([0, 1, 1.5, 5, 9.99, 10]);
-  assert.strictEqual(h.barras.length, 10);
-  assert.deepStrictEqual([h.min, h.max], [0, 10]);
-  assert.deepStrictEqual(h.barras.map(b => b.n), [1, 2, 0, 0, 0, 1, 0, 0, 0, 2]);
-  assert.strictEqual(h.barras.reduce((s, b) => s + b.n, 0), 6);
-  h.barras.forEach((b, i) => { assert.ok(Math.abs(b.desde - i) < 1e-9); assert.ok(Math.abs(b.hasta - (i + 1)) < 1e-9); });
-  assert.deepStrictEqual(H.histogramaHf([2, 8], 4).barras.map(b => b.n), [1, 0, 0, 1]);
+test('histogramaHf: paso redondo (1, 2, 2,5, 5 × 10^k; el menor 0,1) con 6 a 12 barras', () => {
+  const casos = [[[0, 1], 0.1, 10], [[0, 6], 0.5, 12], [[0, 20], 2, 10], [[0.3, 0.9], 0.1, 6], [[0, 400], 50, 8], [[0.37, 0.81], 0.1, 6], [[2, 13], 1, 11],
+    [[1.3, 9.2], 1, 9], [[0, 3], 0.25, 12], [[0, 100], 10, 10], [[3, 4], 0.1, 10], [[0, 1000], 100, 10], [[0, 5], 0.5, 10], [[0.34, 0.6], 0.05, 6], [[0.9, 1.5], 0.1, 6]];
+  for (const [[min, max], paso, barras] of casos) {
+    const h = H.histogramaHf([min, max]);
+    assert.deepStrictEqual([h.eje.paso, h.barras.length], [paso, barras], `${min} a ${max}`);
+    assert.ok(h.barras.length >= 6 && h.barras.length <= 12, `${min} a ${max}: ${h.barras.length} barras`);
+  }
+});
+
+test('histogramaHf: rangos tan chicos que con 0,1 saldrían menos de 6 barras usan un paso más fino (0,05, 0,02 o 0,01)', () => {
+  const casos = [[[0.34, 0.44], 0.01, 10], [[4.05, 4.15], 0.02, 6], [[0.34, 0.6], 0.05, 6]];
+  for (const [[min, max], paso, barras] of casos) {
+    const h = H.histogramaHf([min, max]);
+    assert.deepStrictEqual([h.eje.paso, h.barras.length], [paso, barras], `${min} a ${max}`);
+    assert.ok(h.eje.desde <= min && h.eje.hasta >= max);
+  }
+  assert.strictEqual(H.histogramaHf([4, 4.04]).eje.paso, 0.01); // ni con 0,01 llega a 6 barras: se queda con el más fino
+  assert.deepStrictEqual(H.marcasEjeHf(H.histogramaHf([0.34, 0.6])).map(m => m.texto), ['0,30', '0,35', '0,40', '0,45', '0,50', '0,55', '0,60']);
+});
+
+test('histogramaHf: los bordes son múltiplos del paso, las barras son contiguas, cubren los datos y no se pierde ningún valor', () => {
+  for (const [min, max] of [[0.37, 0.81], [1.3, 9.2], [0, 0.34], [7.7, 23.1], [130, 990], [0.3, 0.9], [4.05, 4.15]]) {
+    const v = entre(min, max, 9), h = H.histogramaHf(v), { paso } = h.eje;
+    h.barras.forEach((b, i) => {
+      assert.ok(esMultiplo(b.desde, paso) && esMultiplo(b.hasta, paso), `${min} a ${max}: borde fuera del paso en la barra ${i}`);
+      if (i) assert.strictEqual(b.desde, h.barras[i - 1].hasta);
+    });
+    assert.ok(h.eje.desde <= min && h.eje.hasta >= max && h.barras[0].desde === h.eje.desde && h.barras.at(-1).hasta === h.eje.hasta);
+    assert.strictEqual(suma(h), 9);
+  }
+});
+
+test('histogramaHf: un valor justo en un borde va a la barra de la derecha; el máximo, aunque coincida con el borde final, queda en la última', () => {
+  const h = H.histogramaHf([0, 2, 4, 6, 8, 10]);
+  assert.strictEqual(h.eje.paso, 1);
+  assert.deepStrictEqual(h.barras.map(b => b.n), [1, 0, 1, 0, 1, 0, 1, 0, 1, 1]); // el 10 cae en [9, 10], no en una barra 11
+  assert.deepStrictEqual([h.barras.at(-1).desde, h.barras.at(-1).hasta], [9, 10]);
+  // con decimales (0,3 / 0,1 da 2,9999999999999996): igual va a la derecha
+  const d = H.histogramaHf([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]);
+  assert.deepStrictEqual([d.eje.paso, d.eje.desde, d.eje.hasta], [0.1, 0.1, 0.7]);
+  assert.deepStrictEqual(d.barras.map(b => b.n), [1, 1, 1, 1, 1, 2]);
+  assert.deepStrictEqual(H.histogramaHf([0.3, 0.9]).barras.map(b => b.n), [1, 0, 0, 0, 0, 1]);
 });
 
 test('histogramaHf: no muta la lista de entrada y acepta valores desordenados', () => {
   const v = [9, 1, 5, 3];
   const h = H.histogramaHf(v);
   assert.deepStrictEqual(v, [9, 1, 5, 3]);
-  assert.strictEqual(h.barras.reduce((s, b) => s + b.n, 0), 4);
+  assert.strictEqual(suma(h), 4);
 });
 
-test('posicionHf: porcentaje dentro del rango, recortado a los bordes si queda fuera, y 50 si no hay rango', () => {
-  const r = { min: 2, max: 12 };
-  assert.deepStrictEqual(H.posicionHf(7, r), { pct: 50, fuera: false });
-  assert.deepStrictEqual(H.posicionHf(2, r), { pct: 0, fuera: false });
-  assert.deepStrictEqual(H.posicionHf(12, r), { pct: 100, fuera: false });
-  assert.deepStrictEqual(H.posicionHf(30, r), { pct: 100, fuera: true });
-  assert.deepStrictEqual(H.posicionHf(0, r), { pct: 0, fuera: true });
-  assert.deepStrictEqual(H.posicionHf(4, { min: 4, max: 4 }), { pct: 50, fuera: false });
-  assert.deepStrictEqual(H.posicionHf(5, { min: 4, max: 4 }), { pct: 50, fuera: true });
+test('topeAtipicosHf: Q3 + 3 × IQR; sin dispersión (IQR 0) o sin valores no hay tope', () => {
+  assert.strictEqual(H.topeAtipicosHf([1, 2, 3, 4, 5, 6, 7, 8]), 16.75);
+  assert.strictEqual(H.topeAtipicosHf([5, 5, 5, 5, 5, 6]), null);
+  assert.strictEqual(H.topeAtipicosHf([5]), null);
+  assert.strictEqual(H.topeAtipicosHf([]), null);
+});
+
+test('histogramaHf: los atípicos (más de Q3 + 3 × IQR) van juntos en la última barra "X o más", con su cantidad y el máximo real', () => {
+  const h = H.histogramaHf(CON_ATIPICOS), ultima = h.barras.at(-1), tope = H.topeAtipicosHf(CON_ATIPICOS);
+  assert.strictEqual(tope, 14.125);
+  assert.deepStrictEqual([h.eje.paso, h.eje.desde, h.eje.hasta, h.barras.length], [1, 4, 15, 12]);
+  assert.deepStrictEqual([ultima.mas, ultima.desde, ultima.hasta, ultima.n, ultima.max], [true, 15, null, 2, 400]);
+  assert.deepStrictEqual(h.barras.slice(0, -1).map(b => b.n), [2, 3, 3, 3, 1, 0, 0, 0, 0, 0, 0]);
+  assert.strictEqual(suma(h), 14);
+  assert.strictEqual(h.barras.filter(b => b.mas).length, 1);
+  assert.ok(h.eje.hasta >= tope && h.eje.hasta - h.eje.paso < tope, 'la barra agrupada empieza en el borde redondo que sigue al tope');
+  assert.deepStrictEqual([h.min, h.max], [4, 400]);
+});
+
+test('histogramaHf: sin atípicos, o sin dispersión, nada se agrupa', () => {
+  for (const v of [entre(4, 8, 12), [5, 5, 5, 5, 5, 6], [3, 5, 9]]) {
+    const h = H.histogramaHf(v);
+    assert.strictEqual(h.barras.filter(b => b.mas).length, 0);
+    assert.ok(h.eje.hasta >= Math.max(...v) && h.barras.length <= 12);
+    assert.strictEqual(suma(h), v.length);
+  }
+});
+
+test('posicionHf: ubica un valor sobre el eje (el rango del eje, no el de los datos); fuera del eje se recorta al borde y se marca', () => {
+  const h = H.histogramaHf([2, 5, 12]); // eje de 2 a 12, de 1 en 1
+  assert.deepStrictEqual(H.posicionHf(7, h), { pct: 50, fuera: false });
+  assert.deepStrictEqual(H.posicionHf(2, h), { pct: 0, fuera: false });
+  assert.deepStrictEqual(H.posicionHf(12, h), { pct: 100, fuera: false });
+  assert.deepStrictEqual(H.posicionHf(30, h), { pct: 100, fuera: true });
+  assert.deepStrictEqual(H.posicionHf(0, h), { pct: 0, fuera: true });
+  const f = H.histogramaHf([0.37, 0.81]); // los datos van de 0,37 a 0,81 pero el eje de 0,3 a 0,9
+  assert.deepStrictEqual(H.posicionHf(0.3, f), { pct: 0, fuera: false }); // fuera de los datos, dentro del eje
+  assert.ok(Math.abs(H.posicionHf(0.6, f).pct - 50) < 1e-9);
+  assert.deepStrictEqual(H.posicionHf(4, H.histogramaHf([4])), { pct: 50, fuera: false });
+  assert.deepStrictEqual(H.posicionHf(5, H.histogramaHf([4, 4])), { pct: 50, fuera: true });
+});
+
+test('posicionHf: con barra agrupada, lo que pasa de su borde cae en el centro de esa barra (no es "fuera"); lo de antes se mide con las barras comunes', () => {
+  const h = H.histogramaHf(CON_ATIPICOS); // 12 columnas: 11 comunes (4 a 15) y la agrupada
+  assert.ok(Math.abs(H.posicionHf(400, h).pct - (100 - 100 / 24)) < 1e-9);
+  assert.strictEqual(H.posicionHf(400, h).fuera, false);
+  assert.ok(Math.abs(H.posicionHf(15, h).pct - (100 - 100 / 24)) < 1e-9);
+  assert.ok(Math.abs(H.posicionHf(10, h).pct - 50) < 1e-9); // 6 columnas de 12
+  assert.deepStrictEqual(H.posicionHf(2, h), { pct: 0, fuera: true });
+});
+
+test('marcasEjeHf: un número en cada borde de barra (no sólo las puntas), con los decimales justos del paso y alineado al borde', () => {
+  const textos = h => H.marcasEjeHf(h).map(m => m.texto);
+  assert.deepStrictEqual(textos(H.histogramaHf([2, 5, 12])), ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']);
+  assert.deepStrictEqual(textos(H.histogramaHf([0, 3])), ['0,00', '0,25', '0,50', '0,75', '1,00', '1,25', '1,50', '1,75', '2,00', '2,25', '2,50', '2,75', '3,00']);
+  assert.deepStrictEqual(textos(H.histogramaHf([0.3, 0.9])), ['0,3', '0,4', '0,5', '0,6', '0,7', '0,8', '0,9']);
+  assert.deepStrictEqual(textos(H.histogramaHf([1, 6])).slice(0, 3), ['1,0', '1,5', '2,0']);
+  const m = H.marcasEjeHf(H.histogramaHf([2, 5, 12]));
+  assert.deepStrictEqual([m[0].pct, m[5].pct, m.at(-1).pct], [0, 50, 100]);
+  const h6 = H.histogramaHf([0, 6]);
+  assert.strictEqual(H.marcasEjeHf(h6).length, h6.barras.length + 1);
+});
+
+test('marcasEjeHf: con barra agrupada el último rótulo es "≥ X" y está en su borde izquierdo; un solo valor: su número, al centro', () => {
+  const m = H.marcasEjeHf(H.histogramaHf(CON_ATIPICOS));
+  assert.strictEqual(m.length, 12);
+  assert.deepStrictEqual(m.map(x => x.texto).slice(0, 2), ['4', '5']);
+  assert.strictEqual(m.at(-1).texto, '≥ 15');
+  assert.ok(Math.abs(m.at(-1).pct - (1100 / 12)) < 1e-9);
+  assert.deepStrictEqual(H.marcasEjeHf(H.histogramaHf([5, 5, 5])), [{ pct: 50, texto: '5' }]);
+  assert.deepStrictEqual(H.marcasEjeHf(H.histogramaHf([4.37])), [{ pct: 50, texto: '4,37' }]);
+});
+
+test('marcasEjeHf: si los números no entran, uno de cada dos (nunca sólo las puntas), y el "≥ X" no se pierde', () => {
+  const h = H.histogramaHf([0, 1200]); // 12 barras de 100: 13 números de hasta 5 caracteres
+  assert.strictEqual(h.barras.length, 12);
+  assert.deepStrictEqual(H.marcasEjeHf(h).map(m => m.texto), ['0', '200', '400', '600', '800', '1.000', '1.200']);
+  const mas = H.marcasEjeHf(H.histogramaHf([...entre(1000, 1900, 14), 9000, 9500]));
+  assert.ok(mas.length >= 4);
+  assert.match(mas.at(-1).texto, /^≥ /);
+});
+
+test('ejeYHf: escala de productos con paso entero redondo y guías en 0 y en cada paso hasta cubrir el mayor', () => {
+  assert.deepStrictEqual(H.ejeYHf(10), { paso: 5, tope: 10, guias: [0, 5, 10] });
+  assert.deepStrictEqual(H.ejeYHf(1), { paso: 1, tope: 1, guias: [0, 1] });
+  assert.deepStrictEqual(H.ejeYHf(3), { paso: 1, tope: 3, guias: [0, 1, 2, 3] });
+  assert.deepStrictEqual(H.ejeYHf(12), { paso: 5, tope: 15, guias: [0, 5, 10, 15] });
+  assert.deepStrictEqual(H.ejeYHf(17), { paso: 5, tope: 20, guias: [0, 5, 10, 15, 20] });
+  assert.deepStrictEqual(H.ejeYHf(40), { paso: 10, tope: 40, guias: [0, 10, 20, 30, 40] });
+  assert.deepStrictEqual(H.ejeYHf(300).guias, [0, 100, 200, 300]);
+  for (const n of [1, 2, 3, 4, 5, 7, 9, 11, 13, 25, 99, 150]) {
+    const y = H.ejeYHf(n);
+    assert.ok(y.tope >= n && y.guias.length <= 5 && y.guias.every(g => Number.isInteger(g)), `n=${n}`);
+  }
 });
 
 test('medianaHf: impar, par (a 2 decimales), vacío y no muta', () => {
@@ -168,44 +296,88 @@ test('modeloDistribucionHf: la mediana del servidor manda; con pocos datos se us
   assert.deepStrictEqual(H.modeloDistribucionHf(HIST, '99', 3).lista, []);
 });
 
-test('panel de distribución: cada barra con rango y cantidad de productos en aria-label y title, y los mismos datos en una tabla', () => {
+test('panel de distribución: cada barra con su rango y cantidad de productos en aria-label y title, y los mismos rangos en la tabla', () => {
   const $ = html(H.htmlDistribucionHf(modelo()));
+  const columnas = $.find('.hf-barras .hf-barra');
+  assert.strictEqual(columnas.length, 7); // 6 a 20 de 2 en 2
   const barras = $.find('.hf-barra[role="img"]');
-  assert.ok(barras.length >= 1);
-  barras.each((_, b) => {
-    const t = $.find(b).attr('aria-label');
-    assert.match(t, /^De [\d,]+ a [\d,]+ min\/kg: \d+ productos?$/);
-    assert.strictEqual($.find(b).attr('title'), t);
-  });
-  assert.strictEqual($.find('.hf-barras').children().length, 10);
-  assert.strictEqual($.find('.hf-pista').attr('role'), 'group');
-  assert.match($.find('.hf-pista').attr('aria-label'), /3 productos.*Mediana 8,2.*Valor actual 7/);
+  assert.deepStrictEqual(barras.toArray().map(b => $.find(b).attr('aria-label')), ['de 6 a 8 min por kg: 1 producto', 'de 8 a 10 min por kg: 1 producto', 'de 18 a 20 min por kg: 1 producto']);
+  barras.each((_, b) => assert.strictEqual($.find(b).attr('title'), $.find(b).attr('aria-label')));
+  assert.strictEqual($.find('.hf-grafico').attr('role'), 'group');
+  assert.match($.find('.hf-grafico').attr('aria-label'), /3 productos.*Mediana 8,2.*Valor actual 7/);
   const filas = $.find('.hf-tabla tbody tr');
-  assert.strictEqual(filas.length, 10); // todos los grupos, también los vacíos
+  assert.strictEqual(filas.length, 7); // todas las barras, también las vacías
   assert.strictEqual(filas.toArray().reduce((s, tr) => s + Number($.find(tr).find('td').text()), 0), 3);
+  columnas.each((i, c) => { // la misma barra, el mismo rango y la misma cantidad en la tabla
+    const fila = filas.eq(i), etiqueta = $.find(c).attr('aria-label');
+    if (etiqueta) assert.strictEqual(etiqueta, `de ${fila.find('th').text()} min por kg: ${H.textoProductosHf(Number(fila.find('td').text()))}`);
+    else assert.strictEqual(fila.find('td').text(), '0');
+  });
   assert.strictEqual($.find('.hf-tabla table caption').length, 1);
   $.find('.hf-tabla th').each((_, th) => assert.ok($.find(th).attr('scope')));
+});
+
+test('panel de distribución: eje X con un número en cada borde y su título; eje Y con guías finas, sus números y su título; todo decorativo (aria-hidden)', () => {
+  const $ = html(H.htmlDistribucionHf(modelo()));
+  const ticks = $.find('.hf-eje .hf-tick');
+  assert.deepStrictEqual(ticks.toArray().map(t => $.find(t).text()), ['6', '8', '10', '12', '14', '16', '18', '20']);
+  assert.strictEqual(ticks.first().attr('style'), 'left:0%');
+  assert.strictEqual(ticks.last().attr('style'), 'left:100%');
+  assert.strictEqual($.find('.hf-xt').text(), 'Minutos por 1 kg');
+  assert.strictEqual($.find('.hf-yt').text(), 'Productos');
+  assert.deepStrictEqual($.find('.hf-guia .hf-gn').toArray().map(g => $.find(g).text()), ['0', '1']); // un producto por barra como mucho
+  for (const sel of ['.hf-eje', '.hf-xt', '.hf-yt', '.hf-guia']) $.find(sel).each((_, el) => assert.strictEqual($.find(el).attr('aria-hidden'), 'true', sel));
+  const lista = CON_ATIPICOS.map((minKg, i) => ({ plu: String(i), nombre: `P${i}`, n: 5, minKg }));
+  const y = html(H.htmlDistribucionHf(modelo({ lista })));
+  assert.deepStrictEqual(y.find('.hf-guia .hf-gn').toArray().map(g => y.find(g).text()), ['0', '1', '2', '3']);
+  assert.deepStrictEqual(y.find('.hf-guia').toArray().map(g => y.find(g).attr('style')), ['bottom:0%', 'bottom:33.33%', 'bottom:66.67%', 'bottom:100%']);
 });
 
 test('panel de distribución: mediana y valor actual rotulados con texto (no sólo color) y ubicados sobre el eje', () => {
   const $ = html(H.htmlDistribucionHf(modelo()));
   assert.strictEqual($.find('.hf-mediana .hf-tag').text(), 'Mediana 8,2');
   assert.strictEqual($.find('.hf-actual .hf-tag').text(), 'Valor actual 7');
-  // valores 6.4, 8.2 y 20: el rango va de 6,4 a 20 → la mediana (8,2) queda al 13,24 % y el actual (7) al 4,41 %
-  assert.strictEqual($.find('.hf-mediana').attr('style'), 'left:13.24%');
-  assert.strictEqual($.find('.hf-actual').attr('style'), 'left:4.41%');
+  // el eje va de 6 a 20 de 2 en 2 (7 barras): la mediana (8,2) queda a 1,1 barras y el actual (7) a 0,5
+  assert.strictEqual($.find('.hf-mediana').attr('style'), 'left:15.71%');
+  assert.strictEqual($.find('.hf-actual').attr('style'), 'left:7.14%');
   assert.match($.text(), /Valor actual guardado: 7 min\/kg/);
   assert.match($.text(), /Mediana: 8,2 min\/kg/);
   const fuera = html(H.htmlDistribucionHf(modelo({ actual: 50 })));
   assert.match(fuera.find('.hf-actual .hf-tag').text(), /Valor actual 50 \(fuera del rango\)/);
   assert.match(fuera.find('.hf-actual').attr('style'), /left:100%/);
-  const izq = html(H.htmlDistribucionHf(modelo({ actual: 6 })));
-  assert.match(izq.find('.hf-actual .hf-tag').text(), /Valor actual 6 \(fuera del rango\)/);
+  const izq = html(H.htmlDistribucionHf(modelo({ actual: 3 })));
+  assert.match(izq.find('.hf-actual .hf-tag').text(), /Valor actual 3 \(fuera del rango\)/);
   assert.match(izq.find('.hf-actual').attr('style'), /left:0%/);
   assert.ok(izq.find('.hf-actual').hasClass('hf-izq'));
+  const enElBorde = html(H.htmlDistribucionHf(modelo({ actual: 6 }))); // el dato más chico es 6,4, pero el eje arranca en 6: está dentro
+  assert.strictEqual(enElBorde.find('.hf-actual .hf-tag').text(), 'Valor actual 6');
   const sin = html(H.htmlDistribucionHf(modelo({ actual: null })));
   assert.strictEqual(sin.find('.hf-actual').length, 0);
   assert.match(sin.text(), /Valor actual guardado: sin valor/);
+});
+
+test('panel de distribución: con atípicos la última barra agrupa "X o más" (aria-label, rótulo ≥ X del eje, tabla y nota con el máximo real)', () => {
+  const lista = CON_ATIPICOS.map((minKg, i) => ({ plu: String(i), nombre: `P${i}`, n: 5, minKg }));
+  const $ = html(H.htmlDistribucionHf(modelo({ lista, mediana: 6, actual: 50 })));
+  const mas = $.find('.hf-mas');
+  assert.strictEqual(mas.length, 1);
+  assert.strictEqual(mas.attr('role'), 'img');
+  assert.strictEqual(mas.attr('aria-label'), '15 o más min por kg: 2 productos, el mayor de 400');
+  assert.strictEqual(mas.attr('title'), mas.attr('aria-label'));
+  const ticks = $.find('.hf-eje .hf-tick').toArray().map(t => $.find(t).text());
+  assert.strictEqual(ticks.length, 12);
+  assert.deepStrictEqual([ticks[0], ticks[10], ticks[11]], ['4', '14', '≥ 15']);
+  const filas = $.find('.hf-tabla tbody tr');
+  assert.strictEqual(filas.length, 12);
+  assert.strictEqual(filas.last().find('th').text(), '15 o más (el mayor: 400)');
+  assert.strictEqual(filas.last().find('td').text(), '2');
+  assert.strictEqual(filas.first().find('th').text(), '4 a 5');
+  assert.match($.find('.hf-nota').text(), /2 productos.*15.*400/);
+  assert.strictEqual($.find('.hf-actual .hf-tag').text(), 'Valor actual 50'); // cae en la barra agrupada: no está "fuera"
+  assert.strictEqual($.find('.hf-actual').attr('style'), 'left:95.83%');
+  assert.strictEqual($.find('.hf-mediana').attr('style'), 'left:16.67%');
+  const sinAtipicos = html(H.htmlDistribucionHf(modelo()));
+  assert.deepStrictEqual([sinAtipicos.find('.hf-mas').length, sinAtipicos.find('.hf-nota').length], [0, 0]);
 });
 
 test('panel de distribución: aclara que el valor es por 1 kg, que no incluye el ajuste del tramo y que Fijar guarda en el momento', () => {
@@ -235,10 +407,12 @@ test('panel de distribución: los productos más alejados con su cargas, su min/
 
 test('panel de distribución: un solo producto, o todos en la mediana, no rompe ni ofrece Fijar', () => {
   const uno = html(H.htmlDistribucionHf(modelo({ lista: [{ plu: '1', nombre: 'Solo', n: 7, minKg: 5 }], mediana: 5, actual: 5 })));
-  assert.strictEqual(uno.find('.hf-barras').children().length, 1);
+  assert.strictEqual(uno.find('.hf-barras .hf-barra').length, 1);
   assert.strictEqual(uno.find('.hf-barras').hasClass('hf-uno'), true);
-  assert.match(uno.find('.hf-barra').attr('aria-label'), /^5 min\/kg: 1 producto$/);
+  assert.strictEqual(uno.find('.hf-barra').attr('aria-label'), '5 min por kg: 1 producto');
+  assert.deepStrictEqual(uno.find('.hf-eje .hf-tick').toArray().map(t => uno.find(t).text()), ['5']); // su valor, con número, en el eje
   assert.match(uno.find('.hf-mediana').attr('style'), /left:50%/);
+  assert.strictEqual(uno.find('.hf-tabla tbody th').text(), '5');
   assert.strictEqual(uno.find('.hf-fijar').length, 0);
   assert.match(uno.text(), /Todos los productos están en la mediana/);
   const vacio = html(H.htmlDistribucionHf(modelo({ lista: [], mediana: null })));

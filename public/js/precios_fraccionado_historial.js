@@ -7,7 +7,11 @@
 // alejan, cada uno con "Fijar"). Todo es min/kg a 1 kg, SIN el ajuste del tramo de peso (la fórmula lo suma por presentación).
 // Globales: esc, numOrNull (precios_comun.js), getJson (precios_produccion.js), msgEsq (precios_config_esquema.js).
 const API_HF = '/api/precios/config/esquema/fraccionado/historial';
-const GRUPOS_HF = 10;       // barras del histograma, de ancho parejo entre el mínimo y el máximo
+const MAX_BARRAS_HF = 12;   // barras del histograma como mucho (la de atípicos incluida); el paso redondo se elige para que entren
+const MIN_BARRAS_HF = 6;    // barras que se buscan como mínimo (si el rango lo permite con un paso redondo)
+const FACTOR_ATIPICO_HF = 3; // atípico: más de Q3 + 3 × IQR de los min/kg de los productos del subrubro
+const GUIAS_Y_HF = 4;       // tramos de la escala de productos (eje Y) como mucho
+const PRESUPUESTO_EJE_HF = 70; // caracteres que entran en el eje X: con más (número + espacio por marca) se rotula uno de cada dos bordes
 const ALEJADOS_HF = 5;      // productos que se listan con su "Fijar"
 const MIN_MUESTRAS_HF = 5;  // sólo si la respuesta no trae minMuestras
 // Motivos de descarte del servidor (cargas.descartes) con su texto; 180 = DURACION_MAX_MIN de lib/precios_fraccionado_historial.js.
@@ -74,21 +78,82 @@ function chipProductoHf(h, plu) {
     titulo: `${TITULO_VALOR_HF} ${rangoHf(p)}` };
 }
 
-// Histograma: `grupos` barras de ancho parejo entre el mínimo y el máximo (el máximo cae en la última). Un solo valor, o todos iguales: una barra.
-function histogramaHf(valores, grupos = GRUPOS_HF) {
-  const v = valores.filter(Number.isFinite);
-  if (!v.length) return { min: null, max: null, barras: [] };
-  const min = Math.min(...v), max = Math.max(...v);
-  if (min === max) return { min, max, barras: [{ desde: min, hasta: max, n: v.length }] };
-  const ancho = (max - min) / grupos, grupoDe = x => Math.min(grupos - 1, Math.floor((x - min) / ancho));
-  return { min, max, barras: Array.from({ length: grupos }, (_, i) => ({ desde: min + i * ancho, hasta: i === grupos - 1 ? max : min + (i + 1) * ancho,
-    n: v.filter(x => grupoDe(x) === i).length })) };
+// ── Histograma: bordes redondos, atípicos agrupados, escala de productos ──
+// Pasos redondos (1, 2, 2,5, 5 × 10^k) desde 0,1: 0,1 0,2 0,25 0,5 1 2 2,5 5 10 20 25 50 …; para la escala de productos, enteros.
+const PASOS_HF = [-1, 0, 1, 2, 3, 4, 5].flatMap(k => [1, 2, 2.5, 5].map(m => Number((m * 10 ** k).toPrecision(12))));
+const PASOS_FINOS_HF = [0.05, 0.02, 0.01]; // sólo si con 0,1 el rango es tan chico que saldrían menos de MIN_BARRAS_HF barras (ej. 0,34 a 0,6)
+const PASOS_Y_HF = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+const aproxHf = x => Math.round(x * 1e9) / 1e9; // 0,3 / 0,1 da 2,9999999999999996: se redondea antes de floor y ceil
+const indiceHf = (x, paso) => Math.floor(aproxHf(x / paso)); // nº del borde a cuya derecha cae x (justo en un borde: la barra de la derecha)
+const bordeHf = (i, paso) => Math.round(i * paso * 100) / 100; // el borde nº i, sin "0,30000000000000004"
+const decimalesHf = paso => (String(paso).split('.')[1] || '').length;
+const cuantasHf = (min, max, paso) => Math.ceil(aproxHf(max / paso)) - indiceHf(min, paso);
+// El paso redondo más chico con el que [min, max] entra en `tope` barras (bordes en múltiplos del paso). Si aun el menor (0,1) deja pocas barras, uno más fino.
+function pasoHf(min, max, tope) {
+  const base = PASOS_HF.find(p => cuantasHf(min, max, p) <= tope) ?? PASOS_HF[PASOS_HF.length - 1];
+  if (base !== PASOS_HF[0] || cuantasHf(min, max, base) >= MIN_BARRAS_HF) return base;
+  return PASOS_FINOS_HF.find(p => cuantasHf(min, max, p) >= MIN_BARRAS_HF) ?? PASOS_FINOS_HF[PASOS_FINOS_HF.length - 1];
 }
-// Dónde cae un valor sobre el eje del histograma (0 a 100 %); fuera del rango se recorta al borde y se marca.
-function posicionHf(valor, { min, max }) {
-  if (min === max) return { pct: 50, fuera: valor !== min };
-  const pct = ((valor - min) / (max - min)) * 100;
-  return { pct: Math.min(100, Math.max(0, pct)), fuera: pct < 0 || pct > 100 };
+// Eje X hasta `techo`: { desde, hasta, paso, dec, n } con n barras comunes entre dos bordes redondos (desde ≤ min, hasta ≥ techo).
+function ejeHf(min, techo, tope) {
+  const paso = pasoHf(min, techo, tope), i0 = indiceHf(min, paso), i1 = Math.max(i0 + 1, Math.ceil(aproxHf(techo / paso)));
+  return { desde: bordeHf(i0, paso), hasta: bordeHf(i1, paso), paso, dec: decimalesHf(paso), n: i1 - i0 };
+}
+const cuantilHf = (orden, q) => {
+  const pos = (orden.length - 1) * q, i = Math.floor(pos), j = Math.min(i + 1, orden.length - 1);
+  return orden[i] + (orden[j] - orden[i]) * (pos - i);
+};
+// Más de Q3 + 3 × IQR es atípico. `orden`: valores ya ordenados. Sin dispersión (IQR 0) no hay nada que agrupar: null.
+function topeAtipicosHf(orden) {
+  const q3 = cuantilHf(orden, 0.75), iqr = q3 - cuantilHf(orden, 0.25);
+  return iqr > 0 ? q3 + FACTOR_ATIPICO_HF * iqr : null;
+}
+// Las barras comunes del eje y, si `mas`, una última desde el borde `hasta` que agrupa todo lo que lo alcanza (con su máximo real).
+function barrasHf(v, eje, mas) {
+  const i0 = indiceHf(eje.desde, eje.paso), total = eje.n + (mas ? 1 : 0);
+  const columnas = v.map(x => Math.min(total - 1, indiceHf(x, eje.paso) - i0)); // el máximo del eje (justo en el borde final) queda en la última
+  const cuantos = k => columnas.filter(c => c === k).length;
+  const comunes = Array.from({ length: eje.n }, (_, k) => ({ desde: bordeHf(i0 + k, eje.paso), hasta: bordeHf(i0 + k + 1, eje.paso), n: cuantos(k) }));
+  return mas ? [...comunes, { desde: eje.hasta, hasta: null, n: cuantos(eje.n), mas: true, max: v[v.length - 1] }] : comunes;
+}
+// → { min, max (de los datos), uno, eje: { desde, hasta, paso, dec, n }, barras: [{ desde, hasta, n, mas?, max? }] }. Entre 6 y 12 barras de ancho parejo con
+// bordes redondos. Con atípicos (hay valores ≥ el borde redondo que sigue a Q3 + 3 × IQR) el eje llega hasta ese borde y la última barra los agrupa.
+// Un solo valor, o todos iguales: una barra (`uno`), sin paso.
+function histogramaHf(valores) {
+  const v = valores.filter(Number.isFinite).sort((a, b) => a - b), min = v[0], max = v[v.length - 1];
+  if (!v.length) return { min: null, max: null, uno: false, eje: null, barras: [] };
+  if (min === max) return { min, max, uno: true, eje: { desde: min, hasta: max, paso: null, dec: 0, n: 1 }, barras: [{ desde: min, hasta: max, n: v.length }] };
+  const tope = topeAtipicosHf(v), conMas = tope == null ? null : ejeHf(min, tope, MAX_BARRAS_HF - 1);
+  const mas = conMas != null && max >= conMas.hasta, eje = mas ? conMas : ejeHf(min, max, MAX_BARRAS_HF);
+  return { min, max, uno: false, eje, barras: barrasHf(v, eje, mas) };
+}
+// Dónde cae un valor sobre el eje del histograma (0 a 100 %, en barras de ancho parejo); fuera del eje se recorta al borde y se marca. Lo que alcanza
+// el borde de la barra agrupada queda en el centro de esa barra (no es "fuera": está en ese grupo).
+function posicionHf(valor, { eje, barras }) {
+  if (eje.paso == null) return { pct: 50, fuera: valor !== eje.desde };
+  const ancho = 100 / barras.length;
+  if (valor < eje.desde) return { pct: 0, fuera: true };
+  if (barras[barras.length - 1].mas && valor >= eje.hasta) return { pct: 100 - ancho / 2, fuera: false };
+  const pct = ((valor - eje.desde) / eje.paso) * ancho;
+  return { pct: Math.min(100, pct), fuera: valor > eje.hasta };
+}
+// Marcas del eje X: un rótulo en cada borde de barra, con los decimales justos del paso ("≥ X" en el borde de la barra agrupada). Si no entran
+// (PRESUPUESTO_EJE_HF), uno de cada dos, contando desde la agrupada si hay. Un solo valor: su número, al centro.
+const fmtEjeHf = (x, dec) => x.toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+function marcasEjeHf({ barras, eje, uno }) {
+  if (uno) return [{ pct: 50, texto: fmtMinHf(eje.desde) }];
+  const n = barras.length, ultima = barras[n - 1];
+  const bordes = barras.map((b, i) => ({ pct: (i * 100) / n, valor: b.desde, mas: b.mas === true }));
+  const marcas = (ultima.mas ? bordes : [...bordes, { pct: 100, valor: ultima.hasta, mas: false }])
+    .map(b => ({ pct: b.pct, texto: `${b.mas ? '≥ ' : ''}${fmtEjeHf(b.valor, eje.dec)}` }));
+  const largo = Math.max(...marcas.map(m => m.texto.length)), salto = marcas.length * (largo + 1) > PRESUPUESTO_EJE_HF ? 2 : 1;
+  const ancla = ultima.mas ? marcas.length - 1 : 0;
+  return marcas.filter((_, i) => Math.abs(i - ancla) % salto === 0);
+}
+// Escala del eje Y (productos por barra): paso entero redondo con a lo sumo GUIAS_Y_HF tramos hasta cubrir el mayor.
+function ejeYHf(maxN) {
+  const paso = PASOS_Y_HF.find(p => Math.ceil(maxN / p) <= GUIAS_Y_HF) ?? PASOS_Y_HF[PASOS_Y_HF.length - 1], tope = Math.ceil(maxN / paso) * paso;
+  return { paso, tope, guias: Array.from({ length: tope / paso + 1 }, (_, i) => i * paso) };
 }
 function medianaHf(valores) {
   const v = valores.filter(Number.isFinite).sort((a, b) => a - b), m = v.length >> 1;
@@ -117,32 +182,46 @@ function htmlSubrubroHf(h, id, nombre) {
 const htmlTramoHf = (h, hastaG, guardadoG) => htmlFilaHf(htmlChipHf(chipTramoHf(h, hastaG, guardadoG), `en el ajuste del tramo hasta ${hastaG} g`));
 const htmlProductoHf = (h, plu) => htmlFilaHf(htmlChipHf(chipProductoHf(h, plu), 'como min/kg propio de este producto'));
 
-// Barra: alto proporcional al grupo más grande (hasta 86 %: arriba queda lugar para su cantidad). Las vacías no se anuncian (están en la tabla).
-function htmlBarraHf(b, maxN, uno) {
-  if (!b.n) return '<div class="hf-barra" aria-hidden="true"></div>';
-  const t = uno ? `${fmtMinHf(b.desde)} min/kg: ${textoProductosHf(b.n)}` : `De ${fmtMinHf(b.desde)} a ${fmtMinHf(b.hasta)} min/kg: ${textoProductosHf(b.n)}`;
-  return `<div class="hf-barra" role="img" aria-label="${esc(t)}" title="${esc(t)}" style="--h:${Math.max(4, Math.round((b.n / maxN) * 86))}%"><span class="hf-n" aria-hidden="true">${b.n}</span><span class="hf-rect"></span></div>`;
+// El rango de una barra, igual en el texto de la barra y en la tabla: "1,5 a 2", "11 o más" (la agrupada) o el valor solo (una barra única).
+const rotuloRangoHf = (b, uno) => (uno ? fmtMinHf(b.desde) : b.mas ? `${fmtMinHf(b.desde)} o más` : `${fmtMinHf(b.desde)} a ${fmtMinHf(b.hasta)}`);
+const textoBarraHf = (b, uno) => `${uno || b.mas ? '' : 'de '}${rotuloRangoHf(b, uno)} min por kg: ${textoProductosHf(b.n)}${b.mas ? `, el mayor de ${fmtMinHf(b.max)}` : ''}`;
+const alturaBarraHf = (n, tope) => Math.max(3, Math.round((n / tope) * 1000) / 10); // % del alto; un mínimo para que 1 producto se vea
+// Barra: columna de ancho parejo (su rango es el de los bordes del eje) con su cantidad arriba. Las vacías no se anuncian (están en la tabla).
+function htmlBarraHf(b, tope, uno) {
+  const clase = `hf-barra${b.mas ? ' hf-mas' : ''}`;
+  if (!b.n) return `<div class="${clase}" aria-hidden="true"></div>`;
+  const t = textoBarraHf(b, uno);
+  return `<div class="${clase}" role="img" aria-label="${esc(t)}" title="${esc(t)}" style="--h:${alturaBarraHf(b.n, tope)}%"><span class="hf-n" aria-hidden="true">${b.n}</span><span class="hf-rect"></span></div>`;
 }
 function htmlMarcaHf(clase, texto, { pct }) {
   const lado = pct < 18 ? ' hf-izq' : pct > 82 ? ' hf-der' : '';
   return `<div class="hf-marca ${clase}${lado}" style="left:${+pct.toFixed(2)}%"><span class="hf-tag">${esc(texto)}</span></div>`;
 }
+// Guías horizontales finas con el número de productos a la izquierda (decorativas: la cantidad de cada barra está en su rótulo y en la tabla).
+const htmlGuiasHf = y => y.guias.map(g => `<div class="hf-guia" aria-hidden="true" style="bottom:${+((g / y.tope) * 100).toFixed(2)}%"><span class="hf-gn">${NUM_HF.format(g)}</span></div>`).join('');
+const htmlEjeXHf = hist => `<div class="hf-eje" aria-hidden="true">${marcasEjeHf(hist).map(m => `<span class="hf-tick" style="left:${+m.pct.toFixed(2)}%">${esc(m.texto)}</span>`).join('')}</div>`;
+function htmlNotaMasHf({ barras }) {
+  const m = barras[barras.length - 1];
+  if (!m.mas) return '';
+  return `<p class="hf-nota">${textoProductosHf(m.n)} ${m.n === 1 ? 'queda muy lejos' : 'quedan muy lejos'} del resto y se ${m.n === 1 ? 'muestra' : 'agrupan'} en la última barra, de ${fmtMinHf(m.desde)} min/kg o más (el mayor: ${fmtMinHf(m.max)}).</p>`;
+}
 function htmlHistogramaHf(hist, { mediana, actual }) {
   if (!hist.barras.length) return '<p class="hf-vacio-d">Sin productos con historial en este subrubro.</p>';
-  const uno = hist.barras.length === 1, maxN = Math.max(...hist.barras.map(b => b.n)), n = hist.barras.reduce((s, b) => s + b.n, 0);
+  const y = ejeYHf(Math.max(...hist.barras.map(b => b.n))), n = hist.barras.reduce((s, b) => s + b.n, 0);
   const pa = actual == null ? null : posicionHf(actual, hist);
   const marcas = (mediana == null ? '' : htmlMarcaHf('hf-mediana', `Mediana ${fmtMinHf(mediana)}`, posicionHf(mediana, hist)))
     + (pa ? htmlMarcaHf('hf-actual', `Valor actual ${fmtMinHf(actual)}${pa.fuera ? ' (fuera del rango)' : ''}`, pa) : '');
   const aria = `Histograma de min por kg de ${textoProductosHf(n)}, de ${fmtMinHf(hist.min)} a ${fmtMinHf(hist.max)}. ${mediana == null ? '' : `Mediana ${fmtMinHf(mediana)}. `}`
     + `${actual == null ? 'Sin valor actual guardado. ' : `Valor actual ${fmtMinHf(actual)}. `}Los mismos datos están en la tabla de abajo.`;
-  return `<div class="hf-pista" role="group" aria-label="${esc(aria)}">${marcas}<div class="hf-barras${uno ? ' hf-uno' : ''}">${hist.barras.map(b => htmlBarraHf(b, maxN, uno)).join('')}</div></div>
-    <div class="hf-eje${uno ? ' hf-eje-uno' : ''}"><span>${fmtMinHf(hist.min)}</span>${uno ? '' : `<span>${fmtMinHf(hist.max)}</span>`}</div>`;
+  return `<div class="hf-grafico" role="group" aria-label="${esc(aria)}"><div class="hf-pista">${marcas}<span class="hf-yt" aria-hidden="true">Productos</span>
+    <div class="hf-barras${hist.uno ? ' hf-uno' : ''}">${htmlGuiasHf(y)}${hist.barras.map(b => htmlBarraHf(b, y.tope, hist.uno)).join('')}</div></div>
+    ${htmlEjeXHf(hist)}<p class="hf-xt" aria-hidden="true">Minutos por 1 kg</p></div>${htmlNotaMasHf(hist)}`;
 }
-// La misma información que las barras, en una tabla (lector de pantalla y números exactos).
+// La misma información que las barras, con los mismos rangos, en una tabla (lector de pantalla y números exactos).
 function htmlTablaHistoHf(hist) {
   if (!hist.barras.length) return '';
-  const uno = hist.barras.length === 1;
-  const filas = hist.barras.map(b => `<tr><th scope="row" class="text-left font-normal">${esc(uno ? fmtMinHf(b.desde) : `${fmtMinHf(b.desde)} a ${fmtMinHf(b.hasta)}`)}</th><td class="text-right tabular-nums">${b.n}</td></tr>`).join('');
+  const rotulo = b => `${rotuloRangoHf(b, hist.uno)}${b.mas ? ` (el mayor: ${fmtMinHf(b.max)})` : ''}`;
+  const filas = hist.barras.map(b => `<tr><th scope="row" class="text-left font-normal">${esc(rotulo(b))}</th><td class="text-right tabular-nums">${b.n}</td></tr>`).join('');
   return `<details class="hf-tabla"><summary>Ver los datos en una tabla</summary><table class="cfg-tabla fr-filas w-full"><caption class="sr-only">Productos por rango de min por kg (por 1 kg)</caption>
     <thead><tr><th scope="col" class="text-left">Rango (min/kg)</th><th scope="col" class="text-right">Productos</th></tr></thead><tbody>${filas}</tbody></table></details>`;
 }
@@ -298,6 +377,6 @@ async function fijarDesdeHf(boton, fijar) {
 }
 
 if (typeof module === 'object' && module.exports) module.exports = { normalizarHistorialHf, mensajeErrorHf, fmtMinHf, fmtSignoHf, textoCargasHf, textoProductosHf,
-  chipSubrubroHf, chipTramoHf, chipProductoHf, histogramaHf, posicionHf, medianaHf, masAlejadosHf, modeloDistribucionHf, htmlSubrubroHf, htmlTramoHf, htmlProductoHf,
+  chipSubrubroHf, chipTramoHf, chipProductoHf, histogramaHf, topeAtipicosHf, posicionHf, marcasEjeHf, ejeYHf, medianaHf, masAlejadosHf, modeloDistribucionHf, htmlSubrubroHf, htmlTramoHf, htmlProductoHf,
   htmlDistribucionHf, htmlEstadoHf, invalidarHistorialHf, cargarHistorialHf, historialHf, estadoHistorialHf, usarEnInputHf, pintarSubrubrosHf, pintarTramosHf,
   conectarSubrubrosHf, conectarTramosHf, conectarProductoHf, fijarDesdeHf };
