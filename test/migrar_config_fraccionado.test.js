@@ -29,3 +29,18 @@ test('script: archivo inexistente o sin esquema por canal → error, no escribe'
   assert.strictEqual(fs.readFileSync(ruta, 'utf8'), '{}');
   assert.ok(!fs.existsSync(`${ruta}.bak-config-fraccionado`));
 });
+
+test('script: el fraccionado creado tiene la forma nueva de normalizarCosteoFraccionado (tramosTiempo, sin escalas)', () => {
+  // Arrange
+  const { normalizarCosteoFraccionado } = require('../lib/precios_fraccionado_costo');
+  const ruta = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-fracc-')), 'costeo.json');
+  fs.writeFileSync(ruta, JSON.stringify(COSTEO));
+  // Act
+  main(ruta);
+  const { fraccionado } = JSON.parse(fs.readFileSync(ruta, 'utf8'));
+  // Assert
+  const { costoHora: _h, ...forma } = normalizarCosteoFraccionado({});
+  for (const [k, v] of Object.entries(forma)) assert.deepStrictEqual(fraccionado[k], v, k);
+  assert.deepStrictEqual(fraccionado.tramosTiempo, []);
+  for (const vieja of ['escalas', 'factorFacilidad', 'facilidades']) assert.ok(!(vieja in fraccionado), vieja);
+});

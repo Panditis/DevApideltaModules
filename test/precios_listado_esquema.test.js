@@ -539,41 +539,54 @@ test('agruparPorGranel: cada grupo lleva el subrubro de su granel', () => {
   assert.deepStrictEqual([g.subrubroId, g.subrubro], ['7', 'Frutos secos']);
 });
 
-test('listadoFraccionado con costeoF: tramo × facilidad del subrubro (el tiempo viejo no cuenta), máquina del subrubro, insumos del peso de la presentación', () => {
+test('listadoFraccionado con costeoF: (min/kg del subrubro + ajuste del tramo) × kg, sin máquina por defecto, insumos del peso de la presentación', () => {
   const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', subrubro: 'Frutos secos', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }];
   const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000, costoMercaderia: null }],
     ['900', { plu: '900', nombre: 'Bolsa 500g', costoSistema: 20, costoMercaderia: null }]]);
   const costeoF = FCx.normalizarCosteoFraccionado({
     costoHora: 6000, maquinas: [{ id: 'env', nombre: 'Envasadora', costoHora: 3000 }],
-    subrubros: { 7: { maquinaId: 'env', tramos: [{ hastaG: 1000, minutos: 1 }], facilidad: 'facil', tiempo: 'lento' } },
+    tramosTiempo: [{ hastaG: 500, minKg: 1 }, { hastaG: 1000, minKg: 0 }],
+    subrubros: { 7: { minKg: 1, facilidad: 'facil' } },
     insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] },
   });
   const armar = (cf, costeo = {}) => L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo, cfg: CFG, costeoF: cf })[0];
   const g = armar(costeoF);
   const p = g.presentaciones[0];
-  // 1 min × 1 × 1: MO 100 + máquina 50 + bolsa 20 = 170 por unidad ÷ 0,5 kg = 340 $/kg → 1000 + 340
-  assert.strictEqual(p.costos.sistema, 1340);
-  assert.strictEqual(p.sugeridos.sistema.minorista.precio, L.preciosDeCosto({ cfg: CFG, tipo: 'fraccionado', costo: 1340, pesoG: 500 }).minorista.precio);
-  assert.deepStrictEqual(p.costeoPresentacion, { facilidad: 'facil', minutos: 1, minutosBase: 1, factorFacilidad: 1, porUnidad: 170, extraKg: 340 });
-  assert.deepStrictEqual(p.componentesCosto.map(l => l.rol), ['granel', 'insumo', 'mo', 'maquina']);
+  // (1 + 1) × 0,5 = 1 min: MO 100 + bolsa 20 = 120 por unidad ÷ 0,5 kg = 240 $/kg → 1000 + 240
+  assert.strictEqual(p.costos.sistema, 1240);
+  assert.strictEqual(p.sugeridos.sistema.minorista.precio, L.preciosDeCosto({ cfg: CFG, tipo: 'fraccionado', costo: 1240, pesoG: 500 }).minorista.precio);
+  assert.deepStrictEqual(p.costeoPresentacion, { minutos: 1, minKg: 1, minKgOrigen: 'subrubro', ajusteMinKg: 1, porUnidad: 120, extraKg: 240 });
+  assert.deepStrictEqual(p.componentesCosto.map(l => l.rol), ['granel', 'insumo', 'mo']);
   assert.deepStrictEqual(p.componentesCosto[0], { plu: '100', nombre: 'Almendras', rol: 'granel', cantidad: 0.5, costoUnit: 1000, importe: 500, fuente: 'sistema' });
   assert.deepStrictEqual([p.componentesCosto[1].nombre, 'fraccPresentacion' in p], ['Bolsa 500g', false]);
   assert.deepStrictEqual([p.avisosCosto, g.avisosCosto], [[], []]);
-  assert.deepStrictEqual(g.costeoGranel, { maquinaId: null, maquina: 'Envasadora', maquinaOrigen: 'subrubro', maquinaSubrubro: 'Envasadora', subrubroId: '7', subrubro: 'Frutos secos' });
+  assert.deepStrictEqual(g.costeoGranel, { maquinaId: null, maquina: null, minKgPropio: null, minKgSubrubro: 1, minKgOrigen: 'subrubro', subrubroId: '7', subrubro: 'Frutos secos' });
   assert.strictEqual(g.costos.sistema, 1000); // el granel (decisión, rango, pack/bulto del granel) sigue con su mercadería
   // La mercadería de la línea granel sigue la fuente del granel en su tab (costo manual > sistema), como en Producción
   const gm = armar(costeoF, { costoPorProducto: { 100: 1200 } });
   assert.deepStrictEqual([gm.presentaciones[0].componentesCosto[0].costoUnit, gm.presentaciones[0].componentesCosto[0].importe, gm.presentaciones[0].componentesCosto[0].fuente], [1200, 600, 'manual']);
-  // Excepción de máquina del granel: pisa la del subrubro (1 × 1200/60 = 20 → 140 por unidad → 280 $/kg)
-  const ge = armar({ ...costeoF, maquinas: [...costeoF.maquinas, { id: 'sel', nombre: 'Selladora', costoHora: 1200 }], porGranel: { 100: { maquinaId: 'sel' } } });
-  assert.deepStrictEqual([ge.costeoGranel.maquina, ge.costeoGranel.maquinaOrigen, ge.costeoGranel.maquinaSubrubro, ge.costeoGranel.maquinaId, ge.presentaciones[0].costos.sistema],
-    ['Selladora', 'granel', 'Envasadora', 'sel', 1280]);
+  // Granel con min/kg propio 3 y máquina: (3 + 1) × 0,5 = 2 min; MO 200 + máquina 100 + bolsa 20 = 320 → 640 $/kg
+  const ge = armar({ ...costeoF, porGranel: { 100: { minKg: 3, maquinaId: 'env' } } });
+  assert.deepStrictEqual(ge.costeoGranel, { maquinaId: 'env', maquina: 'Envasadora', minKgPropio: 3, minKgSubrubro: 1, minKgOrigen: 'granel', subrubroId: '7', subrubro: 'Frutos secos' });
+  assert.deepStrictEqual([ge.presentaciones[0].costeoPresentacion.minutos, ge.presentaciones[0].costos.sistema], [2, 1640]);
   // Listado público: sin costos ni desglose; los avisos sí
   const pub = L.filaPublica(g);
   assert.deepStrictEqual([pub.presentaciones[0].componentesCosto, pub.presentaciones[0].costeoPresentacion, pub.presentaciones[0].avisosCosto],
     [undefined, undefined, []]);
 });
 
+test('listadoFraccionado: con la config actual de dev (13 subrubros sólo con facilidad/tiempo) los sugeridos no cambian (sin minutos, aviso sinMinutos)', () => {
+  const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', subrubro: 'Frutos secos', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1KG' }] }];
+  const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000, costoMercaderia: 900 }]]);
+  const subrubros = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [String(i + 1), { facilidad: ['facil', 'normal', 'dificil'][i % 3], tiempo: 'normal' }]));
+  const dev = FCx.normalizarCosteoFraccionado({ costoHora: 6000, escalas: { facilidad: { facil: 1, normal: 1.25, dificil: 1.5 } }, subrubros, maquinas: [], porGranel: {}, insumosPorPeso: {} });
+  const armar = cf => L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF: cf })[0];
+  const sinCosteo = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG })[0];
+  const g = armar(dev);
+  assert.deepStrictEqual(g.presentaciones.map(p => p.sugeridos), sinCosteo.presentaciones.map(p => p.sugeridos));
+  assert.deepStrictEqual(g.presentaciones.map(p => p.costeoPresentacion.minutos), [0, 0]);
+  assert.deepStrictEqual(g.avisosCosto, ['sinMinutos', 'sinInsumos']);
+});
 
 test('listadoFraccionado con costeoF: insumo sin costo → la presentación queda sin sugerido y con el faltante', () => {
   const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }];

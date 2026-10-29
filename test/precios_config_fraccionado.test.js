@@ -15,50 +15,54 @@ test('validarMaquinas: id del nombre (sin acentos, repetidos -2), datos validado
   assert.throws(() => CF.validarMaquinas({ maquinas: null }), /lista/);
 });
 
-test('validarMaquinas / usosMaquinas: no deja sacar una máquina que usa un subrubro o un granel', () => {
-  const prev = { maquinas: MAQ, porGranel: { 100: { maquinaId: 'env' } }, subrubros: { 7: { maquinaId: 'env', tramos: [] }, 8: { maquinaId: 'env', tramos: [] } } };
-  assert.deepStrictEqual(CF.usosMaquinas(prev), { env: { graneles: 1, subrubros: 2 } });
-  assert.throws(() => CF.validarMaquinas({ maquinas: [] }, prev), /Envasadora la usan 2 subrubros y 1 granel/);
+test('validarMaquinas / usosMaquinas: no deja sacar una máquina que usa un granel (sólo cuentan los graneles)', () => {
+  const prev = { maquinas: MAQ, porGranel: { 100: { maquinaId: 'env' }, 200: { maquinaId: 'env', minKg: 1 }, 300: { minKg: 2 } } };
+  assert.deepStrictEqual(CF.usosMaquinas(prev), { env: { graneles: 2 } });
+  assert.deepStrictEqual(CF.usosMaquinas({ porGranel: {}, subrubros: { 7: { maquinaId: 'env' } } }), {});
+  assert.throws(() => CF.validarMaquinas({ maquinas: [] }, prev), /Envasadora la usan 2 graneles/);
+  assert.deepStrictEqual(CF.validarMaquinas({ maquinas: [] }, { maquinas: MAQ, porGranel: { 300: { minKg: 2 } } }), { maquinas: [] });
 });
 
-test('validarEscalas: 3 factores de facilidad, > 0 y hasta 10; el tiempo (sacado) se ignora', () => {
-  const escalas = { facilidad: { facil: 1, normal: 1.2, dificil: 2 } };
-  assert.deepStrictEqual(CF.validarEscalas({ escalas }), { escalas });
-  assert.deepStrictEqual(CF.validarEscalas({ escalas: { ...escalas, tiempo: { rapido: 0, normal: 1, lento: 1 } } }), { escalas });
-  assert.throws(() => CF.validarEscalas({ escalas: { ...escalas, facilidad: { facil: 1, normal: 'x', dificil: 1 } } }), /escalas\.facilidad\.normal/);
-  assert.throws(() => CF.validarEscalas({}), /escalas\.facilidad\.facil/);
+test('validarTramosTiempo: hastaG ascendentes, minKg ± hasta 600, el tramo de 1 kg (base) vale 0; [] vale', () => {
+  const tramos = [{ hastaG: 250, minKg: 3 }, { hastaG: 1000, minKg: 0 }, { hastaG: 5000, minKg: -2.5 }];
+  assert.deepStrictEqual(CF.validarTramosTiempo({ tramos }), { tramosTiempo: tramos });
+  assert.deepStrictEqual(CF.validarTramosTiempo({ tramos: [{ hastaG: 250, minKg: 2, otro: 1 }, { hastaG: 500, minKg: 0 }] }),
+    { tramosTiempo: [{ hastaG: 250, minKg: 2 }, { hastaG: 500, minKg: 0 }] }); // arriba del último → el último es la base
+  assert.deepStrictEqual(CF.validarTramosTiempo({ tramos: [] }), { tramosTiempo: [] });
 });
 
-test('aplicarSubrubro: máquina del catálogo y tramos ascendentes; vacío borra la entrada', () => {
-  const tramos = [{ hastaG: 250, minutos: 0.5 }, { hastaG: 1000, minutos: 1 }];
-  const s = CF.aplicarSubrubro({}, '7', { maquinaId: 'env', tramos }, MAQ);
-  assert.deepStrictEqual(s, { 7: { maquinaId: 'env', tramos } });
-  assert.deepStrictEqual(CF.aplicarSubrubro(s, '7', { maquinaId: null, tramos: [] }, MAQ), {});
-  assert.throws(() => CF.aplicarSubrubro({}, '7', { maquinaId: 'otra', tramos: [] }, MAQ), /maquinaId/);
-  assert.throws(() => CF.aplicarSubrubro({}, '7', { tramos: [{ hastaG: 500, minutos: 1 }, { hastaG: 500, minutos: 2 }] }, MAQ), /hastaG/);
-  assert.throws(() => CF.aplicarSubrubro({}, '7', { tramos: [{ hastaG: 500, minutos: -1 }] }, MAQ), /minutos/);
-  assert.throws(() => CF.aplicarSubrubro({}, 'x', {}, MAQ), /subrubro/);
-  assert.throws(() => CF.aplicarSubrubro({}, '7', null, MAQ), /objeto/);
+test('validarTramosTiempo: rechaza hastaG no ascendente, base distinta de 0 y minKg fuera de rango', () => {
+  assert.throws(() => CF.validarTramosTiempo({ tramos: [{ hastaG: 500, minKg: 1 }, { hastaG: 500, minKg: 0 }] }), /tramos\[1\]\.hastaG/);
+  assert.throws(() => CF.validarTramosTiempo({ tramos: [{ hastaG: 1.5, minKg: 0 }] }), /hastaG/);
+  assert.throws(() => CF.validarTramosTiempo({ tramos: [{ hastaG: 500, minKg: 1 }, { hastaG: 2000, minKg: 1 }] }), /base/);
+  assert.throws(() => CF.validarTramosTiempo({ tramos: [{ hastaG: 1000, minKg: 601 }] }), /tramos\[0\]\.minKg: número de -600 a 600/);
+  assert.throws(() => CF.validarTramosTiempo({ tramos: [{ hastaG: 1000, minKg: 'x' }] }), /minKg/);
+  assert.throws(() => CF.validarTramosTiempo({}), /lista/);
+  assert.throws(() => CF.validarTramosTiempo({ tramos: Array.from({ length: 21 }, (_, i) => ({ hastaG: i + 1, minKg: 0 })) }), /máximo 20/);
 });
 
-test('aplicarGranel: excepción de máquina del granel; null la saca', () => {
+test('aplicarSubrubros: en lote, número de 0 a 600 o null (saca); no muta', () => {
+  const previo = { 7: { minKg: 1 }, 8: { minKg: 2 } };
+  assert.deepStrictEqual(CF.aplicarSubrubros(previo, { subrubros: { 7: 1.5, 8: null, 9: 0 } }), { 7: { minKg: 1.5 }, 9: { minKg: 0 } });
+  assert.deepStrictEqual(previo, { 7: { minKg: 1 }, 8: { minKg: 2 } });
+  assert.throws(() => CF.aplicarSubrubros({}, { subrubros: { 7: -1 } }), /subrubros\.7: número de 0 a 600/);
+  assert.throws(() => CF.aplicarSubrubros({}, { subrubros: { 7: 601 } }), /0 a 600/);
+  assert.throws(() => CF.aplicarSubrubros({}, { subrubros: { x: 1 } }), /id x inválido/);
+  assert.throws(() => CF.aplicarSubrubros({}, { subrubros: [] }), /objeto/);
+  assert.throws(() => CF.aplicarSubrubros({}, {}), /objeto/);
+});
+
+test('aplicarGranel: minKg y maquinaId (ausente = no tocar, null = sacar); vacío borra la entrada; máquina inexistente rechazada', () => {
   assert.deepStrictEqual(CF.aplicarGranel({}, '100', { maquinaId: 'env' }, MAQ), { 100: { maquinaId: 'env' } });
-  assert.deepStrictEqual(CF.aplicarGranel({ 100: { maquinaId: 'env' } }, '100', { maquinaId: null }, MAQ), {});
-  assert.throws(() => CF.aplicarGranel({}, '100', { maquinaId: 'otra' }, MAQ), /maquinaId/);
+  const g = CF.aplicarGranel({ 100: { maquinaId: 'env' } }, '100', { minKg: 0 }, MAQ);
+  assert.deepStrictEqual(g, { 100: { maquinaId: 'env', minKg: 0 } });
+  assert.deepStrictEqual(CF.aplicarGranel(g, '100', { maquinaId: null }, MAQ), { 100: { minKg: 0 } });
+  assert.deepStrictEqual(CF.aplicarGranel(g, '100', { maquinaId: null, minKg: null }, MAQ), {});
+  assert.deepStrictEqual(CF.aplicarGranel(g, '100', {}, MAQ), g);
+  assert.throws(() => CF.aplicarGranel({}, '100', { maquinaId: 'otra' }, MAQ), /maquinaId: otra no está/);
+  assert.throws(() => CF.aplicarGranel({}, '100', { minKg: -1 }, MAQ), /minKg: número de 0 a 600/);
   assert.throws(() => CF.aplicarGranel({}, 'x', {}, MAQ), /PLU/);
   assert.throws(() => CF.aplicarGranel({}, '100', null, MAQ), /objeto/);
-});
-
-test('aplicarSubrubro: facilidad del subrubro (válida o null); sólo facilidad también es una entrada; el tiempo (sacado) se ignora', () => {
-  const s = CF.aplicarSubrubro({}, '7', { maquinaId: 'env', tramos: [], facilidad: 'dificil', tiempo: 'lento' }, MAQ);
-  assert.deepStrictEqual(s, { 7: { maquinaId: 'env', tramos: [], facilidad: 'dificil' } });
-  assert.deepStrictEqual(CF.aplicarSubrubro(s, '7', { maquinaId: null, tramos: [], facilidad: 'facil', tiempo: null }, MAQ),
-    { 7: { maquinaId: null, tramos: [], facilidad: 'facil' } });
-  assert.deepStrictEqual(CF.aplicarSubrubro(s, '7', { maquinaId: null, tramos: [], facilidad: null }, MAQ), {});
-  assert.throws(() => CF.aplicarSubrubro({}, '7', { facilidad: 'medio' }, MAQ), /facilidad/);
-  assert.deepStrictEqual(CF.aplicarSubrubro(s, '7', { maquinaId: null, tramos: [], tiempo: 'lento' }, MAQ), {}); // sólo tiempo = vacío
-  assert.deepStrictEqual(CF.aplicarSubrubro({}, '7', { tiempo: 'x' }, MAQ), {});
-  assert.strictEqual(s[7].facilidad, 'dificil'); // no muta
 });
 
 test('aplicarInsumosPeso: lista validada por peso en gramos; [] o null saca el peso; máximo 200 pesos', () => {
@@ -82,16 +86,16 @@ test('insumosConCosto: nombre y costo (en su tab) de cada insumo; sin fila en SI
     { 500: [{ plu: '900', cantidad: 1, nombre: 'Bolsa', costo: 20 }, { plu: '901', cantidad: 2, nombre: null, costo: null }] });
 });
 
-test('fraccionadoConCambios: escribe la forma nueva (sin claves viejas ni el tiempo de escalas / subrubros) sin perder los datos viejos', () => {
+test('fraccionadoConCambios: escribe la forma nueva (sin escalas ni facilidad/tramos/máquina de subrubro ni claves viejas) sin perder lo vigente', () => {
   const viejo = { costoHora: 6000, ivaVentaPct: 21, facilidades: { facil: 1, medio: 1.3, dificil: 2 }, tiempos: [{ hastaG: 500, minutos: 1 }],
-    escalas: { tiempo: { rapido: 0.5, normal: 1, lento: 2 } }, subrubros: { 7: { maquinaId: null, tramos: [], facilidad: 'facil', tiempo: 'lento' } },
+    escalas: { facilidad: { facil: 1, normal: 1.25, dificil: 1.5 } }, factorFacilidad: 1,
+    subrubros: { 7: { maquinaId: null, tramos: [], facilidad: 'facil', tiempo: 'lento' }, 8: { minKg: 2, facilidad: 'normal' } },
     insumosSubrubro: {}, insumosPresentacion: { 101: [{ plu: '900', cantidad: 1 }] }, presentaciones: { 101: { facilidad: 'facil' } },
     porGranel: { 100: { facilidad: 'medio', maquinaId: 'env' } }, maquinas: MAQ, insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] } };
   const f = CF.fraccionadoConCambios(viejo, { maquinas: [] });
-  assert.deepStrictEqual(Object.keys(f).sort(), ['costoHora', 'escalas', 'insumosPorPeso', 'ivaVentaPct', 'maquinas', 'porGranel', 'subrubros']);
-  assert.deepStrictEqual([f.maquinas, f.escalas.facilidad.normal, f.insumosPorPeso, f.porGranel, f.ivaVentaPct],
-    [[], 1.3, { 500: [{ plu: '900', cantidad: 1 }] }, { 100: { maquinaId: 'env' } }, 21]);
-  assert.deepStrictEqual([Object.keys(f.escalas), f.subrubros], [['facilidad'], { 7: { maquinaId: null, tramos: [], facilidad: 'facil' } }]);
+  assert.deepStrictEqual(Object.keys(f).sort(), ['costoHora', 'insumosPorPeso', 'ivaVentaPct', 'maquinas', 'porGranel', 'subrubros', 'tramosTiempo']);
+  assert.deepStrictEqual([f.maquinas, f.tramosTiempo, f.subrubros, f.insumosPorPeso, f.porGranel, f.ivaVentaPct],
+    [[], [], { 8: { minKg: 2 } }, { 500: [{ plu: '900', cantidad: 1 }] }, { 100: { maquinaId: 'env' } }, 21]);
 });
 
 test('productosPorSubrubro: graneles con sus presentaciones (y su peso) por subrubro (A→Z), los sin subrubro aparte y los pesos', () => {

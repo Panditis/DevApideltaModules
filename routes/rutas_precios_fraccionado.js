@@ -9,8 +9,8 @@ const FC = require('../lib/precios_fraccionado_costo');
 const CF = require('../lib/precios_config_fraccionado');
 
 // ── Precios · costeo de Fraccionado (spec 2026-10-21-precios-fraccionado-costeo-design §9; 2026-10-23-…-peso-subrubro §4) ──
-// Todo bajo /api/precios/config/ (permiso precios-config por RUTAS_CONFIG): máquinas, escala de facilidad, máquina +
-// tramos + facilidad por subrubro, la excepción de máquina por granel y los insumos por peso. Escribe sólo dentro de
+// Todo bajo /api/precios/config/ (permiso precios-config por RUTAS_CONFIG): máquinas, ajuste ± min/kg por tramo de peso,
+// min/kg por subrubro, min/kg y máquina por granel y los insumos por peso (spec 2026-10-29-…-tiempos-historial). Escribe sólo dentro de
 // costeo.fraccionado (lo crea scripts/migrar_config_fraccionado.js), siempre con la forma nueva (CF.fraccionadoConCambios).
 const BASE = '/api/precios/config/esquema/fraccionado';
 
@@ -24,17 +24,16 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
     respaldo: (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas });
   const cuerpo = req => (req.body && typeof req.body === 'object' ? req.body : {});
   const pluDe = req => String(req.params.plu || '').trim();
-  const idDe = req => String(req.params.id || '').trim();
   const pesoDe = req => String(req.params.pesoG || '').trim();
 
-  // Lo que pinta Configuración (sin SIGA): máquinas con quién las usa, escalas, subrubros, excepciones por granel, insumos
-  // por peso (crudos: { [pesoG]: [{ plu, cantidad }] }) y el ajuste por peso del margen (margenes.ajustesPeso o null).
+  // Lo que pinta Configuración (sin SIGA): máquinas con cuántos graneles las usan, tramos de tiempo, min/kg por subrubro, min/kg
+  // y máquina por granel, insumos por peso (crudos: { [pesoG]: [{ plu, cantidad }] }) y el ajuste por peso del margen.
   function vista(f) {
     const cf = FC.normalizarCosteoFraccionado(f);
     const usos = CF.usosMaquinas(cf);
     const margenes = (f && f.margenes) || {};
-    return { costoHora: cf.costoHora, escalas: cf.escalas, subrubros: cf.subrubros, porGranel: cf.porGranel, insumosPorPeso: cf.insumosPorPeso,
-      maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0, subrubros: 0 } })), ajustesPeso: margenes.ajustesPeso || null };
+    return { costoHora: cf.costoHora, tramosTiempo: cf.tramosTiempo, subrubros: cf.subrubros, porGranel: cf.porGranel, insumosPorPeso: cf.insumosPorPeso,
+      maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0 } })), ajustesPeso: margenes.ajustesPeso || null };
   }
 
   // calcular(req, cf, f) → cambios para costeo.fraccionado (o tira); f = el bloque tal cual. Sin await entre leer y escribir.
@@ -69,8 +68,8 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   }));
 
   router.put(`${BASE}/maquinas`, guardarFracc((req, cf) => CF.validarMaquinas(cuerpo(req), cf)));
-  router.put(`${BASE}/escalas`, guardarFracc(req => CF.validarEscalas(cuerpo(req))));
-  router.put(`${BASE}/subrubros/:id`, guardarFracc((req, cf) => ({ subrubros: CF.aplicarSubrubro(cf.subrubros, idDe(req), cuerpo(req), cf.maquinas) })));
+  router.put(`${BASE}/tramos-tiempo`, guardarFracc(req => CF.validarTramosTiempo(cuerpo(req))));
+  router.put(`${BASE}/subrubros`, guardarFracc((req, cf) => ({ subrubros: CF.aplicarSubrubros(cf.subrubros, cuerpo(req)) })));
   // ponytail: no se valida que el PLU sea un granel del listado (sería pedir SIGA); una entrada de un PLU que no está no costea nada.
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: tampoco se valida que el peso tenga presentaciones (sería pedir SIGA); Configuración lo marca "sin presentaciones".

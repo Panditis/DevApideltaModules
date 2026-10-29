@@ -283,13 +283,24 @@ test('Importar planilla: resumen de marcados por costo y planilla de no marcados
   ]);
 });
 
-test('textoAvisosCosto / textoCosteoGranel: avisos legibles y "subrubro · máquina" del granel', () => {
-  assert.deepStrictEqual(textoAvisosCosto(['sinFacilidad', 'sinInsumos', 'raro']),
-    ['subrubro sin facilidad (× 1)', 'su peso no tiene insumos', 'raro']);
+test('textoAvisosCosto: los avisos del costeo de ahora (sinPeso, sinMinutos, costoHora, sinInsumos) en texto legible; uno desconocido pasa tal cual; ninguno habla de facilidad', () => {
+  assert.deepStrictEqual(textoAvisosCosto(['sinPeso', 'sinMinutos', 'costoHora', 'sinInsumos', 'raro']), [
+    'presentación sin peso en el nombre (sólo mercadería)',
+    'sin min/kg (ni del subrubro ni del producto): sin mano de obra ni máquina',
+    'sin costo hora de Fraccionado',
+    'su peso no tiene insumos',
+    'raro']);
   assert.deepStrictEqual(textoAvisosCosto(undefined), []);
-  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', maquina: 'Envasadora', maquinaOrigen: 'subrubro' }), 'Frutos secos · Envasadora');
-  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', maquina: 'Selladora', maquinaOrigen: 'granel' }), 'Frutos secos · Selladora (propia del granel)');
-  assert.strictEqual(textoCosteoGranel({ subrubro: null, maquina: null }), 'sin subrubro · sin máquina');
+  assert.doesNotMatch(textoAvisosCosto(['sinPeso', 'sinMinutos', 'costoHora', 'sinInsumos']).join(' '), /facilidad/i);
+});
+
+test('textoCosteoGranel: "subrubro · min/kg (propio) · máquina"; sin máquina no se nombra (es lo normal); sin min/kg lo dice', () => {
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', minKgOrigen: 'subrubro', minKgSubrubro: 2, minKgPropio: null, maquina: null }), 'Frutos secos · 2 min/kg');
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', minKgOrigen: 'granel', minKgSubrubro: 2, minKgPropio: 4.5, maquina: 'Selladora' }), 'Frutos secos · 4,5 min/kg (propio) · Selladora');
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', minKgOrigen: 'granel', minKgSubrubro: 2, minKgPropio: 0, maquina: null }), 'Frutos secos · 0 min/kg (propio)'); // 0 pisa al subrubro
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', minKgOrigen: null, minKgSubrubro: null, minKgPropio: null, maquina: 'Envasadora' }), 'Frutos secos · sin min/kg · Envasadora');
+  assert.strictEqual(textoCosteoGranel({ subrubro: null, minKgOrigen: null, maquina: null }), 'sin subrubro · sin min/kg');
+  assert.doesNotMatch(textoCosteoGranel({ subrubro: 'X', minKgOrigen: 'subrubro', minKgSubrubro: 1, maquina: null }), /sin máquina|facilidad/i);
 });
 
 test('abiertoLst: cerrado por defecto; lo elegido con ▸/▾ manda; la búsqueda que sólo coincide con una presentación lo abre', () => {
