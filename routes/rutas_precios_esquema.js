@@ -7,7 +7,7 @@ const L = require('../lib/precios_listado_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { normalizarCosteoFraccionado, plusInsumos } = require('../lib/precios_fraccionado_costo');
 const { formulasPesables } = require('../lib/formulas_pesables');
-const { plusVentaProduccion, validarMargenProducto } = require('../lib/precios_produccion');
+const { plusVentaProduccion, validarMargenProducto, validarPrecioFijo } = require('../lib/precios_produccion');
 // Costeo de Producción (sin el router): costo por unidad de cada presentación.
 const { costearTodos, plusUsados, normalizarDatos } = require('./rutas_precios_produccion');
 
@@ -159,13 +159,13 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return fila ? L.filaPublica(fila, !sinConfig(req)) : { error: `PLU ${plu} no encontrado en ${tipo}` };
   }));
 
-  // body { fuente: 'sistema' | 'ultimaCompra' | 'manual' | null } (null quita). Cualquier usuario del módulo. La decisión
+  // body { fuente: 'sistema' | 'ultimaCompra' | 'manual' | 'precio' | null } (null quita). Cualquier usuario del módulo. La decisión
   // guarda quién la tomó (se borra cuando ese usuario recarga /precios) y la foto de los vigentes de la fila (vence si
   // SIGA los cambia), spec §3.
   router.put('/api/precios/decision/:plu', apiRoute(async (req) => {
     const plu = String(req.params.plu || '').trim();
     const body = cuerpo(req);
-    if (!('fuente' in body)) return { error: 'falta fuente (sistema, ultimaCompra, manual o null)' };
+    if (!('fuente' in body)) return { error: 'falta fuente (sistema, ultimaCompra, manual, precio o null)' };
     let error = L.validarDecision(plu, body.fuente, leerCosteo());
     let vigente = null;
     if (!error && body.fuente != null) { // ponytail: arma los tres listados; si pesa, buscar sólo en el tipo del PLU
@@ -181,10 +181,11 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { plu, decision: decisiones[plu] || null };
   }));
 
-  // Margen de un producto: body { modo, minorista?, pack?, bulto? } (validarMargenProducto). modo 'fijo' = el valor es el margen
-  // del canal; 'ajuste' (o sin modo) = puntos % que se suman al margen del canal (y en Producción al especial); 'precio' = el valor es el precio del canal (sólo Reventa). Clave: PLU de Reventa, granel de Fraccionado (alcanza a sus presentaciones) o presentación
-  // de Producción, como la decisión. Sin valores → se borra (pasa siempre: limpia PLUs que ya no están). Es
-  // configuración: va bajo /config/ (RUTAS_CONFIG) y margenProducto está en CLAVES_OCULTAS.
+  // Margen de un producto: body { modo, minorista?, pack?, bulto? } (validarMargenProducto). modo 'fijo' = el valor es el margen del
+  // canal; 'ajuste' (o sin modo) = puntos % que se suman al margen del canal (y en Producción al especial). Clave: PLU de Reventa, granel
+  // de Fraccionado (alcanza a sus presentaciones) o presentación de Producción, como la decisión. Sin valores → se borra (pasa siempre:
+  // limpia PLUs que ya no están). Es configuración: va bajo /config/ (RUTAS_CONFIG) y margenProducto está en CLAVES_OCULTAS.
+  // (El precio fijo de Reventa es otra cosa: PUT /api/precios/precio-fijo/:plu.)
   router.put('/api/precios/config/esquema/margen-producto/:plu', apiRoute(async (req) => {
     const plu = String(req.params.plu || '').trim();
     let margen;
@@ -192,9 +193,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     if (margen) {
       const costeo = await costeoVigente();
       const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
-      const { fila, error } = L.filaDecidible({ almacen, fraccionado, produccion }, plu);
+      const { error } = L.filaDecidible({ almacen, fraccionado, produccion }, plu);
       if (error) return { error };
-      if (margen.modo === 'precio' && fila.tipo !== 'almacen') return { error: 'El precio fijo sólo vale para productos de Reventa' };
     }
     const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
     const { [plu]: _viejo, ...resto } = costeo.margenProducto || {};
@@ -214,6 +214,22 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
     guardarJSON(COSTEO_PATH, { ...costeo, tipoProveedor: L.aplicarPorPlu(costeo.tipoProveedor, plu, tipo) });
     return { plu, tipoProveedor: tipo };
+  }));
+
+  // Precio fijo de un producto de Reventa (costeo.precioFijo[plu]): body { minorista?, pack?, bulto? } (validarPrecioFijo: > 0 con 2
+  // decimales; null/ausente = sin precio en ese canal). Sin ningún canal se borra, y con él la decisión 'precio' del PLU (sin precio fijo
+  // nunca exportaría; L.aplicarPrecioFijo). Cualquier usuario del módulo, como el costo manual: no es configuración (no va bajo /config/ y
+  // precioFijo no está en CLAVES_OCULTAS: la card lo muestra). Sólo PLUs de Reventa; quitar pasa siempre (limpia PLUs que ya no están).
+  router.put('/api/precios/precio-fijo/:plu', apiRoute(async (req) => {
+    const plu = String(req.params.plu || '').trim();
+    const errorPlu = L.validarPluSiga(plu);
+    if (errorPlu) return { error: errorPlu };
+    let precios;
+    try { precios = validarPrecioFijo(cuerpo(req)); } catch (err) { return { error: err.message }; }
+    if (precios && !(await listado('almacen', leerCosteo())).some(f => f.plu === plu)) return { error: `El PLU ${plu} no es un producto de Reventa` };
+    const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
+    guardarJSON(COSTEO_PATH, { ...costeo, ...L.aplicarPrecioFijo(costeo, plu, precios) });
+    return { plu, precioFijo: precios };
   }));
 
   // Activo de un granel de Fraccionado: body { activo: true | false | null } (null = automático por movimientos). Cualquier

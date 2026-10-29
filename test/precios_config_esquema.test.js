@@ -250,3 +250,7 @@ test('migrarConfigFraccionado: copia la raíz (gastos/extras tildados para Fracc
   assert.strictEqual(C.migrarConfigFraccionado(costeo), null); // idempotente
   assert.throws(() => C.migrarConfigFraccionado({}), /migrar_esquema_canales/); // sin esquema por canal no hay qué copiar
 });
+
+test('limpiarCosteo: costeo.precioFijo (precio fijo de Reventa) no es clave muerta: se conserva', () => {
+  assert.strictEqual(C.limpiarCosteo({ precioFijo: { 1: { minorista: 3999 } } }), null);
+});

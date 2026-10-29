@@ -43,11 +43,24 @@ function filasCanales(fila, fuente) {
 // disponible, motivo }. precio/Δ% = minorista con ese costo (No cambiar: el vigente). Fraccionado: sin precio único; Δ% =
 // promedio de las presentaciones (n = cuántas). Manual sólo si hay costo manual (o es la decisión guardada). Sin
 // sugerido → no se puede elegir (salvo que sea la decisión guardada) y motivo dice por qué.
-const TXT_OPCION = { sistema: 'Costo sistema', ultimaCompra: 'Última compra', manual: 'Costo manual' };
+const TXT_OPCION = { sistema: 'Costo sistema', ultimaCompra: 'Última compra', manual: 'Costo manual', precio: 'Precio fijo' };
 const COSTO_FUENTE = { sistema: 'costoSistema', ultimaCompra: 'costoUltimaCompra', manual: 'costoManual' };
-const MOTIVO_SIN_COSTO = { sistema: 'Sin costo de sistema en SIGA', ultimaCompra: 'Sin compras registradas', manual: 'Sin costo manual' };
+const MOTIVO_SIN_COSTO = { sistema: 'Sin costo de sistema en SIGA', ultimaCompra: 'Sin compras registradas', manual: 'Sin costo manual', precio: 'Sin precio fijo' };
 const MOTIVO_ERROR = { margen: 'Faltan configurar los márgenes', gastos: 'Revisar los gastos variables', costo: 'Costo inválido' };
 const sugeridoDe = (f, fuente) => (f.sugeridos || {})[fuente] || null;
+// Fuente del costo de referencia del precio fijo (Reventa): la que usó el server (sugeridos.precio.fuenteRef) o, si todavía no hay precio
+// guardado, la primera con sugerido (sistema › última compra › manual, el mismo orden que el server). Sin ninguna → null.
+const FUENTES_REF_MD = ['sistema', 'ultimaCompra', 'manual'];
+const fuenteRefMd = fila => {
+  const s = sugeridoDe(fila, 'precio');
+  return (s && s.fuenteRef) || FUENTES_REF_MD.find(f => { const x = sugeridoDe(fila, f); return x && !x.error; }) || null;
+};
+// Card "Precio fijo" (costeo.precioFijo): un campo por canal. Minorista siempre; Pack y Bulto sólo si el producto tiene ese tipo de vínculo.
+const CANALES_PF_MD = [['minorista', 'Minorista'], ['pack', 'Pack'], ['bulto', 'Bulto']];
+const canalesPrecioFijoMd = fila => CANALES_PF_MD.filter(([c]) => c === 'minorista' || (fila.mayoristas || []).some(m => m.tipo === c));
+// Body del PUT /api/precios/precio-fijo/:plu: un valor por canal; null = sin precio en ese canal (también los canales sin vínculo: lo guardado
+// se reemplaza entero). valores = { canal: número | null } (numOrNull de lo tipeado). El 0 pasa tal cual: lo rechaza el server con su mensaje.
+const payloadPrecioFijoMd = (valores = {}) => Object.fromEntries(CANALES_PF_MD.map(([c]) => [c, valores[c] ?? null]));
 function resumenMinorista(fila, fuente) {
   const okDe = f => { const s = sugeridoDe(f, fuente); return s && !s.error ? s : null; };
   const error = (sugeridoDe(fila, fuente) || {}).error || null;
@@ -59,17 +72,20 @@ function resumenMinorista(fila, fuente) {
   const s = okDe(fila);
   return { precio: s ? s.minorista.precio : null, deltaPct: s ? s.minorista.deltaPct : null, estado: s ? s.minorista.estado : null, ok: !!s, error, n: null };
 }
-// manualSiempre: el modal de Reventa muestra la opción manual aunque no haya costo (se carga en su tarjeta).
-function opcionesCosto(fila, tipo, { manualSiempre = false } = {}) {
+// manualSiempre / precioSiempre: el modal de Reventa muestra las tarjetas de costo manual y de precio fijo aunque no haya dato (se cargan
+// en su tarjeta). 'precio' (sólo Reventa) = precio fijo de costeo.precioFijo; el select del listado lo ofrece sólo con precio fijo
+// guardado (o si es la decisión guardada).
+function opcionesCosto(fila, tipo, { manualSiempre = false, precioSiempre = false } = {}) {
   const actual = fila.decision ? fila.decision.fuente : null;
+  const conPrecio = tipo === 'almacen' && (precioSiempre || fila.precioFijo != null || actual === 'precio');
   const fuentes = tipo === 'produccion' ? ['sistema']
-    : ['sistema', 'ultimaCompra', ...(manualSiempre || fila.costoManual != null || actual === 'manual' ? ['manual'] : [])];
+    : ['sistema', 'ultimaCompra', ...(manualSiempre || fila.costoManual != null || actual === 'manual' ? ['manual'] : []), ...(conPrecio ? ['precio'] : [])];
   const noCambiar = { valor: '', texto: 'No cambiar', costo: null, precio: fila.vigente ?? null, deltaPct: null, estado: null, disponible: true, motivo: null };
   return [noCambiar, ...fuentes.map(f => {
     const r = resumenMinorista(fila, f);
-    const costo = fila[COSTO_FUENTE[f]] ?? null;
-    const motivo = r.ok ? null : r.error ? MOTIVO_ERROR[r.error] || 'No se pudo calcular el precio'
-      : tipo === 'produccion' ? 'La receta no tiene costo' : MOTIVO_SIN_COSTO[f];
+    const costo = f === 'precio' ? null : (fila[COSTO_FUENTE[f]] ?? null); // el precio fijo muestra sus campos, no un costo
+    const sinDato = tipo === 'produccion' ? 'La receta no tiene costo' : f === 'precio' && fila.precioFijo ? 'Sin costo para calcular el margen' : MOTIVO_SIN_COSTO[f];
+    const motivo = r.ok ? null : r.error ? MOTIVO_ERROR[r.error] || 'No se pudo calcular el precio' : sinDato;
     return { valor: f, texto: tipo === 'produccion' ? 'Aumentar' : TXT_OPCION[f], costo, precio: r.precio, deltaPct: r.deltaPct, estado: r.estado,
       disponible: r.ok || f === actual, motivo, n: r.n };
   })];
@@ -79,7 +95,7 @@ function opcionesCosto(fila, tipo, { manualSiempre = false } = {}) {
 // que el modal (opcionesCosto) con texto compacto: "No cambiar", "Sistema · $ 1.800 (+3.2%)" (Fraccionado: "Sistema · prom. +3.2%",
 // el promedio de las presentaciones; Producción: "Aumentar · …"). Sin precio → "Última compra · Sin compras registradas" y
 // deshabilitada (salvo la decisión guardada, que se ve aunque ya no tenga precio). → [{ valor, texto, disabled }].
-const ETIQUETA_SELECT = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual' };
+const ETIQUETA_SELECT = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual', precio: 'Precio fijo' };
 const FMT_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js') : { esc, fmtMoney, fmtPrecio, fmtPct };
 function textoOpcionSelect(o, tipo, fracc) {
   if (o.valor === '') return 'No cambiar';
@@ -145,7 +161,8 @@ function medianaMd(xs) {
 }
 function igualarSigaMd(fila, tipo, fuente) {
   const des = (f, fu) => ((f.sugeridos || {})[fu] || {}).desglose || null;
-  const usada = des(fila, fuente) ? fuente : 'sistema';
+  const costoDe = fuente === 'precio' ? fuenteRefMd(fila) || 'sistema' : fuente; // el precio fijo no es un costo: se iguala con el de referencia
+  const usada = des(fila, costoDe) ? costoDe : 'sistema';
   if (!des(fila, usada)) return { valores: {}, notas: [], motivo: 'Sin costo para calcular el margen', fuente: usada };
   // Cada fila (el granel y cada presentación de Fraccionado, que tiene su propio $/kg real) con su propio desglose; sin él, sin margen.
   const margen = (f, canal, vigente, unidades) => {
@@ -192,7 +209,7 @@ const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug
 // "con última compra" (con decisión: la fuente elegida) o "con costo sistema, para comparar" (sin decisión: nada se exporta).
 const textoFuenteMd = (fila, fuente) => (fila.decision ? `con ${(TXT_OPCION[fuente] || fuente).toLowerCase()}` : 'con costo sistema, para comparar');
 
-if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd };
+if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd, fuenteRefMd, canalesPrecioFijoMd, payloadPrecioFijoMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -276,6 +293,7 @@ function htmlOpcionMd(o, f, actual) {
   let costo = '';
   if (o.valor === '') costo = fracc ? '' : 'Deja el precio como está';
   else if (o.valor === 'manual' && manualEnTarjetaMd(mdEsq.tipo)) costo = htmlManualDecMd(f);
+  else if (o.valor === 'precio' && mdEsq.tipo === 'almacen') costo = htmlPrecioFijoMd(f);
   else if (o.costo != null) costo = `Costo <b class="tabular-nums">$ ${fmtMoney(o.costo)}</b>${fracc ? '<span class="md-u">/kg</span>' : ''}`;
   let extra = '';
   if (o.valor === 'ultimaCompra' && f.costoUltimaCompra != null) {
@@ -288,6 +306,7 @@ function htmlOpcionMd(o, f, actual) {
     : `<div class="md-opc-l">Queda en</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta"><span class="md-chip md-chip-0">sin cambio</span></div>`;
   else if (fracc) precio = `<div class="md-opc-l">Cambio promedio en ${presentacionesMd(o.n)}</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.deltaPct > 0 ? 'subir' : o.deltaPct < 0 ? 'bajar' : 'ok')}</div>`;
   else precio = `<div class="md-opc-l">Precio nuevo</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.estado)}</div>`;
+  if (o.valor === 'precio' && !o.motivo) precio += htmlMargenCardMd(f); // Margen X % de las tablas (sólo con el permiso: usa el desglose)
   const cuando = fracc ? `<span class="md-opc-cuando">${esc(CUANDO_MD[o.valor] || '')}</span>` : '';
   return `<label class="md-opc${fracc ? ` ${CLASE_FUENTE_MD[o.valor] || ''}` : ''}${sel ? ' sel' : ''}${o.disponible ? '' : ' off'}">
     <span class="md-opc-cab"><input type="radio" name="mdCosto" value="${esc(o.valor)}"${sel ? ' checked' : ''}${o.disponible ? '' : ' disabled'}>
@@ -349,6 +368,75 @@ function conectarManualDecMd() {
   input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); usar.click(); } };
   const quitar = document.getElementById('mdManualDecQuitar');
   if (quitar) quitar.onclick = () => guardarManualDecMd({ fuente: 'sistema' });
+}
+
+// ── Card "Precio fijo" (Reventa; costeo.precioFijo) ──────────────────────────────────────────────────────────
+// Quinta tarjeta del selector de costo, como la de Costo manual: campos de precio adentro (Minorista siempre; Pack y Bulto sólo si el producto
+// tiene ese vínculo; vacío = margen general), "Usar" guarda el precio fijo y elige la decisión 'precio', "Quitar" lo borra (el server limpia la
+// decisión). Cualquier usuario del módulo. El margen al tipear y el "Margen X %" de abajo usan el desglose: sólo con precios-config.
+// El wrapper lleva .md-opc-manual: los controles dentro del <label> no marcan el radio (conectarModalEsquema).
+function htmlCampoPrecioFijoMd(f, [c, t]) {
+  const valor = (f.precioFijo || {})[c];
+  const margen = preciosSinConfig ? '' : `<span id="mdPfMargen-${c}" class="md-pf-margen tabular-nums"></span>`;
+  const describe = preciosSinConfig ? '' : ` aria-describedby="mdPfMargen-${c}"`;
+  return `<span class="md-pf-campo"><span>${t}</span>
+    ${campoU(`<input type="number" min="0" step="any" id="mdPf-${c}" class="md-pf-in" value="${esc(valor ?? '')}" placeholder="general" aria-label="Precio fijo ${t} en pesos"${describe}>`, '$', { pre: true, w: 'w-full' })}${margen}</span>`;
+}
+function htmlPrecioFijoMd(f) {
+  const campos = canalesPrecioFijoMd(f).map(c => htmlCampoPrecioFijoMd(f, c)).join('');
+  const sinCosto = fuenteRefMd(f) == null;
+  return `<span class="md-opc-manual md-opc-pf">${campos}
+    <span class="md-opc-extra">Minorista con IVA; pack y bulto sin IVA, por unidad. Vacío = margen general.</span>
+    <span class="flex items-center gap-2"><button type="button" id="mdPfUsar" class="cfg-btn2"${sinCosto ? ' disabled title="Sin costo cargado: no se puede calcular el precio"' : ''}>Usar</button>
+    ${f.precioFijo ? '<button type="button" id="mdPfQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</span></span>`;
+}
+// "Margen X %" del precio fijo de minorista (margen de las tablas de Configuración sobre el costo con gastos, NO el "Margen total" de la tabla
+// por canal). Sin desglose (sin permiso) o con minorista sin precio fijo (queda el margen general) → nada.
+const htmlMargenCardMd = f => {
+  const s = sugeridoDe(f, 'precio'), m = s && s.desglose && s.desglose.minorista;
+  if (!m || m.margenProductoModo !== 'precio') return '';
+  return `<div class="md-opc-margen">Margen <b class="tabular-nums">${pctMd(m.margenPct)}</b> <span class="md-sub">con ${esc((TXT_OPCION[s.fuenteRef] || s.fuenteRef).toLowerCase())}</span></div>`;
+};
+// Margen que da cada precio tipeado con el costo de referencia (misma cuenta que el motor: margenesDePrecioMd).
+function pintarMargenesPrecioFijoMd() {
+  const canales = canalesPrecioFijoMd(mdEsq.fila);
+  const precios = Object.fromEntries(canales.map(([c]) => [c, numOrNull((document.getElementById(`mdPf-${c}`) || {}).value)]));
+  const margenes = margenesDePrecioMd(mdEsq.fila, fuenteRefMd(mdEsq.fila) || 'sistema', precios);
+  for (const [c] of canales) {
+    const s = document.getElementById(`mdPfMargen-${c}`);
+    if (s) s.textContent = margenes[c] == null ? '' : `Margen ${pctMd(margenes[c])}`;
+  }
+}
+// Guarda (o quita) el precio fijo y, con usar, elige la decisión 'precio'; recarga modal y listado. Error: debajo de las tarjetas, sin decidir.
+async function guardarPrecioFijoMd(precios, usar) {
+  const { tipo, fila: f } = mdEsq;
+  msgDecisionMd('', '<span class="spin"></span> Guardando…');
+  try {
+    await pedirJson('PUT', `/api/precios/precio-fijo/${encodeURIComponent(f.plu)}`, precios); // precios_comun.js
+    if (usar) await guardarDecision(f.plu, 'precio'); // precios_listados.js
+    await abrirModalEsquema(tipo, f.plu, { detalle: mdDetalle });
+    cargarListado(tipo);
+    msgDecisionMd('text-ok', `✓ Guardado · ${esc(estadoDecision(mdEsq.fila, tipo).texto.toLowerCase())}`);
+  } catch (e) { msgDecisionMd('text-crit', `No se pudo guardar: ${esc(e.message)}`); }
+}
+function conectarPrecioFijoMd() {
+  const usar = document.getElementById('mdPfUsar');
+  if (!usar) return;
+  const canales = canalesPrecioFijoMd(mdEsq.fila);
+  const campos = canales.map(([c]) => document.getElementById(`mdPf-${c}`));
+  const valores = () => Object.fromEntries(canales.map(([c], i) => [c, numOrNull(campos[i].value)]));
+  campos.forEach(i => {
+    i.oninput = pintarMargenesPrecioFijoMd;
+    i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); usar.click(); } };
+  });
+  usar.onclick = () => {
+    const precios = payloadPrecioFijoMd(valores());
+    if (Object.values(precios).every(v => v == null)) return msgDecisionMd('text-crit', 'Cargá al menos un precio.');
+    return guardarPrecioFijoMd(precios, true);
+  };
+  const quitar = document.getElementById('mdPfQuitar');
+  if (quitar) quitar.onclick = () => guardarPrecioFijoMd(payloadPrecioFijoMd({}), false);
+  pintarMargenesPrecioFijoMd();
 }
 
 // Reventa: a quién se le compra (Directo / Distribuidor). Elegir guarda en el momento (guardarTipoProveedor,
@@ -512,36 +600,33 @@ function htmlEdicionCostos(f) {
     ${htmlVentasPesablesMd(f)}
     <p id="mdMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
-// Margen de este producto (sólo con el permiso), por canal y en uno de tres modos: 'fijo' = el margen % final del canal
-// (reemplaza general, ajuste por peso y especial; vacío = general), 'ajuste' = puntos % que se suman o 'precio' = el precio del
-// canal (sólo Reventa; el margen sale del costo y se ve debajo, margenesDePrecioMd). Se guarda en el PLU de
-// la fila (Fraccionado: el granel, vale para todas sus presentaciones). Los valores guardados se ven sólo en su modo.
+// Margen de este producto (sólo con el permiso), por canal y en uno de dos modos: 'fijo' = el margen % final del canal
+// (reemplaza general, ajuste por peso y especial; vacío = general) o 'ajuste' = puntos % que se suman (el precio fijo de Reventa es la
+// quinta card del selector de costo). Se guarda en el PLU de la fila (Fraccionado: el granel, vale para todas sus presentaciones). Los valores guardados se ven sólo en su modo.
 const CANALES_AJUSTE_MD = [['minorista', 'Minorista'], ['pack', 'Pack'], ['bulto', 'Bulto']];
 const numMd = n => String(+(+n).toFixed(2)).replace('.', ',');
-const MODOS_MP_MD = [['fijo', 'Margen fijo'], ['ajuste', 'Ajuste ±'], ['precio', 'Precio fijo']]; // precio: sólo Reventa
-const UNIDAD_MP_MD = { fijo: 'Margen %', ajuste: '+ pts %', precio: '$' };
+const MODOS_MP_MD = [['fijo', 'Margen fijo'], ['ajuste', 'Ajuste ±']];
+const UNIDAD_MP_MD = { fijo: 'Margen %', ajuste: '+ pts %' };
 function ayudaMargenProductoMd(modo) {
   const { tipo } = mdEsq;
-  const txt = modo === 'precio'
-    ? 'Precio de cada canal: el margen sale del costo y el precio no se mueve si el costo cambia. Minorista: precio final con IVA. Pack y bulto: precio por unidad sin IVA. Vacío = margen general.'
-    : modo === 'fijo'
-      ? `Margen % final de cada canal: reemplaza al margen general${tipo === 'fraccionado' ? ' y al ajuste por peso' : ''}${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío = margen general.`
-      : `Puntos % por canal: se suman al margen general${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío o 0 = sin ajuste.`;
+  const txt = modo === 'fijo'
+    ? `Margen % final de cada canal: reemplaza al margen general${tipo === 'fraccionado' ? ' y al ajuste por peso' : ''}${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío = margen general.`
+    : `Puntos % por canal: se suman al margen general${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío o 0 = sin ajuste.`;
   return txt + (tipo === 'fraccionado' ? ' Aplica a todas las presentaciones del granel.' : '');
 }
 function htmlMargenProductoMd(f) {
   if (preciosSinConfig || f.plu == null) return '';
-  const fijo = mdMpModo === 'fijo', precio = mdMpModo === 'precio';
+  const fijo = mdMpModo === 'fijo';
   const guardado = f.margenProducto || {};
   const m = (guardado.modo || 'ajuste') === mdMpModo ? guardado : {};
   const gen = generalesCanalMd(f, mdFuente);
-  const ph = c => (precio ? 'general' : !fijo ? '0' : gen[c] == null ? 'general' : `${numMd(gen[c])} (general)`);
-  const etiqueta = t => (precio ? `Precio fijo ${t} en pesos` : fijo ? `Margen ${t} en %` : `Ajuste de margen ${t} en puntos %`);
+  const ph = c => (!fijo ? '0' : gen[c] == null ? 'general' : `${numMd(gen[c])} (general)`);
+  const etiqueta = t => (fijo ? `Margen ${t} en %` : `Ajuste de margen ${t} en puntos %`);
   const modo = (v, t) => `<button type="button" class="seg-opt md-mp-modo" data-modo="${v}" aria-pressed="${mdMpModo === v}">${t}</button>`;
-  const modos = MODOS_MP_MD.filter(([v]) => v !== 'precio' || mdEsq.tipo === 'almacen').map(([v, t]) => modo(v, t)).join('');
+  const modos = MODOS_MP_MD.map(([v, t]) => modo(v, t)).join('');
   const campos = CANALES_AJUSTE_MD.map(([c, t]) => `<label class="flex items-center gap-1 text-sm">${t}
-    ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="${esc(ph(c))}" aria-label="${etiqueta(t)}"${precio ? ` aria-describedby="mdMpMargen-${c}"` : ''}>`,
-    UNIDAD_MP_MD[mdMpModo], { w: fijo || precio ? 'w-44' : 'w-32', pre: precio })}${precio ? `<span id="mdMpMargen-${c}" class="md-mp-margen text-xs text-gris tabular-nums min-w-[6.5rem]" data-canal="${c}"></span>` : ''}</label>`).join('');
+    ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="${esc(ph(c))}" aria-label="${etiqueta(t)}">`,
+    UNIDAD_MP_MD[mdMpModo], { w: fijo ? 'w-44' : 'w-32' })}</label>`).join('');
   const fr = mdEsq.tipo === 'fraccionado'; // Fraccionado: paso numerado (encabezado con para qué sirve + cuerpo); el resto, como siempre
   const cab = `<div class="${fr ? 'md-paso-cab ' : ''}flex flex-wrap items-center gap-3"><h4 class="md-h">Margen de este producto</h4>
     <div class="seg seg-sub" role="group" aria-label="Cómo se define el margen de este producto">${modos}</div>${fr ? '<p class="md-paso-para">Cuánto se gana sobre el costo, canal por canal.</p>' : ''}</div>`;
@@ -550,14 +635,6 @@ function htmlMargenProductoMd(f) {
       ${htmlIgualarSigaMd(f)}</div>
     <p id="mdMargenMsg" class="text-sm mt-1" role="status" aria-live="polite"></p>`;
   return fr ? `<section class="md-margen-prod md-paso">${cab}<div class="md-paso-cuerpo">${cuerpo}</div></section>` : `<section class="md-margen-prod">${cab}${cuerpo}</section>`;
-}
-// Modo "Precio fijo": debajo de cada precio tipeado, el margen que da con el costo de la fuente elegida (margenesDePrecioMd).
-function pintarMargenesPrecioMd() {
-  const sec = document.querySelector('#mDetBody .md-margen-prod');
-  if (!sec) return;
-  const precios = Object.fromEntries([...sec.querySelectorAll('.md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)]));
-  const margenes = margenesDePrecioMd(mdEsq.fila, mdFuente, precios);
-  sec.querySelectorAll('.md-mp-margen').forEach(s => { s.textContent = margenes[s.dataset.canal] == null ? '' : `Margen ${pctMd(margenes[s.dataset.canal])}`; });
 }
 // Botón "Igualar a SIGA": deshabilitado con el motivo en el title si no hay costo o vigentes para calcular.
 function htmlIgualarSigaMd(f) {
@@ -587,10 +664,6 @@ function conectarMargenProductoMd() {
     conectarMargenProductoMd();
     document.querySelector(`#mDetBody .md-mp-modo[data-modo="${mdMpModo}"]`).focus();
   });
-  if (mdMpModo === 'precio') {
-    sec.querySelectorAll('.md-mp-in').forEach(i => { i.oninput = pintarMargenesPrecioMd; });
-    pintarMargenesPrecioMd();
-  }
   document.getElementById('mdMargenIgualar').onclick = igualarSigaClickMd;
   document.getElementById('mdMargenGuardar').onclick = () => guardarCostoEsq(`/api/precios/config/esquema/margen-producto/${encodeURIComponent(mdEsq.fila.plu)}`,
     { modo: mdMpModo, ...Object.fromEntries([...sec.querySelectorAll('.md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)])) }, 'PUT', 'mdMargenMsg');
@@ -606,7 +679,7 @@ function htmlVerDetalle(f) {
 function pintarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
   if (tipo === 'fraccionado') return pintarModalFraccionadoMd(); // dos tarjetas (precios_modal_fraccionado.js)
-  const ops = opcionesCosto(f, tipo, { manualSiempre: tipo === 'almacen' });
+  const ops = opcionesCosto(f, tipo, { manualSiempre: tipo === 'almacen', precioSiempre: tipo === 'almacen' });
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlTipoProveedorMd(f)}
     ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${htmlVerDetalle(f)}`;
   conectarModalEsquema();
@@ -648,7 +721,7 @@ function conectarModalEsquema() {
   grupo.addEventListener('click', e => { if (e.target.closest('.md-opc-manual')) e.preventDefault(); });
   // Flechas: mueven el foco entre opciones habilitadas SIN elegir (elegir guarda); Espacio o Enter eligen.
   grupo.onkeydown = e => {
-    const radios = [...grupo.querySelectorAll('input:not(:disabled)')];
+    const radios = [...grupo.querySelectorAll('input[type="radio"]:not(:disabled)')];
     const i = radios.indexOf(document.activeElement);
     if (i < 0) return;
     const paso = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
@@ -670,6 +743,7 @@ function conectarModalEsquema() {
   };
   if (document.getElementById('mdExtrasGuardar')) conectarEdicionCostos();
   conectarManualDecMd();
+  conectarPrecioFijoMd();
   conectarMargenProductoMd();
   conectarTipoProveedorMd();
   if (mdEsq.tipo === 'fraccionado') conectarModalFraccionadoMd(); // precios_modal_fraccionado.js

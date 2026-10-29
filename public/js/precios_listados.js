@@ -189,9 +189,14 @@ function htmlDesplegarLst(f, abierto) {
     + `<span class="text-xs text-gris font-normal mr-1">${n} presentaci${n === 1 ? 'ón' : 'ones'}</span> `;
 }
 
+// Title del badge "$=" (Reventa con precio fijo, costeo.precioFijo): "Minorista $ 3.999 · Bulto $ 12,50". fmtSug (precios_modal_esquema.js; se resuelve al llamar, el orden de los scripts no importa).
+const FMT_SUG_LST = v => (typeof module === 'object' && module.exports ? require('./precios_modal_esquema.js').fmtSug : fmtSug)(v);
+const CANALES_PF_LST = [['minorista', 'Minorista'], ['pack', 'Pack'], ['bulto', 'Bulto']];
+const textoPrecioFijoLst = pf => CANALES_PF_LST.filter(([c]) => pf && pf[c] > 0).map(([c, t]) => `${t} $ ${FMT_SUG_LST(pf[c])}`).join(' · ');
+
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst };
+  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -229,12 +234,11 @@ const celdaProveedor = f => `<td class="p-2 max-w-[180px] truncate"${f.proveedor
 const celdaTipoProveedor = f => `<td class="p-2">${f.tipoProveedor ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap ${
   f.tipoProveedor === 'directo' ? 'bg-verde/10 text-verde' : 'bg-ink/10 text-ink'}">${TXT_TIPO_PROVEEDOR[f.tipoProveedor]}</span>` : '<span class="text-gris">—</span>'}</td>`;
 // Margen del producto (sólo llega con el permiso de Configuración: CLAVES_OCULTAS lo saca sin él). "m=" margen fijo, "±m"
-// ajuste (sin modo = dato viejo, ajuste), "$=" precio fijo (sólo Reventa).
+// ajuste (sin modo = dato viejo, ajuste).
 const TXT_CANAL_LST = { minorista: 'Minorista', pack: 'Pack', bulto: 'Bulto' };
 const BADGE_MARGEN_LST = {
   fijo: { marca: 'm=', titulo: 'Margen fijo', valor: v => `${fmtNum(v)} %` },
   ajuste: { marca: '±m', titulo: 'Ajuste de margen', valor: v => `${v > 0 ? '+' : ''}${fmtNum(v)} %` },
-  precio: { marca: '$=', titulo: 'Precio fijo', valor: v => `$ ${fmtNum(v)}` },
 };
 const badgeMargenProducto = f => {
   if (preciosSinConfig || !f.margenProducto) return '';
@@ -243,6 +247,9 @@ const badgeMargenProducto = f => {
   const t = Object.entries(canales).map(([c, v]) => `${TXT_CANAL_LST[c] || c} ${b.valor(v)}`).join(' · ');
   return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${b.titulo} del producto: ${esc(t)}">${b.marca}</span>`;
 };
+// Precio fijo (Reventa, costeo.precioFijo): público (como el costo manual), lo ve cualquier usuario del módulo.
+const badgePrecioFijo = f => (f.precioFijo
+  ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="Precio fijo del producto: ${esc(textoPrecioFijoLst(f.precioFijo))}">$=</span>` : '');
 // Avisos del costeo (⚠ n, detalle en el title) + subrubro · min/kg · máquina del granel. avisosCosto es público; costeoGranel no.
 const badgeAvisosCosto = f => ((f.avisosCosto || []).length
   ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="${ESC_LST(textoAvisosCosto(f.avisosCosto).join('\n'))}">⚠ ${f.avisosCosto.length}</span>` : '')
@@ -253,7 +260,7 @@ const badgeFaltanteCosto = p => ((p.faltantesCosto || []).length
 // Clic en el nombre = modal del producto (detalle del cálculo, costos, márgenes). La decisión rápida es el select de la fila
 // (Fraccionado: en el granel, vale para sus presentaciones; el "sin granel" no tiene). Producción además tiene el botón
 // "Precios" a la vista (el nombre solo no se veía clickeable).
-const botonNombre = f => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeMargenProducto(f)}`;
+const botonNombre = f => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeMargenProducto(f)}${badgePrecioFijo(f)}`;
 const celdaDecision = (f, tipo) => (f.plu == null ? '' : htmlSelectDecision(f, opcionesSelect(f, tipo))); // opcionesSelect: precios_modal_esquema.js
 
 // abierto: Fraccionado, si se pintan las presentaciones del granel (abiertoLst).

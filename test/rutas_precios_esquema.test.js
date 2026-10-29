@@ -353,18 +353,11 @@ test('margen del producto: PUT guarda/quita por PLU decidible (granel en Fraccio
   } finally { a.cerrar(); }
 });
 
-test('margen del producto modo precio: sólo PLU de Reventa; el listado toma el precio fijo; quitar lo borra', async () => {
+test('margen del producto: el modo precio ya no se guarda acá (el precio fijo es costeo.precioFijo)', async () => {
   const a = appCon({ ...MIGRADO }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
-  const poner = (plu, body) => a.pedir('PUT', `/api/precios/config/esquema/margen-producto/${plu}`, body);
   try {
-    const antes = JSON.stringify(a.leer().margenProducto ?? null);
-    for (const plu of ['50', '6319']) assert.match((await poner(plu, { modo: 'precio', minorista: 3999 })).error, /sólo vale para productos de Reventa/, plu);
-    assert.strictEqual(JSON.stringify(a.leer().margenProducto ?? null), antes); // ningún rechazo escribió
-    assert.deepStrictEqual((await poner('1', { modo: 'precio', minorista: 3999 })).margenProducto, { modo: 'precio', minorista: 3999 });
-    const f = await a.pedir('GET', '/api/precios/esquema/detalle/1?tipo=almacen');
-    assert.strictEqual(f.sugeridos.sistema.minorista.precio, 3999);
-    assert.strictEqual((await poner('1', { modo: 'precio' })).margenProducto, null); // sin valores: se borra
-    assert.ok(!('1' in (a.leer().margenProducto || {})));
+    assert.match((await a.pedir('PUT', '/api/precios/config/esquema/margen-producto/1', { modo: 'precio', minorista: 3999 })).error, /margenProducto\.modo: debe ser fijo o ajuste/);
+    assert.strictEqual(a.leer().margenProducto, undefined); // el rechazo no escribió
   } finally { a.cerrar(); }
 });
 
@@ -683,5 +676,65 @@ test('detalle Fraccionado: min/kg propio del granel + ajuste del tramo + máquin
     assert.deepStrictEqual(det.avisosCosto, []);
     assert.deepStrictEqual(det.costeoGranel, { maquinaId: 'sel', maquina: 'Selladora', minKgPropio: 4, minKgSubrubro: 2,
       minKgOrigen: 'granel', subrubroId: '7', subrubro: 'Frutos secos' });
+  } finally { a.cerrar(); }
+});
+
+test('precio fijo: PUT guarda por PLU de Reventa, valida los precios y quita (limpiando sólo su decisión "precio")', async () => {
+  const a = appCon({ ...MIGRADO, precioFijo: { 999: { minorista: 1 } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const poner = (plu, body) => a.pedir('PUT', `/api/precios/precio-fijo/${plu}`, body);
+  try {
+    for (const plu of ['50', '51', '6319', '777']) assert.match((await poner(plu, { minorista: 3999 })).error, /no es un producto de Reventa/, plu);
+    assert.match((await poner('1', { minorista: 0 })).error, /precioFijo\.minorista: El precio debe ser mayor a 0/);
+    assert.match((await poner('1', { minorista: 3999.999 })).error, /hasta 2 decimales/);
+    assert.match((await poner('1', { mayorista: 5 })).error, /canal desconocido/);
+    assert.match((await poner('x1', { minorista: 5 })).error, /PLU inválido/);
+    assert.deepStrictEqual(a.leer().precioFijo, { 999: { minorista: 1 } }); // ningún rechazo escribió
+    assert.deepStrictEqual((await poner('1', { minorista: 3999, pack: null })).precioFijo, { minorista: 3999 });
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/1', { fuente: 'precio' })).decision.fuente, 'precio');
+    assert.strictEqual((await poner('1', { minorista: 3500 })).precioFijo.minorista, 3500); // cambiar el precio no suelta la decisión
+    assert.strictEqual(a.leer().decisiones['1'].fuente, 'precio');
+    assert.deepStrictEqual((await poner('1', {})).precioFijo, null); // vacío = quitar: se va el precio fijo y su decisión
+    assert.ok(!('1' in a.leer().precioFijo) && !('1' in (a.leer().decisiones || {})));
+    assert.strictEqual((await poner('999', {})).precioFijo, null); // quitar pasa siempre (PLU que ya no está)
+    assert.deepStrictEqual(a.leer().precioFijo, {});
+  } finally { a.cerrar(); }
+});
+
+test('precio fijo: quitar no toca la decisión de otra fuente', async () => {
+  const a = appCon({ ...MIGRADO, precioFijo: { 1: { minorista: 3999 } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    await a.pedir('PUT', '/api/precios/decision/1', { fuente: 'sistema' });
+    await a.pedir('PUT', '/api/precios/precio-fijo/1', {});
+    assert.strictEqual(a.leer().decisiones['1'].fuente, 'sistema');
+  } finally { a.cerrar(); }
+});
+
+test('decisión "precio": exige precio fijo guardado y una fila de Reventa; el listado trae sugeridos.precio y el export sale con el precio fijo y el costo de referencia', async () => {
+  const a = appCon({ ...MIGRADO, precioFijo: { 1: { minorista: 3999 } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    for (const plu of ['50', '6319']) assert.match((await a.pedir('PUT', `/api/precios/decision/${plu}`, { fuente: 'precio' })).error, /precio fijo/, plu);
+    const f = await a.pedir('GET', '/api/precios/esquema/detalle/1?tipo=almacen');
+    assert.deepStrictEqual(f.precioFijo, { minorista: 3999 });
+    assert.deepStrictEqual([f.sugeridos.precio.minorista.precio, f.sugeridos.precio.fuenteRef], [3999, 'sistema']);
+    assert.notStrictEqual(f.sugeridos.sistema.minorista.precio, 3999); // las otras fuentes siguen con su margen
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/1', { fuente: 'precio' })).decision.fuente, 'precio');
+    const { listas, omitidos } = await a.pedir('GET', '/api/precios/esquema/export');
+    assert.strictEqual(omitidos, 0);
+    assert.deepStrictEqual(listas.minorista.slice(1), [[1, 'Arroz', 1000, 3999]]);
+  } finally { a.cerrar(); }
+});
+
+test('precio fijo sin precios-config: la card lo ve (fila.precioFijo, sugeridos.precio.fuenteRef) pero no el margen de las tablas ni el desglose; el PUT no pide el permiso', async () => {
+  const a = appCon({ ...MIGRADO, precioFijo: { 1: { minorista: 3999 } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS, sinConfig: true, guard: true });
+  try {
+    for (const ruta of ['/api/precios/esquema/detalle/1?tipo=almacen', '/api/precios/esquema/listado?tipo=almacen']) {
+      const r = await a.pedir('GET', ruta);
+      const fila = r.filas ? r.filas[0] : r;
+      assert.deepStrictEqual(fila.precioFijo, { minorista: 3999 }, ruta);
+      assert.strictEqual(fila.sugeridos.precio.fuenteRef, 'sistema', ruta);
+      const txt = JSON.stringify(r);
+      for (const clave of ['desglose', 'margenGeneralPct', 'margenProductoModo', '"margenPct"', 'costoConGastos', 'margenProducto"']) assert.ok(!txt.includes(clave), `${ruta} ${clave}`);
+    }
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/precio-fijo/1', { minorista: 4100 })).precioFijo.minorista, 4100);
   } finally { a.cerrar(); }
 });

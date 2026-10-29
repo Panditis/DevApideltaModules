@@ -663,3 +663,112 @@ test('validarActivoGranel: PLU de SIGA y true | false | null; aplicarPorPlu con 
   assert.deepStrictEqual(L.aplicarPorPlu({ 1: true }, '2', false), { 1: true, 2: false });
   assert.deepStrictEqual(L.aplicarPorPlu({ 1: true }, '1', null), {});
 });
+
+// ── Precio fijo de Reventa (costeo.precioFijo): sugeridos.precio, decisión 'precio' y export ──
+const arroz = (extra = {}, costeo = {}) => L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000, ...extra }], vigentes: VIGENTES,
+  mayoristasDe: L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: VIGENTES }), costeo, cfg: CFG })[0];
+const conPrecio = (precio = { minorista: 3999 }) => ({ precioFijo: { 1: precio } });
+
+test('listadoReventa: con precio fijo hay sugeridos.precio (precio exacto, fuenteRef, margen de las tablas en el desglose); las otras fuentes no cambian', () => {
+  const sin = arroz();
+  const f = arroz({}, conPrecio({ minorista: 3999, bulto: 2000 }));
+  assert.deepStrictEqual(f.precioFijo, { minorista: 3999, bulto: 2000 });
+  assert.deepStrictEqual(Object.keys(f.sugeridos), ['sistema', 'precio']);
+  assert.deepStrictEqual(f.sugeridos.sistema, sin.sugeridos.sistema); // nunca con el precio fijo
+  assert.strictEqual(f.margenProducto, undefined);
+  const p = f.sugeridos.precio;
+  assert.strictEqual(p.fuenteRef, 'sistema');
+  assert.deepStrictEqual(p.minorista, { precio: 3999, margenTotalPct: 299.9, deltaPct: 122.2, estado: 'subir' });
+  assert.deepStrictEqual([p.mayoristas[0].neto, p.mayoristas[0].conIva], [2000, 2400]);
+  assert.strictEqual(p.desglose.minorista.margenPct, 186.14);
+  assert.strictEqual(p.desglose.minorista.margenProductoModo, 'precio');
+  assert.strictEqual(sin.precioFijo, undefined);
+  assert.ok(!('precio' in sin.sugeridos));
+});
+
+test('listadoReventa: el costo de referencia del precio fijo es sistema › última compra › manual; sin ninguno no hay sugeridos.precio', () => {
+  const ref = (extra, costeo = {}) => (arroz(extra, { ...conPrecio(), ...costeo }).sugeridos.precio || {}).fuenteRef;
+  assert.strictEqual(ref({ costoMercaderia: 1500 }), 'sistema');
+  assert.strictEqual(ref({ costoSistema: null, costoMercaderia: 1500 }), 'ultimaCompra');
+  assert.strictEqual(ref({ costoSistema: null }, { costoPorProducto: { 1: 800 } }), 'manual');
+  assert.strictEqual(ref({ costoSistema: null }), undefined);
+  // El precio fijo no depende de la fuente: con otro costo de referencia el precio es el mismo y cambia el margen.
+  const m = e => arroz(e, conPrecio()).sugeridos.precio;
+  assert.strictEqual(m({ costoSistema: null, costoMercaderia: 1500 }).minorista.precio, 3999);
+  assert.notStrictEqual(m({ costoSistema: null, costoMercaderia: 1500 }).desglose.minorista.margenPct, m({}).desglose.minorista.margenPct);
+});
+
+test('listadoReventa: un margenProducto modo "precio" viejo (1bdc433) se ignora; fijo y ajuste siguen igual', () => {
+  const sin = arroz();
+  const viejo = arroz({}, { margenProducto: { 1: { modo: 'precio', minorista: 3999 } } });
+  assert.deepStrictEqual(viejo.sugeridos, sin.sugeridos);
+  assert.strictEqual(viejo.margenProducto, undefined);
+  assert.deepStrictEqual(arroz({}, { margenProducto: { 1: { modo: 'fijo', minorista: 50 } } }).margenProducto, { modo: 'fijo', minorista: 50 });
+});
+
+test('filaPublica: el precio fijo y fuenteRef viajan; el desglose (margenPct, margenGeneralPct) no', () => {
+  const pub = L.filaPublica(arroz({}, conPrecio()));
+  assert.deepStrictEqual(pub.precioFijo, { minorista: 3999 });
+  assert.strictEqual(pub.sugeridos.precio.fuenteRef, 'sistema');
+  assert.ok(!('desglose' in pub.sugeridos.precio));
+  assert.ok(!JSON.stringify(pub).includes('margenGeneralPct'));
+});
+
+test('validarDecision: "precio" sólo con precio fijo guardado; las demás fuentes no cambian', () => {
+  assert.strictEqual(L.validarDecision('5', 'precio', { precioFijo: { 5: { minorista: 10 } } }), null);
+  assert.match(L.validarDecision('5', 'precio', {}), /precio fijo/);
+  assert.match(L.validarDecision('5', 'otra', {}), /fuente inválida: sistema, ultimaCompra, manual, precio o null/);
+  assert.strictEqual(L.validarDecision('5', 'sistema', {}), null);
+});
+
+test('validarDecisionContraFilas: "precio" sólo en una fila de Reventa con sugeridos.precio (Producción y Fraccionado nunca lo tienen)', () => {
+  assert.strictEqual(L.validarDecisionContraFilas({ almacen: [arroz({}, conPrecio())] }, '1', 'precio'), null);
+  assert.match(L.validarDecisionContraFilas({ almacen: [arroz()] }, '1', 'precio'), /no tiene precio sugerido con la fuente precio \(disponibles: sistema\)/);
+  assert.match(L.validarDecisionContraFilas({ almacen: [arroz({ costoSistema: null }, conPrecio())] }, '1', 'precio'), /disponibles: ninguna/); // sin costo de referencia
+  const [p] = L.listadoProduccion({ presentaciones: [{ plu: '6319', nombre: 'Mezcla', costoUnidad: 1000 }], vigentes: new Map(),
+    mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }), costeo: { precioFijo: { 6319: { minorista: 5 } } }, cfg: CFG });
+  assert.match(L.validarDecisionContraFilas({ produccion: [p] }, '6319', 'precio'), /disponibles: sistema/);
+});
+
+test('costoEnSuTab: la decisión "precio" (precio fijo de Reventa) no es un costo: la materia prima queda como sin decisión', () => {
+  const fila = { costoSistema: 1000, costoMercaderia: 1200 };
+  const decisiones = { 5: { fuente: 'precio' } };
+  assert.deepStrictEqual(L.costoEnSuTab(fila, { decisiones }, '5'), { costo: 1000, fuente: 'sistema' });
+  assert.deepStrictEqual(L.costoEnSuTab(fila, { decisiones, costoPorProducto: { 5: 900 } }, '5'), { costo: 900, fuente: 'manual' });
+});
+
+test('export con la decisión "precio": Venta = el precio fijo, Costo = el costo en pantalla de la fuente de referencia; sin costo de referencia se omite', () => {
+  const decidida = f => ({ ...f, decision: { fuente: 'precio' } });
+  const { items, omitidos } = L.itemsDecididos({ almacen: [decidida(arroz({}, conPrecio({ minorista: 3999, bulto: 2000 })))] });
+  assert.strictEqual(omitidos, 0);
+  const listas = L.listasExport(items);
+  assert.deepStrictEqual(listas.minorista[1], [1, 'Arroz', 1000, 3999]);
+  assert.deepStrictEqual(listas.bultoNeto[1], [50, 'Arroz Bulto x6', 1000, 2000]);
+  assert.deepStrictEqual(listas.bultoIva[1], [50, 'Arroz Bulto x6', 1000, 2400]);
+  // Costo de referencia = última compra: el Costo exportado es el de la última compra tal cual se ve (1500), no el de sistema.
+  const ultima = L.listasExport(L.itemsDecididos({ almacen: [decidida(arroz({ costoSistema: null, costoMercaderia: 1500 }, conPrecio()))] }).items);
+  assert.deepStrictEqual(ultima.minorista[1], [1, 'Arroz', 1500, 3999]);
+  assert.strictEqual(L.itemsDecididos({ almacen: [decidida(arroz({ costoSistema: null }, conPrecio()))] }).omitidos, 1);
+});
+
+test('aplicarPrecioFijo: guarda por PLU; quitar borra el precio fijo y sólo la decisión "precio" de ese PLU', () => {
+  const costeo = { precioFijo: { 1: { minorista: 10 }, 2: { minorista: 20 } }, decisiones: { 1: { fuente: 'precio' }, 2: { fuente: 'precio' } } };
+  assert.deepStrictEqual(L.aplicarPrecioFijo(costeo, '1', { minorista: 15, bulto: 3 }), { precioFijo: { 1: { minorista: 15, bulto: 3 }, 2: { minorista: 20 } } });
+  assert.deepStrictEqual(L.aplicarPrecioFijo(costeo, '1', null), { precioFijo: { 2: { minorista: 20 } }, decisiones: { 2: { fuente: 'precio' } } });
+  assert.deepStrictEqual(L.aplicarPrecioFijo({ ...costeo, decisiones: { 1: { fuente: 'sistema' } } }, '1', null), { precioFijo: { 2: { minorista: 20 } } }); // otra fuente: se respeta
+  assert.deepStrictEqual(L.aplicarPrecioFijo({}, '1', null), { precioFijo: {} });
+  assert.strictEqual(L.validarPluSiga('123'), null);
+  assert.match(L.validarPluSiga('x1'), /PLU inválido/);
+});
+
+test('precio fijo con un canal vacío (bulto con vínculo y sin precio): ese canal sale con el margen general y se exporta igual', () => {
+  const sin = arroz();
+  const f = arroz({}, conPrecio({ minorista: 3999 }));
+  const [bulto] = f.sugeridos.precio.mayoristas;
+  const [general] = sin.sugeridos.sistema.mayoristas; // mismo costo de referencia (sistema) y margen de las tablas
+  assert.deepStrictEqual([bulto.plu, bulto.neto, bulto.conIva], [general.plu, general.neto, general.conIva]);
+  assert.ok(bulto.conIva != null);
+  const listas = L.listasExport(L.itemsDecididos({ almacen: [{ ...f, decision: { fuente: 'precio' } }] }).items);
+  assert.deepStrictEqual(listas.minorista[1], [1, 'Arroz', 1000, 3999]);
+  assert.deepStrictEqual(listas.bultoIva[1], [50, 'Arroz Bulto x6', 1000, general.conIva]);
+});
