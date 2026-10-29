@@ -38,9 +38,10 @@ test('sin migrar: GET da migrado false con defaults y los PUT no escriben', asyn
   const a = appCon({ ivaVentaPct: 21 });
   try {
     const j = await a.pedir('GET', BASE);
-    assert.deepStrictEqual([j.migrado, j.maquinas, j.tramosTiempo, j.subrubros, j.porGranel, j.insumosPorPeso, 'escalas' in j], [false, [], [], {}, {}, {}, false]);
+    assert.deepStrictEqual([j.migrado, j.maquinas, j.tramosTiempo, j.subrubros, j.porGranel, j.envasePorPeso, j.costoBobinaKg, 'insumosPorPeso' in j, 'escalas' in j], [false, [], [], {}, {}, {}, null, false, false]);
     assert.match((await a.pedir('PUT', `${BASE}/tramos-tiempo`, { tramos: [] })).error, /migrar_config_fraccionado/);
-    assert.match((await a.pedir('PUT', `${BASE}/insumos-peso/500`, { insumos: [{ plu: '900', cantidad: 1 }] })).error, /migrar_config_fraccionado/);
+    assert.match((await a.pedir('PUT', `${BASE}/envase-peso/500`, { bolsaPlu: '900' })).error, /migrar_config_fraccionado/);
+    assert.match((await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: 6000 })).error, /migrar_config_fraccionado/);
     assert.strictEqual(a.leer().fraccionado, undefined);
   } finally { a.cerrar(); }
 });
@@ -114,20 +115,56 @@ test('PUT escalas y PUT subrubros/:id ya no existen', () => {
   assert.ok(!paths.includes(`${BASE}/escalas`) && !paths.includes(`${BASE}/subrubros/:id`));
 });
 
-test('insumos-peso: guarda la lista del peso y responde la vista; [] la saca; lo viejo (presentaciones, insumosPresentacion) no se reescribe', async () => {
-  const viejo = { ...FRACC, facilidades: { facil: 1, medio: 1.3, dificil: 2 }, insumosPresentacion: { 102: [{ plu: '900', cantidad: 1 }] },
-    presentaciones: { 101: { facilidad: 'facil' } } };
+test('envase-peso: guarda bolsaPlu/bobinaG del peso y responde la vista; inválido no escribe; los dos null borran; insumosPorPeso viejo se borra', async () => {
+  const viejo = { ...FRACC, facilidades: { facil: 1 }, insumosPresentacion: { 102: [{ plu: '900', cantidad: 1 }] }, insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] } };
   const a = appCon({ fraccionado: viejo });
   try {
-    const r = await a.pedir('PUT', `${BASE}/insumos-peso/500`, { insumos: [{ plu: '900', cantidad: 1 }] });
-    assert.deepStrictEqual([r.status, r.migrado, r.insumosPorPeso], [200, true, { 500: [{ plu: '900', cantidad: 1 }] }]);
+    const r = await a.pedir('PUT', `${BASE}/envase-peso/500`, { bolsaPlu: ' 900 ', bobinaG: 8 });
+    assert.deepStrictEqual([r.status, r.migrado, r.envasePorPeso, 'insumosPorPeso' in r], [200, true, { 500: { bolsaPlu: '900', bobinaG: 8 } }, false]);
     const f = a.leer().fraccionado;
-    assert.deepStrictEqual(f.insumosPorPeso, { 500: [{ plu: '900', cantidad: 1 }] });
-    assert.deepStrictEqual(['escalas' in f, 'facilidades' in f, 'presentaciones' in f, 'insumosPresentacion' in f], [false, false, false, false]);
-    assert.match((await a.pedir('PUT', `${BASE}/insumos-peso/0`, { insumos: [] })).error, /peso/);
-    assert.match((await a.pedir('PUT', `${BASE}/insumos-peso/500`, { insumos: [{ plu: 'x', cantidad: 1 }] })).error, /plu/);
-    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/insumos-peso/500`, { insumos: [] })).insumosPorPeso, {});
-    assert.deepStrictEqual((await a.pedir('GET', BASE)).insumosPorPeso, {});
+    assert.deepStrictEqual(f.envasePorPeso, { 500: { bolsaPlu: '900', bobinaG: 8 } });
+    assert.deepStrictEqual(['insumosPorPeso' in f, 'facilidades' in f, 'insumosPresentacion' in f], [false, false, false]);
+    for (const [ruta, body, re] of [['0', {}, /peso/], ['201x', {}, /peso/], ['500', { bolsaPlu: 'abc' }, /bolsaPlu/], ['500', { bobinaG: 0 }, /bobinaG/],
+      ['500', { bobinaG: -1 }, /bobinaG/], ['500', { bobinaG: 'x' }, /bobinaG/], ['500', { bobinaG: 1001 }, /bobinaG/]]) {
+      const x = await a.pedir('PUT', `${BASE}/envase-peso/${ruta}`, body);
+      assert.match(x.error || '', re, JSON.stringify(body));
+    }
+    assert.deepStrictEqual(a.leer().fraccionado.envasePorPeso, { 500: { bolsaPlu: '900', bobinaG: 8 } }); // no escribió
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/envase-peso/500`, { bolsaPlu: null, bobinaG: null })).envasePorPeso, {});
+    assert.deepStrictEqual((await a.pedir('GET', BASE)).envasePorPeso, {});
+  } finally { a.cerrar(); }
+});
+
+test('costo-bobina: guarda el $/kg; 0 se rechaza sin escribir; null lo saca', async () => {
+  const a = appCon({ fraccionado: FRACC });
+  try {
+    const r = await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: 6000 });
+    assert.deepStrictEqual([r.status, r.costoBobinaKg, a.leer().fraccionado.costoBobinaKg], [200, 6000, 6000]);
+    assert.match((await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: 0 })).error, /costoBobinaKg/);
+    assert.strictEqual(a.leer().fraccionado.costoBobinaKg, 6000);
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: null })).costoBobinaKg, null);
+    assert.strictEqual((await a.pedir('GET', BASE)).costoBobinaKg, null);
+  } finally { a.cerrar(); }
+});
+
+test('granel/:plu con envase: bobina se guarda y la vista la devuelve; bolsa la borra; otro valor no escribe', async () => {
+  const a = appCon({ fraccionado: FRACC });
+  try {
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/granel/100`, { minKg: 2, envase: 'bobina' })).porGranel, { 100: { minKg: 2, envase: 'bobina' } });
+    assert.match((await a.pedir('PUT', `${BASE}/granel/100`, { envase: 'otra' })).error, /envase/);
+    assert.deepStrictEqual(a.leer().fraccionado.porGranel, { 100: { minKg: 2, envase: 'bobina' } });
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/granel/100`, { minKg: 3 })).porGranel, { 100: { minKg: 3, envase: 'bobina' } }); // "Fijar" no toca el envase
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/granel/100`, { envase: 'bolsa' })).porGranel, { 100: { minKg: 3 } });
+  } finally { a.cerrar(); }
+});
+
+test('PUT insumos-peso ya no existe (404)', async () => {
+  const a = appCon({ fraccionado: FRACC });
+  try {
+    const r = crearRutas({ apiRoute: fn => fn, query: async () => [], leerJSON: (_p, d) => d, guardarJSON: () => {}, DATA_DIR: os.tmpdir() });
+    assert.ok(!r.stack.some(l => l.route && l.route.path === `${BASE}/insumos-peso/:pesoG`));
+    const res = await a.pedir('GET', BASE); // levanta el server
+    assert.ok(res.migrado);
   } finally { a.cerrar(); }
 });
 
@@ -163,7 +200,8 @@ test('PUT /api/precios/fraccionado/presentaciones ya no existe', () => {
   assert.ok(!r.stack.some(l => l.route && l.route.path === '/api/precios/fraccionado/presentaciones'));
 });
 
-test('GET costeo: config + productos por subrubro (graneles con sus presentaciones) y los sin subrubro', async () => {
+test('GET costeo: config + productos por subrubro (graneles con sus presentaciones) y los sin subrubro; envase con nombre y costo de la bolsa; SIGA sólo recibe los PLU de bolsa', async () => {
+  const sqls = [];
   const query = async sql => {
     if (sql.includes('SubRubros')) {
       return [{ IdProducto: '100', NombreProducto: 'Almendra granel', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' },
@@ -171,13 +209,14 @@ test('GET costeo: config + productos por subrubro (graneles con sus presentacion
     }
     if (sql.includes('ProductosComponentes')) return [{ Plu: '101', Granel: '100', Cant: 0.5 }, { Plu: '102', Granel: '100', Cant: 0.25 }];
     if (sql.includes("'Pesables Fraccionado'")) return [{ IdProducto: '101', NombreProducto: 'Almendra 500G' }, { IdProducto: '102', NombreProducto: 'Almendra 250G' }];
+    sqls.push(sql);
     // costos: el insumo 900 tiene fila en SIGA (sistema 20), el 901 no
     const ids = (sql.match(/p\.IdProducto IN \(([^)]*)\)/) || [])[1];
     if (ids) return ids.includes("'900'") ? [{ IdProducto: '900', NombreProducto: 'Bolsa 500g', CostoSistema: 20, IvaCompraPct: 21 }] : [];
     return [];
   };
   // el costo del insumo es el de su tab: costo manual > sistema
-  const a = appCon({ costoPorProducto: { 900: 25 }, fraccionado: { ...FRACC, insumosPorPeso: { 500: [{ plu: '900', cantidad: 2 }, { plu: '901', cantidad: 1 }], 750: [{ plu: '900', cantidad: 1 }] } } }, { query });
+  const a = appCon({ costoPorProducto: { 900: 25 }, fraccionado: { ...FRACC, envasePorPeso: { 500: { bolsaPlu: '900', bobinaG: 8 }, 750: { bolsaPlu: '901' }, 1000: { bobinaG: 10 } }, costoBobinaKg: 6000 } }, { query });
   try {
     const j = await a.pedir('GET', `${BASE}/costeo`);
     assert.deepStrictEqual([j.migrado, j.subrubrosSiga, j.sinSubrubro], [true,
@@ -185,9 +224,12 @@ test('GET costeo: config + productos por subrubro (graneles con sus presentacion
         presentaciones: [{ plu: '101', nombre: 'Almendra 500G', pesoG: 500 }, { plu: '102', nombre: 'Almendra 250G', pesoG: 250 }] }] }],
       [{ plu: '200', nombre: 'Sal granel', presentaciones: [] }]]);
     assert.deepStrictEqual(j.pesos, [{ pesoG: 250, presentaciones: 1 }, { pesoG: 500, presentaciones: 1 }]);
-    assert.deepStrictEqual(j.insumosPorPeso, {
-      500: [{ plu: '900', cantidad: 2, nombre: 'Bolsa 500g', costo: 25 }, { plu: '901', cantidad: 1, nombre: null, costo: null }],
-      750: [{ plu: '900', cantidad: 1, nombre: 'Bolsa 500g', costo: 25 }] });
+    assert.deepStrictEqual(j.envasePorPeso, {
+      500: { bolsaPlu: '900', bobinaG: 8, bolsaNombre: 'Bolsa 500g', bolsaCosto: 25 }, 750: { bolsaPlu: '901', bolsaNombre: null, bolsaCosto: null },
+      1000: { bobinaG: 10, bolsaNombre: null, bolsaCosto: null } });
+    assert.strictEqual(j.costoBobinaKg, 6000);
+    const pedidos = sqls.map(q => (q.match(/p.IdProducto IN (([^)]*))/) || [])[1]).filter(Boolean).join(',').match(/'[^']*'/g) || [];
+    assert.deepStrictEqual([...new Set(pedidos)].sort(), ["'100'", "'200'", "'900'", "'901'"]); // graneles + bolsas, nada de bobina
   } finally { a.cerrar(); }
 });
 
@@ -195,7 +237,7 @@ test('sin permiso precios-config: 403 en la configuración', async () => {
   const a = appCon({ fraccionado: FRACC }, { guard: true, sinConfig: true });
   try {
     for (const [m, r] of [['GET', BASE], ['GET', `${BASE}/costeo`], ['PUT', `${BASE}/maquinas`], ['PUT', `${BASE}/tramos-tiempo`],
-      ['PUT', `${BASE}/subrubros`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/insumos-peso/500`], ['PUT', `${BASE}/ajustes-peso`], ['GET', `${BASE}/historial`]]) {
+      ['PUT', `${BASE}/subrubros`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/envase-peso/500`], ['PUT', `${BASE}/costo-bobina`], ['PUT', `${BASE}/ajustes-peso`], ['GET', `${BASE}/historial`]]) {
       assert.strictEqual((await a.pedir(m, r, m === 'PUT' ? {} : undefined)).status, 403, `${m} ${r}`);
     }
   } finally { a.cerrar(); }

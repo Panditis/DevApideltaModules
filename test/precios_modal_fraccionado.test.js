@@ -43,7 +43,7 @@ test('formulaMinutosMd: "(min/kg ± ajuste) min/kg × kg = minutos"; sin ajuste 
 });
 
 test('motivoSinMinutosMd: sin min/kg manda a cargarlo (subrubro o propio); con min/kg pero 0 minutos lo explica; textos sin "facilidad"', () => {
-  assert.strictEqual(motivoSinMinutosMd(['sinMinutos', 'sinInsumos']),
+  assert.strictEqual(motivoSinMinutosMd(['sinMinutos', 'sinBolsa']),
     'sin minutos (cargá el min/kg del subrubro en Configuración › Costeo Fraccionado o el propio del producto acá)');
   assert.strictEqual(motivoSinMinutosMd([]), 'sin minutos: el min/kg más el ajuste del tramo de peso da 0');
   assert.strictEqual(motivoSinMinutosMd(undefined), 'sin minutos: el min/kg más el ajuste del tramo de peso da 0');
@@ -74,11 +74,12 @@ test('textosMinKgMd: cuál min/kg se usa hoy (propio o del subrubro) y qué here
 });
 
 test('bodyGranelMd: min/kg vacío → null (hereda), número 0 a 600 (coma o punto); máquina "" → null; fuera de rango o texto → error sin body', () => {
-  assert.deepStrictEqual(bodyGranelMd('', ''), { body: { minKg: null, maquinaId: null } });
-  assert.deepStrictEqual(bodyGranelMd('  ', 'env'), { body: { minKg: null, maquinaId: 'env' } });
-  assert.deepStrictEqual(bodyGranelMd('0', ''), { body: { minKg: 0, maquinaId: null } });      // 0 es un valor válido: pisa al subrubro
-  assert.deepStrictEqual(bodyGranelMd('1,5', 'env'), { body: { minKg: 1.5, maquinaId: 'env' } });
-  assert.deepStrictEqual(bodyGranelMd('600', ''), { body: { minKg: 600, maquinaId: null } });
+  assert.deepStrictEqual(bodyGranelMd('', ''), { body: { minKg: null, maquinaId: null, envase: 'bolsa' } });
+  assert.deepStrictEqual(bodyGranelMd('  ', 'env'), { body: { minKg: null, maquinaId: 'env', envase: 'bolsa' } });
+  assert.deepStrictEqual(bodyGranelMd('0', ''), { body: { minKg: 0, maquinaId: null, envase: 'bolsa' } });      // 0 es un valor válido: pisa al subrubro
+  assert.deepStrictEqual(bodyGranelMd('1,5', 'env', 'bobina'), { body: { minKg: 1.5, maquinaId: 'env', envase: 'bobina' } });
+  assert.deepStrictEqual(bodyGranelMd('600', ''), { body: { minKg: 600, maquinaId: null, envase: 'bolsa' } });
+  for (const otro of [undefined, null, '', 'bolsa', 'Bobina', 'otra']) assert.strictEqual(bodyGranelMd('', '', otro).body.envase, 'bolsa', String(otro)); // todo lo que no es 'bobina' = bolsa
   for (const mal of ['-1', '600,01', 'abc', '1e999']) assert.deepStrictEqual(bodyGranelMd(mal, ''), { error: 'Min por kg: un número de 0 a 600 (vacío = hereda el del subrubro)' }, mal);
 });
 
@@ -343,25 +344,24 @@ test('htmlColumnasFraccMd: con dos bloques los pone en dos columnas; con uno (si
 });
 
 // ── Acordeón "Cómo se conforma el costo y el precio": cuentas alineadas (concepto a la izquierda, importe a la derecha, operadores en columna) ──
-const { motivoSinMinutosMd, filasCostoPresFraccMd, htmlCuentaFraccMd, cuentasPrecioFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+const { opcionesEnvaseMd, motivoSinMinutosMd, filasCostoPresFraccMd, htmlCuentaFraccMd, cuentasPrecioFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd } = require('../public/js/precios_modal_fraccionado.js');
 
-// Presentación costeada de 500 g como la arma el server: mercadería (granel) + 2 insumos + mano de obra + máquina del granel.
+// Presentación costeada de 500 g como la arma el server: mercadería (granel) + envase (bolsa) + mano de obra + máquina del granel.
 // min/kg 2 (del subrubro) + ajuste +3 del tramo = (2 + 3) × 0,5 kg = 2,5 min.
 const presCosteada = (extra = {}) => ({ plu: '101', nombre: 'Almendra <500G>', pesoG: 500, costos: { sistema: 1806 },
   costeoPresentacion: { minutos: 2.5, minKg: 2, minKgOrigen: 'subrubro', ajusteMinKg: 3, porUnidad: 403, extraKg: 806 }, avisosCosto: [],
   componentesCosto: [
-    { plu: '900', nombre: 'Bolsa 500g', rol: 'insumo', cantidad: 1, costoUnit: 20, importe: 20 }, { plu: '901', nombre: 'Etiqueta 500g', rol: 'insumo', cantidad: 1, costoUnit: 8, importe: 8 },
+    { plu: '900', nombre: 'Bolsa 500g', rol: 'insumo', origen: 'bolsa', cantidad: 1, costoUnit: 28, importe: 28 },
     { plu: '_manoObra', rol: 'mo', cantidad: 2.5, costoUnit: 6000, importe: 250 }, { plu: '_maquina', rol: 'maquina', nombre: 'Envasadora', cantidad: 2.5, costoUnit: 3000, importe: 125 }], ...extra });
 const COSTOS_GRANEL = { sistema: 1000 };
 const sinLineaMaquina = p => ({ ...p, componentesCosto: p.componentesCosto.filter(l => l.rol !== 'maquina') });
 
-test('filasCostoPresFraccMd: mercadería + insumos (con su desglose) + mano de obra + máquina = costo real por unidad ÷ peso = costo real $/kg', () => {
+test('filasCostoPresFraccMd: mercadería + envase (con su desglose) + mano de obra + máquina = costo real por unidad ÷ peso = costo real $/kg', () => {
   const filas = filasCostoPresFraccMd(presCosteada(), 'sistema', COSTOS_GRANEL);
   assert.deepStrictEqual(filas.map(r => [r.op || '', r.tipo || '', r.txt, r.det || '', r.v ?? r.u ?? null]), [
     ['', '', 'Mercadería', '0,5 kg × $ 1.000,00/kg', 500],
-    ['+', '', 'Insumos', '', 28],
-    ['', 'sub', 'Bolsa 500g', '1 × $ 20,00', 20],
-    ['', 'sub', 'Etiqueta 500g', '1 × $ 8,00', 8],
+    ['+', '', 'Envase', '', 28],
+    ['', 'sub', 'Bolsa 500g', '1 × $ 28,00', 28],
     ['+', '', 'Mano de obra', '(2 + 3) min/kg × 0,5 kg = 2,5 min × $ 6.000,00/h', 250],
     ['+', '', 'Máquina Envasadora', '(2 + 3) min/kg × 0,5 kg = 2,5 min × $ 3.000,00/h', 125],
     ['=', '', 'Costo real por unidad', '', 903],
@@ -384,26 +384,26 @@ test('filasCostoPresFraccMd: min/kg propio 0 con ajuste +3 muestra (0 + 3) min/k
   assert.doesNotMatch(mo({ minutos: 1, minKg: 2, ajusteMinKg: 0 }, 1, 100, 500), /facilidad/i);
 });
 
-test('filasCostoPresFraccMd: sin insumos / sin minutos → renglón gris (nd) con su motivo, importe 0; sin máquina no hay renglón; sin tocar el total', () => {
-  const p = presCosteada({ componentesCosto: [], avisosCosto: ['sinInsumos', 'sinMinutos'],
+test('filasCostoPresFraccMd: sin bolsa / sin minutos → renglón gris (nd) con su motivo, importe 0; sin máquina no hay renglón; sin tocar el total', () => {
+  const p = presCosteada({ componentesCosto: [], avisosCosto: ['sinMinutos', 'sinBolsa'],
     costeoPresentacion: { minutos: 0, minKg: null, minKgOrigen: null, ajusteMinKg: 0, porUnidad: 0 }, costos: { sistema: 1000 } });
   const filas = filasCostoPresFraccMd(p, 'sistema', COSTOS_GRANEL);
   const por = txt => filas.find(r => r.txt === txt);
-  assert.deepStrictEqual([por('Insumos').tipo, por('Insumos').det, por('Insumos').v], ['nd', 'sin cargar (Configuración › Costeo Fraccionado › Insumos por peso)', 0]);
+  assert.deepStrictEqual([por('Envase').tipo, por('Envase').det, por('Envase').v], ['nd', 'sin bolsa cargada para este peso', 0]);
   assert.deepStrictEqual([por('Mano de obra').tipo, por('Mano de obra').det, por('Mano de obra').v], ['nd', motivoSinMinutosMd(p.avisosCosto), 0]);
   assert.strictEqual(por('Máquina'), undefined);
   assert.strictEqual(filas.find(r => r.txt === 'Costo real $/kg').v, 1000);
 });
 
-test('filasCostoPresFraccMd: insumo sin costo → costo por unidad sin dato y con su motivo; la mercadería sin costo del granel también', () => {
+test('filasCostoPresFraccMd: bolsa sin costo → costo por unidad sin dato y con su motivo; la mercadería sin costo del granel también', () => {
   const sinCosto = presCosteada({ costeoPresentacion: { minutos: 0, minKg: 2, minKgOrigen: 'subrubro', ajusteMinKg: 0, porUnidad: null }, costos: { sistema: null },
-    componentesCosto: [{ plu: '900', nombre: 'Bolsa', rol: 'insumo', cantidad: 1, costoUnit: null, importe: null }] });
+    componentesCosto: [{ plu: '900', nombre: 'Bolsa', rol: 'insumo', origen: 'bolsa', cantidad: 1, costoUnit: null, importe: null }] });
   const filas = filasCostoPresFraccMd(sinCosto, 'sistema', { sistema: null });
   assert.deepStrictEqual(filas.find(r => r.txt === 'Mercadería'), { txt: 'Mercadería', det: '0,5 kg × sin costo', v: null });
-  assert.deepStrictEqual(filas.find(r => r.txt === 'Insumos'), { op: '+', txt: 'Insumos', v: null });
+  assert.deepStrictEqual(filas.find(r => r.txt === 'Envase'), { op: '+', txt: 'Envase', v: null });
   assert.deepStrictEqual(filas.find(r => r.txt === 'Bolsa'), { tipo: 'sub', txt: 'Bolsa', det: '1 × sin costo', v: null });
   const unidad = filas.find(r => r.txt === 'Costo real por unidad');
-  assert.deepStrictEqual([unidad.det, unidad.v], ['falta el costo de un insumo', null]);
+  assert.deepStrictEqual([unidad.det, unidad.v], ['falta el costo del envase', null]);
   assert.strictEqual(filas.at(-1).v, null);
 });
 
@@ -416,7 +416,7 @@ test('htmlCuentaFraccMd: operadores en su columna, concepto + detalle, importes 
   const html = htmlCuentaFraccMd(filasCostoPresFraccMd(presCosteada(), 'sistema', COSTOS_GRANEL));
   assert.match(html, /^<div class="md-cu">/);
   assert.match(html, /<div class="md-cu-f"><span class="md-cu-op" aria-hidden="true"><\/span><span class="md-cu-t">Mercadería<span class="md-cu-d">0,5 kg × \$\u00a01\.000,00\/kg<\/span><\/span><span class="md-cu-v">\$ 500,00<\/span><\/div>/);
-  assert.match(html, /<div class="md-cu-f md-cu-sub"><span class="md-cu-op" aria-hidden="true"><\/span><span class="md-cu-t">Bolsa 500g<span class="md-cu-d">1 × \$\u00a020,00<\/span><\/span><span class="md-cu-v">\$ 20,00<\/span><\/div>/);
+  assert.match(html, /<div class="md-cu-f md-cu-sub"><span class="md-cu-op" aria-hidden="true"><\/span><span class="md-cu-t">Bolsa 500g<span class="md-cu-d">1 × \$\u00a028,00<\/span><\/span><span class="md-cu-v">\$ 28,00<\/span><\/div>/);
   assert.match(html, /<div class="md-cu-f md-cu-sub-r"><span class="md-cu-op" aria-hidden="true">=<\/span><span class="md-cu-t">Costo real por unidad<\/span><span class="md-cu-v">\$ 903,00<\/span><\/div>/);
   assert.match(html, /<div class="md-cu-f"><span class="md-cu-op" aria-hidden="true">÷<\/span><span class="md-cu-t">Peso de la presentación<\/span><span class="md-cu-v">0,5 kg<\/span><\/div>/);
   assert.match(html, /<div class="md-cu-f md-cu-tot"><span class="md-cu-op" aria-hidden="true">=<\/span><span class="md-cu-t">Costo real \$\/kg<\/span><span class="md-cu-v">\$ 1\.806,00<\/span><\/div><\/div>$/);
@@ -469,4 +469,39 @@ test('htmlTarjetaCostoFraccMd / htmlTarjetaPrecioFraccMd: una mini-tarjeta por p
   assert.match(precio, /Precio redondeado/);
   assert.match(precio, /Con IVA redondeado/);
   assert.match(htmlTarjetaPrecioFraccMd(presConPrecio(), 'ultimaCompra'), /Sin desglose para esta fuente\./);
+});
+
+test('filasCostoPresFraccMd: bobina → "Bobina 0,008 kg (8 g de bolsa) × $ 6.000,00/kg"; sin $/kg "sin costo" y falta el costo del envase', () => {
+  // Arrange
+  const bob = (costoUnit, importe) => presCosteada({ componentesCosto: [{ plu: '_bobina', nombre: 'Bobina', rol: 'insumo', origen: 'bobina', cantidad: 0.008, costoUnit, importe }],
+    costeoPresentacion: { minutos: 0, minKg: null, minKgOrigen: null, ajusteMinKg: 0, porUnidad: importe }, avisosCosto: ['sinMinutos'] });
+  // Act
+  const ok = filasCostoPresFraccMd(bob(6000, 48), 'sistema', COSTOS_GRANEL);
+  const falta = filasCostoPresFraccMd(bob(null, null), 'sistema', COSTOS_GRANEL);
+  // Assert
+  assert.deepStrictEqual(ok.find(r => r.txt === 'Bobina'), { tipo: 'sub', txt: 'Bobina', det: '0,008 kg (8 g de bolsa) × $ 6.000,00/kg', v: 48 });
+  assert.deepStrictEqual(ok.find(r => r.txt === 'Envase'), { op: '+', txt: 'Envase', v: 48 });
+  assert.deepStrictEqual(falta.find(r => r.txt === 'Bobina').det, '0,008 kg (8 g de bolsa) × sin costo');
+  assert.strictEqual(falta.find(r => r.txt === 'Costo real por unidad').det, 'falta el costo del envase');
+});
+
+test('filasCostoPresFraccMd: bolsa sin nombre de SIGA → "Bolsa PLU 900"; nombre sin "Bolsa" adelante lo suma; sinBobina y sin aviso tienen su motivo', () => {
+  const env = l => filasCostoPresFraccMd(presCosteada({ componentesCosto: [{ rol: 'insumo', origen: 'bolsa', cantidad: 1, costoUnit: 5, importe: 5, ...l }] }), 'sistema', COSTOS_GRANEL)[2].txt;
+  assert.deepStrictEqual([env({ plu: '900', nombre: null }), env({ plu: '900', nombre: 'Polietileno 20x30' }), env({ plu: '900', nombre: 'BOLSA 1kg' })],
+    ['Bolsa PLU 900', 'Bolsa Polietileno 20x30', 'BOLSA 1kg']);
+  const sinBob = filasCostoPresFraccMd(presCosteada({ componentesCosto: [], avisosCosto: ['sinBobina'] }), 'sistema', COSTOS_GRANEL);
+  assert.strictEqual(sinBob.find(r => r.txt === 'Envase').det, 'sin peso de bolsa para este peso');
+  const sinNada = filasCostoPresFraccMd(presCosteada({ componentesCosto: [], avisosCosto: [] }), 'sistema', COSTOS_GRANEL);
+  assert.strictEqual(sinNada.find(r => r.txt === 'Envase').det, 'sin envase cargado');
+});
+
+test('opcionesEnvaseMd: bolsa por defecto (también con undefined o un valor raro); bobina sólo si lo es', () => {
+  const sel = h => (h.match(/<option value="(\w+)" selected>/) || [])[1];
+  assert.deepStrictEqual(['bobina', undefined, null, 'bolsa', 'otra'].map(v => sel(opcionesEnvaseMd(v))), ['bobina', 'bolsa', 'bolsa', 'bolsa', 'bolsa']);
+});
+
+test('htmlTarjetaCostoFraccMd: el nombre de la bolsa con HTML sale escapado en el desglose', () => {
+  const html = htmlTarjetaCostoFraccMd(presCosteada({ componentesCosto: [{ plu: '900', nombre: 'Bolsa <img src=x onerror=alert(1)>', rol: 'insumo', origen: 'bolsa', cantidad: 1, costoUnit: 5, importe: 5 }] }), 'sistema', COSTOS_GRANEL);
+  assert.ok(!html.includes('<img'));
+  assert.match(html, /Bolsa &lt;img/);
 });

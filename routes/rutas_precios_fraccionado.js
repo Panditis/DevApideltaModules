@@ -11,7 +11,7 @@ const HIST = require('../lib/precios_fraccionado_historial');
 
 // ── Precios · costeo de Fraccionado (spec 2026-10-21-precios-fraccionado-costeo-design §9; 2026-10-23-…-peso-subrubro §4) ──
 // Todo bajo /api/precios/config/ (permiso precios-config por RUTAS_CONFIG): máquinas, ajuste ± min/kg por tramo de peso,
-// min/kg por subrubro, min/kg y máquina por granel y los insumos por peso (spec 2026-10-29-…-tiempos-historial). Escribe sólo dentro de
+// min/kg por subrubro, min/kg y máquina por granel y el envase por peso (spec 2026-10-29-…-tiempos-historial). Escribe sólo dentro de
 // costeo.fraccionado (lo crea scripts/migrar_config_fraccionado.js), siempre con la forma nueva (CF.fraccionadoConCambios).
 const BASE = '/api/precios/config/esquema/fraccionado';
 
@@ -28,12 +28,13 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   const pesoDe = req => String(req.params.pesoG || '').trim();
 
   // Lo que pinta Configuración (sin SIGA): máquinas con cuántos graneles las usan, tramos de tiempo, min/kg por subrubro, min/kg
-  // y máquina por granel, insumos por peso (crudos: { [pesoG]: [{ plu, cantidad }] }) y el ajuste por peso del margen.
+  // y máquina (y envase) por granel, envase por peso (crudo: { [pesoG]: { bolsaPlu?, bobinaG? } }), $/kg de bobina y el ajuste por peso del margen.
   function vista(f) {
     const cf = FC.normalizarCosteoFraccionado(f);
     const usos = CF.usosMaquinas(cf);
     const margenes = (f && f.margenes) || {};
-    return { costoHora: cf.costoHora, tramosTiempo: cf.tramosTiempo, subrubros: cf.subrubros, porGranel: cf.porGranel, insumosPorPeso: cf.insumosPorPeso,
+    return { costoHora: cf.costoHora, tramosTiempo: cf.tramosTiempo, subrubros: cf.subrubros, porGranel: cf.porGranel, envasePorPeso: cf.envasePorPeso,
+      costoBobinaKg: cf.costoBobinaKg,
       maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0 } })), ajustesPeso: margenes.ajustesPeso || null };
   }
 
@@ -56,7 +57,7 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   }));
 
   // Panel completo: lo de arriba + los productos (graneles con sus presentaciones y su peso) de cada subrubro de SIGA, los pesos
-  // del universo y los insumos por peso con nombre y costo en su tab (el mismo costo que usa el listado).
+  // del universo y el envase por peso con nombre y costo de la bolsa en su tab (el mismo costo que usa el listado).
   // ponytail: arma el universo de Fraccionado entero (como el listado) para agrupar; una consulta propia si se pone lento.
   router.get(`${BASE}/costeo`, apiRoute(async () => {
     const costeo = leerCosteo();
@@ -65,7 +66,7 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
     const { graneles, presentaciones, costos } = await consultas.universoFraccionado(formulas, FC.plusInsumos(cf));
     const grupos = agruparPorGranel({ graneles, presentaciones, formulas, costos });
     return { migrado: cfgEsq.fraccionadoMigrado(costeo), ...vista(costeo.fraccionado), ...CF.productosPorSubrubro(grupos),
-      insumosPorPeso: CF.insumosConCosto(cf.insumosPorPeso, crearCostoDe(costos, costeo)) };
+      envasePorPeso: CF.envaseConCosto(cf.envasePorPeso, crearCostoDe(costos, costeo)) };
   }));
 
   // Sugerido de min/kg desde el historial (E2). Sólo lectura: no escribe nada ni cachea (ponytail: ≈2 MB + una consulta;
@@ -89,7 +90,8 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   // ponytail: no se valida que el PLU sea un granel del listado (sería pedir SIGA); una entrada de un PLU que no está no costea nada.
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: tampoco se valida que el peso tenga presentaciones (sería pedir SIGA); Configuración lo marca "sin presentaciones".
-  router.put(`${BASE}/insumos-peso/:pesoG`, guardarFracc((req, cf) => ({ insumosPorPeso: CF.aplicarInsumosPeso(cf.insumosPorPeso, pesoDe(req), cuerpo(req)) })));
+  router.put(`${BASE}/envase-peso/:pesoG`, guardarFracc((req, cf) => ({ envasePorPeso: CF.aplicarEnvasePeso(cf.envasePorPeso, pesoDe(req), cuerpo(req)) })));
+  router.put(`${BASE}/costo-bobina`, guardarFracc(req => CF.validarCostoBobina(cuerpo(req))));
   // Ajuste por peso del margen (antes en Márgenes): body { ajustesPeso: { tramosG, puntos } | null }. Va en margenes.ajustesPeso
   // del bloque, donde lo lee el motor; las tablas por canal no se tocan.
   router.put(`${BASE}/ajustes-peso`, guardarFracc((req, _cf, f) => ({ margenes: cfgEsq.margenesConAjustePeso(f.margenes, cuerpo(req)) })));

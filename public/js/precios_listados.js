@@ -162,14 +162,15 @@ const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio pl
     r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, r.motivo])];
 
 // Costeo de Fraccionado (spec 2026-10-29): textos de los avisos que no bloquean el precio (se completan en Configuración › Costeo Fraccionado:
-// min/kg del subrubro, insumos por peso, costo hora; o el min/kg propio en el modal del granel) y "subrubro · min/kg · máquina" del granel.
+// min/kg del subrubro, envase por peso, costo hora; o el min/kg y el envase propios en el modal del granel) y "subrubro · min/kg · máquina · bobina" del granel.
 const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinMinutos: 'sin min/kg (ni del subrubro ni del producto): sin mano de obra ni máquina',
-  costoHora: 'sin costo hora de Fraccionado', sinInsumos: 'su peso no tiene insumos' };
+  costoHora: 'sin costo hora de Fraccionado', sinBolsa: 'sin bolsa cargada para su peso: el costo no incluye envase',
+  sinBobina: 'sin peso de bolsa cargado para su peso: el costo no incluye envase' };
 const textoAvisosCosto = avisos => (avisos || []).map(a => TXT_AVISO_COSTO[a] || a);
-// costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS). Sin máquina no se nombra: es el estado normal.
+// costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS). Sin máquina y con bolsa no se nombran: es el estado normal.
 const numMinLst = n => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n);
 const textoMinKgLst = c => (c.minKgOrigen === 'granel' ? `${numMinLst(c.minKgPropio)} min/kg (propio)` : c.minKgOrigen === 'subrubro' ? `${numMinLst(c.minKgSubrubro)} min/kg` : 'sin min/kg');
-const textoCosteoGranel = c => [c.subrubro || 'sin subrubro', textoMinKgLst(c), c.maquina].filter(Boolean).join(' · ');
+const textoCosteoGranel = c => [c.subrubro || 'sin subrubro', textoMinKgLst(c), c.maquina, c.envase === 'bobina' && 'bobina'].filter(Boolean).join(' · ');
 
 // Tab Fraccionado: el granel es la fila principal y sus presentaciones se despliegan con ▸/▾ (cerrado por defecto). Clave del
 // grupo = PLU del granel ('sin' para el "sin granel"). abiertos = Map clave → lo elegido con el botón, que manda; sin elegir, se
@@ -254,9 +255,10 @@ const badgePrecioFijo = f => (f.precioFijo
 const badgeAvisosCosto = f => ((f.avisosCosto || []).length
   ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="${ESC_LST(textoAvisosCosto(f.avisosCosto).join('\n'))}">⚠ ${f.avisosCosto.length}</span>` : '')
   + (f.costeoGranel ? ` <span class="text-xs text-gris font-normal">${ESC_LST(textoCosteoGranel(f.costeoGranel))}</span>` : '');
-// faltantesCosto = PLUs de insumos sin costo: la presentación queda sin sugerido.
+// faltantesCosto = PLU de la bolsa o '_bobina' (sin $/kg) sin costo: la presentación queda sin sugerido.
+const textoFaltanteCosto = x => (x === '_bobina' ? 'bobina' : `PLU ${x}`);
 const badgeFaltanteCosto = p => ((p.faltantesCosto || []).length
-  ? ` <span class="ml-1 text-[11px] text-crit" title="Sin costo: la presentación no tiene sugerido">sin costo: PLU ${ESC_LST(p.faltantesCosto.join(', '))}</span>` : '');
+  ? ` <span class="ml-1 text-[11px] text-crit" title="Sin costo: la presentación no tiene sugerido">sin costo: ${ESC_LST(p.faltantesCosto.map(textoFaltanteCosto).join(', '))}</span>` : '');
 // Clic en el nombre = modal del producto (detalle del cálculo, costos, márgenes). La decisión rápida es el select de la fila
 // (Fraccionado: en el granel, vale para sus presentaciones; el "sin granel" no tiene). Producción además tiene el botón
 // "Precios" a la vista (el nombre solo no se veía clickeable).

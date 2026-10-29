@@ -530,7 +530,7 @@ test('listado Fraccionado: la presentación suma los insumos de su peso + la MO 
   const conSub = async sql => (sql.includes('SubRubros')
     ? [{ IdProducto: '50', NombreProducto: 'Almendra granel', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' }] : sigaFalso(sql));
   const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, subrubros: { 7: { minKg: 2 } },
-    insumosPorPeso: { 500: [{ plu: '300', cantidad: 1 }] } };
+    envasePorPeso: { 500: { bolsaPlu: '300' } } };
   const a = appCon({ ...CON_FRACC, fraccionado }, { query: conSub, archivos: ARCHIVOS_FALSOS });
   try {
     const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
@@ -663,7 +663,7 @@ test('detalle Fraccionado: min/kg propio del granel + ajuste del tramo + máquin
     ? [{ IdProducto: '50', NombreProducto: 'Almendra granel', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' }] : sigaFalso(sql));
   const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, subrubros: { 7: { minKg: 2 } },
     maquinas: [{ id: 'sel', nombre: 'Selladora', costoHora: 1200 }], porGranel: { 50: { minKg: 4, maquinaId: 'sel' } },
-    tramosTiempo: [{ hastaG: 500, minKg: 2 }, { hastaG: 1000, minKg: 0 }], insumosPorPeso: { 500: [{ plu: '300', cantidad: 1 }] } };
+    tramosTiempo: [{ hastaG: 500, minKg: 2 }, { hastaG: 1000, minKg: 0 }], envasePorPeso: { 500: { bolsaPlu: '300' } } };
   const a = appCon({ ...CON_FRACC, fraccionado }, { query: conSub, archivos: ARCHIVOS_FALSOS });
   try {
     // Act
@@ -675,7 +675,7 @@ test('detalle Fraccionado: min/kg propio del granel + ajuste del tramo + máquin
       [['50', 'granel', 5000], ['300', 'insumo', 330.58], ['_manoObra', 'mo', 300], ['_maquina', 'maquina', 60]]);
     assert.deepStrictEqual(det.avisosCosto, []);
     assert.deepStrictEqual(det.costeoGranel, { maquinaId: 'sel', maquina: 'Selladora', minKgPropio: 4, minKgSubrubro: 2,
-      minKgOrigen: 'granel', subrubroId: '7', subrubro: 'Frutos secos' });
+      minKgOrigen: 'granel', envase: 'bolsa', subrubroId: '7', subrubro: 'Frutos secos' });
   } finally { a.cerrar(); }
 });
 

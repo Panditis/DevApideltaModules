@@ -179,10 +179,10 @@ function igualarSigaMd(fila, tipo, fuente) {
   };
   const canales = Object.entries(necesarios).map(([c, ms]) => [c, ms.filter(m => m != null)]).filter(([, ms]) => ms.length);
   if (!canales.length) {
-    // Hay vigentes pero ninguna fila con vigente tiene costo real (Fraccionado: insumos sin costo): no es que falten precios.
+    // Hay vigentes pero ninguna fila con vigente tiene costo real (Fraccionado: envase sin costo): no es que falten precios.
     const conVigente = filas.filter(f => f.vigente > 0 || (f.mayoristas || []).some(m => m.vigente > 0));
     const faltaCosto = conVigente.length > 0 && conVigente.every(f => !des(f, usada));
-    return { valores: {}, notas: [], motivo: faltaCosto ? 'Falta el costo real de las presentaciones (insumos sin costo)' : 'Sin precios vigentes en SIGA para igualar', fuente: usada };
+    return { valores: {}, notas: [], motivo: faltaCosto ? 'Falta el costo real de las presentaciones (envase sin costo)' : 'Sin precios vigentes en SIGA para igualar', fuente: usada };
   }
   const valores = Object.fromEntries(canales.map(([c, ms]) => [c, medianaMd(ms)]));
   const notas = canales.filter(([, ms]) => new Set(ms).size > 1).map(([c, ms]) => {

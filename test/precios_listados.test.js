@@ -283,15 +283,16 @@ test('Importar planilla: resumen de marcados por costo y planilla de no marcados
   ]);
 });
 
-test('textoAvisosCosto: los avisos del costeo de ahora (sinPeso, sinMinutos, costoHora, sinInsumos) en texto legible; uno desconocido pasa tal cual; ninguno habla de facilidad', () => {
-  assert.deepStrictEqual(textoAvisosCosto(['sinPeso', 'sinMinutos', 'costoHora', 'sinInsumos', 'raro']), [
+test('textoAvisosCosto: los avisos del costeo de ahora (sinPeso, sinMinutos, costoHora, sinBolsa, sinBobina) en texto legible; uno desconocido pasa tal cual; ninguno habla de facilidad', () => {
+  assert.deepStrictEqual(textoAvisosCosto(['sinPeso', 'sinMinutos', 'costoHora', 'sinBolsa', 'sinBobina', 'raro']), [
     'presentación sin peso en el nombre (sólo mercadería)',
     'sin min/kg (ni del subrubro ni del producto): sin mano de obra ni máquina',
     'sin costo hora de Fraccionado',
-    'su peso no tiene insumos',
+    'sin bolsa cargada para su peso: el costo no incluye envase',
+    'sin peso de bolsa cargado para su peso: el costo no incluye envase',
     'raro']);
   assert.deepStrictEqual(textoAvisosCosto(undefined), []);
-  assert.doesNotMatch(textoAvisosCosto(['sinPeso', 'sinMinutos', 'costoHora', 'sinInsumos']).join(' '), /facilidad/i);
+  assert.doesNotMatch(textoAvisosCosto(['sinPeso', 'sinMinutos', 'costoHora', 'sinBolsa', 'sinBobina']).join(' '), /facilidad/i);
 });
 
 test('textoCosteoGranel: "subrubro · min/kg (propio) · máquina"; sin máquina no se nombra (es lo normal); sin min/kg lo dice', () => {
@@ -301,6 +302,24 @@ test('textoCosteoGranel: "subrubro · min/kg (propio) · máquina"; sin máquina
   assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', minKgOrigen: null, minKgSubrubro: null, minKgPropio: null, maquina: 'Envasadora' }), 'Frutos secos · sin min/kg · Envasadora');
   assert.strictEqual(textoCosteoGranel({ subrubro: null, minKgOrigen: null, maquina: null }), 'sin subrubro · sin min/kg');
   assert.doesNotMatch(textoCosteoGranel({ subrubro: 'X', minKgOrigen: 'subrubro', minKgSubrubro: 1, maquina: null }), /sin máquina|facilidad/i);
+  // envase: bobina se nombra al final; bolsa (el default) no
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'X', minKgOrigen: 'subrubro', minKgSubrubro: 1, maquina: 'Selladora', envase: 'bobina' }), 'X · 1 min/kg · Selladora · bobina');
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'X', minKgOrigen: 'subrubro', minKgSubrubro: 1, maquina: null, envase: 'bolsa' }), 'X · 1 min/kg');
+});
+
+test('badgeFaltanteCosto: PLU de bolsa → "sin costo: PLU 900", "_bobina" → "sin costo: bobina", escapado; sin faltantes nada', () => {
+  // Arrange: el script como en el navegador (badgeFaltanteCosto no se exporta)
+  const vm = require('node:vm');
+  const { esc, ordenarCon } = require('../public/js/precios_comun.js');
+  const ctx = vm.createContext({ esc, ordenarCon, fmtSug: String });
+  vm.runInContext(require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/js/precios_listados.js'), 'utf8'), ctx);
+  const badge = p => vm.runInContext(`badgeFaltanteCosto(${JSON.stringify(p)})`, ctx);
+  // Act / Assert
+  assert.match(badge({ faltantesCosto: ['900'] }), />sin costo: PLU 900</);
+  assert.match(badge({ faltantesCosto: ['_bobina'] }), />sin costo: bobina</);
+  assert.match(badge({ faltantesCosto: ['<b>'] }), /PLU &lt;b&gt;/);
+  assert.strictEqual(badge({ faltantesCosto: [] }), '');
+  assert.strictEqual(badge({}), '');
 });
 
 test('abiertoLst: cerrado por defecto; lo elegido con ▸/▾ manda; la búsqueda que sólo coincide con una presentación lo abre', () => {

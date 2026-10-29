@@ -201,7 +201,7 @@ test('configEsquemaDe: Reventa/Producción leen la raíz y dicen si Fraccionado 
 test('configEsquemaDe fraccionado: sin migrar → la raíz (como antes) + defaults de lo propio; migrado → su bloque con tilde sólo Fraccionado', () => {
   const sin = C.configEsquemaDe(RAIZ, 'fraccionado');
   assert.deepStrictEqual([sin.fraccionadoMigrado, sin.ivaVentaPct, sin.gastosVenta], [false, 21, RAIZ.gastosVenta]);
-  assert.deepStrictEqual([sin.maquinas, sin.subrubros, sin.insumosPorPeso, sin.porGranel, 'presentaciones' in sin], [[], {}, {}, {}, false]);
+  assert.deepStrictEqual([sin.maquinas, sin.subrubros, sin.envasePorPeso, sin.costoBobinaKg, sin.porGranel, 'presentaciones' in sin], [[], {}, {}, null, {}, false]);
   assert.deepStrictEqual([sin.tramosTiempo, 'escalas' in sin], [[], false]);
   const fracc = { ivaVentaPct: 10.5, costoHora: 5000, modoGastos: 'precio', gastosVenta: [{ id: 'fl', concepto: 'Flete', pct: 2 }],
     extrasMinorista: [{ id: 'ib', concepto: 'IIBB', pct: 5 }], margenes: { minorista: TABLA }, redondeo: { minorista: 0 },
@@ -243,7 +243,7 @@ test('migrarConfigFraccionado: copia la raíz (gastos/extras tildados para Fracc
   assert.deepStrictEqual(f.margenes, { minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100], puntos: [5] } });
   assert.deepStrictEqual([f.ivaVentaPct, f.toleranciaPct, f.modoGastos, f.costoHora, f.redondeo.minorista], [21, 3, 'costo', 8000, 10]);
   // forma que crea scripts/migrar_config_fraccionado.js (sale de normalizarCosteoFraccionado): la nueva, sin escalas
-  assert.deepStrictEqual([f.maquinas, f.tramosTiempo, f.subrubros, f.insumosPorPeso, f.porGranel, 'escalas' in f], [[], [], {}, {}, {}, false]);
+  assert.deepStrictEqual([f.maquinas, f.tramosTiempo, f.subrubros, f.envasePorPeso, f.costoBobinaKg, f.porGranel, 'escalas' in f], [[], [], {}, {}, null, {}, false]);
   f.margenes.minorista.minPct = 1; // copia profunda: no toca la raíz
   assert.strictEqual(raiz.margenes.minorista.minPct, TABLA.minPct);
   assert.deepStrictEqual(costeo.gastosVenta, raiz.gastosVenta); // la raíz queda igual

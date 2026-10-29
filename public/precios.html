@@ -37,7 +37,7 @@
   .seg-opt:not(:disabled):not([aria-pressed="true"]):hover{background:rgba(64,89,54,.08)}
   .seg-opt:disabled{opacity:.4;cursor:not-allowed}
   .seg.hidden,.seg-opt.hidden,.cfg-tab.hidden{display:none} /* ajustarTiposSim (precios_simulador.js), #cfgTipo en General y el sub-tab Costeo Fraccionado: el display de arriba le gana a .hidden de Tailwind */
-  .fp-chip{display:inline-block;padding:0 6px;margin:1px 0;border-radius:9999px;background:#eef1ea;white-space:nowrap} /* insumos de un peso (Configuración › Costeo Fraccionado › Insumos por peso) */
+  .fp-chip{display:inline-block;padding:0 6px;margin:1px 0;border-radius:9999px;background:#eef1ea;white-space:nowrap} /* etiquetas chicas de Configuración › Costeo Fraccionado ("base", "propio: N min/kg") */
   /* Sub-tabs de Configuración: el mismo control segmentado, con texto de botón. */
   .seg-sub .seg-opt{font-size:13px;font-weight:600;padding:6px 16px}
   .seg-sub .seg-opt:focus-visible{outline:2px solid #405936;outline-offset:2px}
@@ -384,7 +384,7 @@
   table:has(>tbody:empty)+.fr-vacio{display:block} /* tabla sin filas: el texto de "todavía no hay" y sin encabezado */
   table:has(>tbody:empty)>thead{display:none}
   .btn-quitar:disabled:hover{color:#5c5f52;background:transparent;cursor:not-allowed}
-  /* Tablas de filas de Configuración (tramos de tiempo, insumos por peso) */
+  /* Tablas de filas de Configuración (tramos de tiempo, envase por peso) */
   .fr-filas th{font-size:11px;font-weight:600;color:#5c5f52;padding:0 12px 6px 0}
   .fr-filas td{padding:7px 12px 7px 0;font-size:13px}
   .fr-filas tbody tr+tr td{border-top:1px solid rgba(26,28,24,.08)}
@@ -404,12 +404,24 @@
   .fr-prod li:not(.hidden)~li:not(.hidden){border-top:1px solid rgba(26,28,24,.08)}
   .fr-prod-pres{display:block;font-size:11.5px;color:#5c5f52}
   .fr-propia{display:inline-block;margin-left:8px;padding:0 7px;border-radius:999px;background:#eef1ea;font-size:11px;color:#3d4136;white-space:nowrap}
-  /* Insumos por peso */
+  /* Envase por peso: "Costo de bobina" (campo + Guardar en una línea; el aviso de cambios sin guardar va junto al botón, sin el filo amarillo
+     de la tarjeta) y la tabla Peso | Bolsa | Bobina */
   .fr-filas tbody tr:hover{background:#f5f8f1}
   .fr-peso b{display:block;font-size:14px;color:#242423;line-height:1.3}
   .fr-peso span{font-size:12px;color:#5c5f52}
   .fr-peso-vacio b{color:#5c5f52}
   #frPesos .cfg-pie{margin-top:8px;padding-top:0;border-top:0;min-height:20px}
+  .fr-bobina{margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid rgba(26,28,24,.1)}
+  .fr-bobina-fila{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
+  .fr-bobina[data-sucio]{box-shadow:none}
+  .fr-bobina[data-sucio] .fr-bobina-fila::after{content:'● Cambios sin guardar';font-size:12px;font-weight:600;color:#8a5d00;background:rgba(255,204,0,.16);padding:3px 9px;border-radius:999px;white-space:nowrap}
+  /* Diálogo de envase: el PLU a mano (angosto) y el buscador de SIGA al lado, que ocupa el resto de la fila */
+  #dlgFP .fp-dlg-plu{width:8.5rem;flex:none}
+  #dlgFP .fp-dlg-bus{flex:1;min-width:0}
+  #dlgFP .fp-dlg-bus input[type=search]{width:100%}
+  #dlgFP .fp-dlg-nombre{min-height:1rem}
+  #dlgFP button:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  #dlgFP .num-in[aria-invalid=true],#dlgFP .campo-u:has(input[aria-invalid=true]){border-color:#a4262c;box-shadow:0 0 0 3px rgba(164,38,44,.14)}
   /* ── Sugerido del historial (public/js/precios_fraccionado_historial.js): chips "Historial" + "Usar", resumen de cargas y panel "Ver distribución" ── */
   .hf-estado{margin-bottom:14px;font-size:12.5px;line-height:1.5;color:#5c5f52}
   .hf-linea{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;color:#242423}
@@ -822,7 +834,7 @@
     </div>
   </section>
 
-  <!-- Costeo de Fraccionado (máquinas, tramos de tiempo, min/kg por subrubro e insumos por peso): lo pinta /js/precios_config_fraccionado.js. Sólo con el
+  <!-- Costeo de Fraccionado (máquinas, tramos de tiempo, min/kg por subrubro y envase por peso): lo pinta /js/precios_config_fraccionado.js. Sólo con el
        switch de Configuración en Fraccionado (mostrarCosteoFracc). -->
   <section id="panel-costeo-fracc" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costeo-fracc"></section>
   </div>
@@ -868,16 +880,27 @@
     </div>
   </form>
 </dialog>
-<!-- Insumos por unidad de un peso de presentación de Fraccionado (Configuración › Costeo Fraccionado › Insumos por peso): /js/precios_config_fraccionado.js editarInsumosFr. -->
+<!-- Envase de un peso de presentación de Fraccionado (Configuración › Costeo Fraccionado › Envase): /js/precios_config_fraccionado.js editarEnvaseFr. -->
 <dialog id="dlgFP" class="rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,560px)] bg-card text-ink backdrop:bg-ink/40" aria-labelledby="dlgFPTitulo">
   <div class="p-5">
     <h3 id="dlgFPTitulo" class="fp-dlg-titulo text-sm font-semibold"></h3>
-    <p class="text-xs text-gris mt-1">Insumos por unidad (bolsa, etiqueta…) de cada presentación de este peso. Reemplazan a los que tenga cargados; "Sin insumos" los saca.</p>
-    <table class="w-full text-sm mt-3"><tbody class="fp-dlg-filas"></tbody></table>
-    <div class="fp-dlg-bus mt-2"></div>
-    <p class="fp-dlg-msg text-sm text-crit mt-2" role="alert"></p>
+    <p class="text-xs text-gris mt-1">Envase de cada presentación de este peso. Cada producto usa la bolsa o la bobina según lo que elija en su modal (sin elegir, bolsa). Dejá vacío lo que no uses; "Sin envase" saca los dos.</p>
+    <div class="mt-4">
+      <label for="fpPlu" class="block text-sm font-semibold">PLU de la bolsa</label>
+      <div class="flex items-center gap-2 mt-1">
+        <input id="fpPlu" type="text" inputmode="numeric" autocomplete="off" placeholder="PLU de SIGA" aria-describedby="fpPluAyuda" class="num-in fp-dlg-plu text-left">
+        <div class="fp-dlg-bus"></div>
+      </div>
+      <p id="fpPluAyuda" class="fp-dlg-nombre text-xs text-gris mt-1"></p>
+    </div>
+    <div class="mt-4">
+      <label for="fpBobinaG" class="block text-sm font-semibold">Peso de la bolsa</label>
+      <span class="campo-u w-32 mt-1"><input id="fpBobinaG" type="number" min="0" max="1000" step="any" aria-describedby="fpBobinaAyuda"><span class="u" aria-hidden="true">g</span></span>
+      <p id="fpBobinaAyuda" class="text-xs text-gris mt-1">Para el envase por bobina: cuesta el peso de la bolsa × el costo de bobina por kilo (se carga en la tarjeta Envase).</p>
+    </div>
+    <p class="fp-dlg-msg text-sm text-crit mt-3" role="alert"></p>
     <div class="flex justify-end gap-2 mt-5">
-      <button type="button" class="fp-dlg-vaciar mr-auto text-sm text-gris hover:text-crit">Sin insumos</button>
+      <button type="button" class="fp-dlg-vaciar mr-auto text-sm text-gris hover:text-crit">Sin envase</button>
       <button type="button" class="fp-dlg-cancelar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cancelar</button>
       <button type="button" class="fp-dlg-ok px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Aplicar</button>
     </div>

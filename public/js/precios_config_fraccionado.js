@@ -4,11 +4,12 @@
 // Fraccionado (mostrarCosteoFracc). Minutos por unidad = (min/kg + ajuste del tramo) × kg de la presentación. Arriba una barra de
 // estado (qué falta) que lleva a cada tarjeta; después "Ajuste por tramo de peso" (± min/kg global según el peso; el tramo que
 // cubre 1 kg es la base y queda fija en 0), Máquinas (costo hora; cada producto elige la suya en su modal), los subrubros de SIGA
-// (una fila por subrubro con su "Min por kg"; un solo Guardar para toda la tarjeta, que sólo manda lo que cambió), los insumos por
-// peso de presentación (globales: valen para toda presentación de ese peso) y el ajuste de margen por peso (puntos de margen de
-// los tres canales según el peso de la presentación; se editaba en Márgenes). Cada tarjeta guarda con su botón (PUT
-// /api/precios/config/esquema/fraccionado/…) y se repinta sólo ella: lo que las otras tengan sin guardar queda. Los insumos de
-// un peso se guardan al aceptar su diálogo (#dlgFP). El min/kg y la máquina propios de un granel, en su modal. Estilos: bloque
+// (una fila por subrubro con su "Min por kg"; un solo Guardar para toda la tarjeta, que sólo manda lo que cambió), el envase por
+// peso de presentación (bolsa = PLU de SIGA, o bobina = peso de la bolsa × $/kg de bobina; global: vale para toda presentación de
+// ese peso, y cada granel elige su modo en su modal) y el ajuste de margen por peso (puntos de margen de los tres canales según el
+// peso de la presentación; se editaba en Márgenes). Cada tarjeta guarda con su botón (PUT /api/precios/config/esquema/fraccionado/…)
+// y se repinta sólo ella: lo que las otras tengan sin guardar queda. El envase de un peso se guarda al aceptar su diálogo (#dlgFP);
+// el $/kg de bobina, con el Guardar de su campo. El min/kg y la máquina propios de un granel, en su modal. Estilos: bloque
 // "Costeo Fraccionado" de precios.html (.fr-*). El sugerido del historial (chips "Historial" + "Usar" en subrubros y tramos, "Ver
 // distribución" con "Fijar") lo arma /js/precios_fraccionado_historial.js (.hf-*); acá sólo se lo conecta y se guarda lo que fija.
 // Globales: esc, numOrNull, fmtMoney (precios_comun.js), campoU, marcarSucio, limpiarSucio (precios_config.js), pedirEsq,
@@ -64,54 +65,68 @@ const coincideFr = (texto, busqueda) => sinTildesFr(busqueda).split(/\s+/).filte
 // Subrubros de SIGA + los que tienen configuración pero SIGA ya no trae: sin esa fila su valor no se podría sacar.
 const subrubrosListaFr = (siga, configurados) => [...siga, ...Object.keys(configurados || {}).filter(id => !siga.some(s => s.id === id))
   .map(id => ({ id, nombre: `Subrubro ${id} (ya no tiene productos en SIGA)`, graneles: [] }))];
-// Insumos por peso: elegidos del buscador SIGA a la lista del diálogo, cantidad 1, sin repetir.
-const conInsumosFr = (lista, elegidos) => [...lista,
-  ...elegidos.filter(e => !lista.some(x => x.plu === String(e.plu))).map(e => ({ plu: String(e.plu), nombre: e.nombre, cantidad: 1 }))];
-// El servidor exige cantidad > 0 en cada insumo: se avisa en el diálogo, no con el PUT rechazado.
-const errorInsumosFr = lista => {
-  const malo = lista.find(x => !(x.cantidad > 0));
-  return malo ? `Cantidad mayor que 0 en "${malo.nombre || malo.plu}"` : null;
+// Envase por peso. Espejo de los límites del servidor (aplicarEnvasePeso / validarCostoBobina en lib/precios_config_fraccionado.js).
+const BOBINA_G_MAX_FR = 1000;
+const COSTO_BOBINA_MAX_FR = 1e7;
+const PLU_BOLSA_FR = /^\d{1,12}$/;
+// Del diálogo de un peso: plu y peso = el texto de sus inputs ('' = vacío). null si está bien; si no { campo, mensaje } para marcar dónde.
+// Se avisa en el diálogo, no con el PUT rechazado.
+function errorEnvaseFr(plu, peso) {
+  const p = String(plu).trim(), s = String(peso).trim(), n = Number(s);
+  if (p !== '' && !PLU_BOLSA_FR.test(p)) return { campo: 'bolsaPlu', mensaje: 'El PLU de la bolsa es un número de SIGA: sólo dígitos, hasta 12' };
+  if (s !== '' && !(Number.isFinite(n) && n > 0 && n <= BOBINA_G_MAX_FR)) return { campo: 'bobinaG', mensaje: `El peso de la bolsa es un número de gramos mayor que 0, hasta ${BOBINA_G_MAX_FR}` };
+  return null;
+}
+// Body del PUT /envase-peso/:pesoG: vacío = null (saca el campo); los dos vacíos borran el peso.
+const cuerpoEnvaseFr = (plu, peso) => ({ bolsaPlu: String(plu).trim() || null, bobinaG: numOrNull(peso) });
+// Del campo "Costo de bobina" ($/kg, texto): null si está bien (vacío = sin cargar); 0 no vale.
+const errorCostoBobinaFr = txt => {
+  const s = String(txt).trim(), n = Number(s);
+  return s !== '' && !(Number.isFinite(n) && n > 0 && n <= COSTO_BOBINA_MAX_FR) ? 'El costo de bobina es un número mayor que 0 ($ por kg), o vacío para sacarlo' : null;
 };
-// Costo de los insumos por unidad = Σ cantidad × costo (de su tab); null si alguno no tiene costo.
-const costoUnidadFr = insumos => ((insumos || []).some(i => i.costo == null) ? null
-  : Math.round((insumos || []).reduce((s, i) => s + i.cantidad * i.costo, 0) * 100) / 100);
 // Filas de la tarjeta: los pesos del universo (pesos del GET /costeo) + los configurados que ya no tienen presentaciones (0),
-// ascendente, cada uno con sus insumos (insumosPorPeso: claves string).
-const filasPesosFr = (pesos, insumosPorPeso) => {
-  const ipp = insumosPorPeso || {}, n = new Map((pesos || []).map(p => [Number(p.pesoG), p.presentaciones]));
-  return [...new Set([...n.keys(), ...Object.keys(ipp).map(Number)])].sort((a, b) => a - b)
-    .map(pesoG => ({ pesoG, presentaciones: n.get(pesoG) || 0, insumos: ipp[pesoG] || [] }));
+// ascendente, cada uno con su envase (envasePorPeso: claves string, { bolsaPlu?, bobinaG?, bolsaNombre?, bolsaCosto? }).
+const filasPesosFr = (pesos, envasePorPeso) => {
+  const epp = envasePorPeso || {}, n = new Map((pesos || []).map(p => [Number(p.pesoG), p.presentaciones]));
+  return [...new Set([...n.keys(), ...Object.keys(epp).map(Number)])].sort((a, b) => a - b)
+    .map(pesoG => ({ pesoG, presentaciones: n.get(pesoG) || 0, ...epp[pesoG] }));
 };
 // "250 g" / "1 kg" (kilos enteros en kg), "34 presentaciones", y los dos juntos: "250 g · 34 presentaciones".
 const pesoCortoFr = pesoG => (pesoG % 1000 ? `${pesoG} g` : `${pesoG / 1000} kg`);
 const presentacionesFr = n => (n ? `${n} presentaci${n === 1 ? 'ón' : 'ones'}` : 'sin presentaciones');
 const textoPesoFr = ({ pesoG, presentaciones: n }) => `${pesoCortoFr(pesoG)} · ${presentacionesFr(n)}`;
-// Estado de los pesos (filas de filasPesosFr): cuántos tienen insumos y a cuántos les falta el costo de algún insumo.
-const estadoPesosFr = filas => ({ total: filas.length, conInsumos: filas.filter(f => f.insumos.length).length,
-  sinCosto: filas.filter(f => f.insumos.length && costoUnidadFr(f.insumos) == null).length });
+// Chip "Envase" (filas de filasPesosFr), el primero que aplique: { texto, estado }.
+function estadoEnvaseFr(filas, costoBobinaKg) {
+  const sinCostoBolsa = filas.filter(f => f.bolsaPlu && f.bolsaCosto == null).length, sinNada = filas.filter(f => !f.bolsaPlu && !f.bobinaG).length;
+  if (!filas.length) return { texto: 'sin pesos', estado: 'info' };
+  if (costoBobinaKg == null && filas.some(f => f.bobinaG)) return { texto: 'falta costo de bobina', estado: 'falta' };
+  if (sinCostoBolsa) return { texto: `${sinCostoBolsa} bolsa${sinCostoBolsa === 1 ? '' : 's'} sin costo`, estado: 'falta' };
+  if (sinNada) return { texto: `${sinNada} sin bolsa ni bobina`, estado: 'info' };
+  return { texto: 'todos con envase', estado: 'ok' };
+}
 // "2 tramos" o "sin ajuste": del ajuste de margen por peso ({ tramosG, puntos } | null) y de la tabla de tramos de tiempo ([{ hastaG, minKg }]).
 const textoNTramosFr = n => (n ? `${n} tramo${n === 1 ? '' : 's'}` : 'sin ajuste');
 const textoAjustesPesoFr = aj => textoNTramosFr(aj && Array.isArray(aj.tramosG) ? aj.tramosG.length : 0);
 const textoTramosTiempoFr = tramos => textoNTramosFr((tramos || []).length);
 // Las cinco partes de la barra de arriba: id de su tarjeta, texto y estado (ok | falta | info). Máquina y tramos son opcionales: no faltan.
-function estadoConfigFr(maquinas, lista, configurados, filas, ajustesPeso, tramosTiempo) {
-  const faltan = subrubrosSinMinKgFr(lista, configurados).length, p = estadoPesosFr(filas), s = lista.length;
+function estadoConfigFr(maquinas, lista, configurados, filas, ajustesPeso, tramosTiempo, costoBobinaKg) {
+  const faltan = subrubrosSinMinKgFr(lista, configurados).length, s = lista.length;
   return [
     { id: 'frTramos', titulo: 'Tramos de peso', texto: textoTramosTiempoFr(tramosTiempo), estado: 'info' },
     { id: 'frMaquinas', titulo: 'Máquinas', texto: maquinas.length ? `${maquinas.length} cargada${maquinas.length === 1 ? '' : 's'}` : 'ninguna cargada', estado: maquinas.length ? 'ok' : 'info' },
     { id: 'frSubrubrosCard', titulo: 'Subrubros', texto: s ? `${s - faltan} de ${s} con min/kg` : 'sin subrubros', estado: !s ? 'info' : faltan ? 'falta' : 'ok' },
-    { id: 'frPesos', titulo: 'Insumos por peso', texto: !p.total ? 'sin pesos' : p.sinCosto ? `${p.sinCosto} sin costo` : `${p.conInsumos} de ${p.total} pesos con insumos`, estado: p.sinCosto ? 'falta' : 'info' },
+    { id: 'frPesos', titulo: 'Envase', ...estadoEnvaseFr(filas, costoBobinaKg) },
     { id: 'frAjustes', titulo: 'Margen por peso', texto: textoAjustesPesoFr(ajustesPeso), estado: 'info' },
   ];
 }
 
 if (typeof module === 'object' && module.exports) module.exports = { conTramoFr, indiceBaseFr, errorTramosFr, subrubrosSinMinKgFr, cambiosSubrubrosFr,
-  errorSubrubrosFr, cuentaProductosFr, textoUsosFr, coincideFr, subrubrosListaFr, conInsumosFr, errorInsumosFr, costoUnidadFr, filasPesosFr,
-  textoPesoFr, pesoCortoFr, estadoPesosFr, estadoConfigFr, textoAjustesPesoFr, textoTramosTiempoFr };
+  errorSubrubrosFr, cuentaProductosFr, textoUsosFr, coincideFr, subrubrosListaFr, errorEnvaseFr, cuerpoEnvaseFr, errorCostoBobinaFr, filasPesosFr,
+  textoPesoFr, pesoCortoFr, estadoEnvaseFr, estadoConfigFr, textoAjustesPesoFr, textoTramosTiempoFr };
 
 // ── DOM ──
-let cfFr = null;              // GET /costeo: config (maquinas, tramosTiempo, subrubros, porGranel, insumosPorPeso con nombre y costo)
-                              // + productos (subrubrosSiga, sinSubrubro, pesos)
+let cfFr = null;              // GET /costeo: config (maquinas, tramosTiempo, subrubros, porGranel, envasePorPeso con nombre y costo de la bolsa,
+                              // costoBobinaKg) + productos (subrubrosSiga, sinSubrubro, pesos)
 const abiertosFr = new Set(); // ponytail: subrubros con la lista de productos abierta, estado de UI que se muta en el lugar
 let soloFaltaFr = false;      // ponytail: filtro "solo los que faltan" de la tarjeta de subrubros; se conserva al repintarla
 
@@ -135,14 +150,14 @@ async function cargarCosteoFracc() {
 
 // Guardar un bloque: la respuesta del PUT es la config nueva (sin los productos, que no cambian) y se mezcla en cfFr; después
 // se repinta sólo lo guardado (repintar devuelve el bloque nuevo). Las otras tarjetas y su data-sucio quedan como están. Su
-// insumosPorPeso viene crudo (sin nombre ni costo): queda el del GET /costeo.
+// envasePorPeso viene crudo (sin el nombre ni el costo de la bolsa): queda el del GET /costeo. costoBobinaKg viene crudo y es el dato.
 async function guardarFr(bloque, ruta, body, repintar) {
   const msg = bloque.querySelector('.esq-msg'), boton = bloque.querySelector('.fr-guardar');
   const teniaFoco = document.activeElement === boton; // el bloque se repinta: sin esto el foco del teclado se pierde
   msgEsq(msg, 'Guardando…');
   boton.disabled = true; // un segundo click mientras se guarda mandaría el mismo PUT dos veces
   try {
-    const { insumosPorPeso: _crudo, ...vista } = await pedirEsq('PUT', `${API_FR}${ruta}`, body);
+    const { envasePorPeso: _crudo, ...vista } = await pedirEsq('PUT', `${API_FR}${ruta}`, body);
     cfFr = { ...cfFr, ...vista };
     avisoFr(cfFr.migrado);
     limpiarSucio(bloque);
@@ -170,7 +185,7 @@ function quitarFilaFr(e, card) {
 }
 
 const pieFr = txt => `<div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span><button type="button" class="fr-guardar cfg-btn">${txt}</button></div>`;
-const CABECERA_FR = `<p class="cfg-cab"><b>Costeo de Fraccionado</b> — mano de obra, máquina e insumos de cada presentación, sumados al $/kg del granel.
+const CABECERA_FR = `<p class="cfg-cab"><b>Costeo de Fraccionado</b> — mano de obra, máquina y envase de cada presentación, sumados al $/kg del granel.
     Minutos por unidad = (min/kg + ajuste del tramo) × kg de la presentación; el costo hora de mano de obra está en Costos.</p>
   <p class="cfg-cab">Orden de uso sugerido: primero la tabla de tramos, después los min/kg de los subrubros y, sólo para un producto puntual, pisar su min/kg
     desde el listado (el del producto reemplaza al del subrubro; el ajuste del tramo se suma igual).</p>`;
@@ -194,7 +209,7 @@ function pintarCosteoFracc(panel) {
 // ── Barra de estado: qué falta de cada parte; cada una lleva a su tarjeta ──
 const ICONO_ESTADO_FR = { ok: '✔', falta: '⚠', info: '–' };
 const listaSubrubrosFr = () => subrubrosListaFr(cfFr.subrubrosSiga, cfFr.subrubros);
-const estadoActualFr = () => estadoConfigFr(cfFr.maquinas, listaSubrubrosFr(), cfFr.subrubros, filasPesosFr(cfFr.pesos, cfFr.insumosPorPeso), cfFr.ajustesPeso, cfFr.tramosTiempo);
+const estadoActualFr = () => estadoConfigFr(cfFr.maquinas, listaSubrubrosFr(), cfFr.subrubros, filasPesosFr(cfFr.pesos, cfFr.envasePorPeso), cfFr.ajustesPeso, cfFr.tramosTiempo, cfFr.costoBobinaKg);
 const htmlEstadoFr = () => estadoActualFr().map(p => `<button type="button" class="fr-est" data-ancla="${p.id}" data-estado="${p.estado}">
   <span class="fr-est-ico" aria-hidden="true">${ICONO_ESTADO_FR[p.estado]}</span><span><b>${esc(p.titulo)}</b><span class="fr-est-txt">${esc(p.texto)}</span></span></button>`)
   .join('<span class="cfg-chev" aria-hidden="true">›</span>');
@@ -422,86 +437,121 @@ function pintarHistorialFr() {
 }
 // "Fijar" del histograma: pisa el min/kg propio del producto (PUT granel/:plu { minKg }, sin tocar su máquina) y lo refleja en su renglón.
 async function fijarProductoFr(plu, minKg) {
-  const { insumosPorPeso: _crudo, ...vista } = await pedirEsq('PUT', `${API_FR}/granel/${encodeURIComponent(plu)}`, { minKg });
+  const { envasePorPeso: _crudo, ...vista } = await pedirEsq('PUT', `${API_FR}/granel/${encodeURIComponent(plu)}`, { minKg });
   cfFr = { ...cfFr, ...vista };
   const g = cfFr.subrubrosSiga.flatMap(s => s.graneles).find(x => x.plu === plu);
   const li = document.querySelector(`#frSubrubros li[data-plu="${CSS.escape(plu)}"]`);
   if (g && li) li.outerHTML = htmlProductoFr(g);
 }
 
-// ── Insumos por peso ──
-// Una fila por peso: "250 g · 34 presentaciones", sus insumos y el costo por unidad. Editar abre el diálogo (#dlgFP) y al
-// aceptar guarda ese peso (PUT /insumos-peso/:pesoG). La respuesta del PUT es la vista sin nombres ni costos: se recargan
-// pesos e insumosPorPeso del GET /costeo (los costos de los insumos nuevos salen de su tab) y se repinta sólo esta tarjeta.
-const chipsInsumosFr = insumos => (insumos.length
-  ? insumos.map(i => `<span class="fp-chip">${esc(i.nombre || `PLU ${i.plu}`)} <b>× ${esc(i.cantidad)}</b></span>`).join(' ') : '<span class="text-gris">sin insumos</span>');
-function htmlFilaPesoFr(f) {
-  const costo = costoUnidadFr(f.insumos), txt = textoPesoFr(f), hay = f.insumos.length > 0;
-  return `<tr data-peso="${f.pesoG}"><td class="fr-peso${f.presentaciones ? '' : ' fr-peso-vacio'}"><b>${esc(pesoCortoFr(f.pesoG))}</b><span>${esc(presentacionesFr(f.presentaciones))}</span></td>
-    <td class="text-xs">${chipsInsumosFr(f.insumos)}</td>
-    <td class="text-right whitespace-nowrap tabular-nums">${!hay ? '<span class="text-gris">—</span>' : costo == null ? '<span class="text-crit font-semibold">⚠ falta costo</span>' : `<b>$ ${fmtMoney(costo)}</b>`}</td>
-    <td class="text-right"><button type="button" class="fr-peso-editar cfg-btn2" data-peso="${f.pesoG}" aria-label="${hay ? 'Editar' : 'Cargar'} los insumos de ${esc(txt)}">${hay ? 'Editar' : '+ Cargar insumos'}</button></td></tr>`;
+// ── Envase por peso ──
+// Arriba el "Costo de bobina" ($/kg global, con su Guardar: PUT /costo-bobina { costoBobinaKg }, vacío = sin cargar) y abajo una fila por
+// peso: "250 g · 34 presentaciones", su bolsa (nombre · PLU · costo de su tab) y su bobina (peso de la bolsa → costo por unidad). Editar
+// abre el diálogo (#dlgFP) y al aceptar guarda ese peso (PUT /envase-peso/:pesoG { bolsaPlu, bobinaG }). La respuesta del PUT es la vista
+// sin el nombre ni el costo de la bolsa: se recargan pesos y envasePorPeso del GET /costeo y se repinta sólo la tabla (el campo de bobina
+// puede tener algo sin guardar). Guardar el costo de bobina repinta la tarjeta entera: la bobina de cada fila depende de él.
+const SIN_DATO_FR = '<span class="text-gris">—</span>';
+const faltaFr = txt => `<span class="text-crit font-semibold">⚠ ${txt}</span>`;
+// Bolsa: "nombre · PLU · $ costo" (bolsaNombre null = el PLU no está en SIGA; bolsaCosto null = sin costo en su tab).
+function htmlBolsaFr(f) {
+  if (!f.bolsaPlu) return SIN_DATO_FR;
+  const quien = f.bolsaNombre ? `${esc(f.bolsaNombre)} <span class="text-gris">· ${esc(f.bolsaPlu)}</span>` : `<span class="text-gris">PLU ${esc(f.bolsaPlu)}</span>`;
+  return `${quien} · ${f.bolsaCosto == null ? faltaFr('falta costo') : `<b class="whitespace-nowrap tabular-nums">$ ${fmtMoney(f.bolsaCosto)}</b>`}`;
 }
-function htmlPesosFr() {
-  const filas = filasPesosFr(cfFr.pesos, cfFr.insumosPorPeso);
-  return `<div class="cfg-card fr-ancla min-w-0 mt-4" id="frPesos"><h3 class="cfg-h">Insumos por peso</h3>
-    <p class="cfg-ayuda">Insumos por unidad (bolsa, etiqueta…) según el peso de la presentación: valen para todas las presentaciones de Fraccionado de ese peso. El costo de cada insumo es el de su tab; costo por unidad = Σ cantidad × costo.</p>
-    ${filas.length ? `<table class="cfg-tabla fr-filas w-full"><thead><tr><th class="text-left">Peso</th><th class="text-left">Insumos por unidad</th><th class="text-right">Costo por unidad</th><th><span class="sr-only">Acción</span></th></tr></thead>
-      <tbody>${filas.map(htmlFilaPesoFr).join('')}</tbody></table>` : '<p class="text-sm text-gris mt-2">Ninguna presentación tiene peso en el nombre.</p>'}
+// Bobina: "8 g → $ 2,40 por unidad" = peso de la bolsa en kg × $/kg de bobina.
+function htmlBobinaFr(f) {
+  if (!f.bobinaG) return SIN_DATO_FR;
+  const kg = cfFr.costoBobinaKg;
+  return `<span class="tabular-nums">${esc(String(f.bobinaG).replace('.', ','))} g</span> → ${kg == null ? faltaFr('falta el costo de bobina')
+    : `<b class="whitespace-nowrap tabular-nums">$ ${fmtMoney(f.bobinaG / 1000 * kg)}</b> por unidad`}`;
+}
+function htmlFilaPesoFr(f) {
+  const hay = !!(f.bolsaPlu || f.bobinaG);
+  return `<tr data-peso="${f.pesoG}"><td class="fr-peso${f.presentaciones ? '' : ' fr-peso-vacio'}"><b>${esc(pesoCortoFr(f.pesoG))}</b><span>${esc(presentacionesFr(f.presentaciones))}</span></td>
+    <td>${htmlBolsaFr(f)}</td><td>${htmlBobinaFr(f)}</td>
+    <td class="text-right"><button type="button" class="fr-peso-editar cfg-btn2" data-peso="${f.pesoG}" aria-label="${hay ? 'Editar' : 'Cargar'} el envase de ${esc(textoPesoFr(f))}">${hay ? 'Editar' : '+ Cargar envase'}</button></td></tr>`;
+}
+const htmlCostoBobinaFr = () => `<div class="fr-bobina" id="frBobina" data-guardable data-nombre="Costo de bobina">
+    <div class="fr-bobina-fila"><label for="frBobinaKg" class="text-sm font-semibold">Costo de bobina</label>
+      ${campoU(`<input type="number" id="frBobinaKg" min="0" max="${COSTO_BOBINA_MAX_FR}" step="any" value="${esc(cfFr.costoBobinaKg ?? '')}" aria-describedby="frBobinaNota">`, '$/kg', { w: 'w-36' })}
+      <button type="button" class="fr-guardar cfg-btn">Guardar</button><span class="esq-msg text-sm" role="status" aria-live="polite"></span></div>
+    <p id="frBobinaNota" class="fr-hint">Pesos por kilo de bobina. Al cambiarlo se mueve de golpe el costo de todos los productos que van en bobina. Vacío = sin cargar.</p></div>`;
+function htmlTablaPesosFr() {
+  const filas = filasPesosFr(cfFr.pesos, cfFr.envasePorPeso);
+  return `<div id="frPesosTabla">${filas.length ? `<table class="cfg-tabla fr-filas w-full"><thead><tr><th scope="col" class="text-left">Peso</th><th scope="col" class="text-left">Bolsa</th>
+      <th scope="col" class="text-left">Bobina</th><th scope="col"><span class="sr-only">Acción</span></th></tr></thead><tbody>${filas.map(htmlFilaPesoFr).join('')}</tbody></table>`
+    : '<p class="text-sm text-gris mt-2">Ninguna presentación tiene peso en el nombre.</p>'}
     <div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span></div></div>`;
 }
+const htmlPesosFr = () => `<div class="cfg-card fr-ancla min-w-0 mt-4" id="frPesos"><h3 class="cfg-h">Envase</h3>
+    <p class="cfg-ayuda">Envase de cada presentación según su peso, el mismo para todas las de ese peso: una <b>bolsa</b> (un PLU de SIGA, cuesta lo que diga su tab) o una <b>bobina</b>
+      (peso de la bolsa × costo de bobina por kilo). Cada producto elige bolsa o bobina en su modal; sin elegir, bolsa.</p>
+    ${htmlCostoBobinaFr()}${htmlTablaPesosFr()}</div>`;
 function conectarPesosFr(card) {
-  card.onclick = e => { const b = e.target.closest('.fr-peso-editar'); if (b) editarPesoFr(card, Number(b.dataset.peso)); };
+  card.onclick = e => { const b = e.target.closest('.fr-peso-editar'); if (b) editarPesoFr(Number(b.dataset.peso)); };
+  const bloque = card.querySelector('#frBobina');
+  bloque.querySelector('.fr-guardar').onclick = () => guardarBobinaFr(bloque);
+  bloque.querySelector('input').onkeydown = e => { if (e.key === 'Enter') guardarBobinaFr(bloque); };
 }
-async function editarPesoFr(card, pesoG) {
-  const fila = filasPesosFr(cfFr.pesos, cfFr.insumosPorPeso).find(f => f.pesoG === pesoG);
-  const lista = await editarInsumosFr(fila.insumos, `Insumos de las presentaciones de ${textoPesoFr(fila)}`);
-  if (!lista) return;
-  const msg = card.querySelector('.esq-msg');
-  msgEsq(msg, 'Guardando…');
+function guardarBobinaFr(bloque) {
+  const txt = bloque.querySelector('input').value, error = errorCostoBobinaFr(txt);
+  if (error) return msgEsq(bloque.querySelector('.esq-msg'), error, 'text-crit');
+  return guardarFr(bloque, '/costo-bobina', { costoBobinaKg: numOrNull(txt) }, () => repintarFr('frPesos', htmlPesosFr, conectarPesosFr));
+}
+async function editarPesoFr(pesoG) {
+  const fila = filasPesosFr(cfFr.pesos, cfFr.envasePorPeso).find(f => f.pesoG === pesoG);
+  const cuerpo = await editarEnvaseFr(fila, `Envase de las presentaciones de ${textoPesoFr(fila)}`);
+  if (!cuerpo) return;
+  const msg = () => document.querySelector('#frPesosTabla .esq-msg'); // la tabla se repinta: el mensaje se busca de nuevo
+  msgEsq(msg(), 'Guardando…');
   try {
-    await pedirEsq('PUT', `${API_FR}/insumos-peso/${pesoG}`, { insumos: lista.map(({ plu, cantidad }) => ({ plu, cantidad })) });
-  } catch (e) { msgEsq(msg, e.message, 'text-crit'); return; }
+    await pedirEsq('PUT', `${API_FR}/envase-peso/${pesoG}`, cuerpo);
+  } catch (e) { msgEsq(msg(), e.message, 'text-crit'); return; }
   try {
-    const { pesos, insumosPorPeso } = await pedirEsq('GET', `${API_FR}/costeo`);
-    cfFr = { ...cfFr, pesos, insumosPorPeso };
-  } catch (e) { msgEsq(msg, `Guardado, pero no se pudo recargar: ${e.message}`, 'text-warn'); return; }
-  const nuevo = repintarFr('frPesos', htmlPesosFr, conectarPesosFr);
+    const { pesos, envasePorPeso } = await pedirEsq('GET', `${API_FR}/costeo`);
+    cfFr = { ...cfFr, pesos, envasePorPeso };
+  } catch (e) { msgEsq(msg(), `Guardado, pero no se pudo recargar: ${e.message}`, 'text-warn'); return; }
+  const nuevo = repintarFr('frPesosTabla', htmlTablaPesosFr, () => {});
   msgEsq(nuevo && nuevo.querySelector('.esq-msg'), 'Guardado', 'text-ok');
+  if (nuevo) { const b = nuevo.querySelector(`.fr-peso-editar[data-peso="${pesoG}"]`); if (b) b.focus(); } // el diálogo devolvía el foco a un botón que ya no existe
   actualizarEstadoFr();
 }
 
-// Diálogo de insumos por unidad (#dlgFP en precios.html) → Promise de la lista elegida o null (Cancelar / Esc).
-function editarInsumosFr(insumos, titulo) {
+// Diálogo de envase de un peso (#dlgFP en precios.html) → Promise del body del PUT ({ bolsaPlu, bobinaG }) o null (Cancelar / Esc).
+// El PLU de la bolsa se tipea directo (sólo dígitos) o se elige con el buscador de SIGA, que lo completa; se valida acá antes del PUT.
+const AYUDA_PLU_FR = 'Escribí el PLU o buscá la bolsa por nombre: al elegirla se completa el PLU.';
+function editarEnvaseFr(fila, titulo) {
   const d = document.getElementById('dlgFP');
-  const filas = d.querySelector('.fp-dlg-filas'), msg = d.querySelector('.fp-dlg-msg');
-  let lista = insumos.map(x => ({ ...x }));
-  const pintar = () => {
-    filas.innerHTML = lista.length ? lista.map(x => `<tr data-plu="${esc(x.plu)}"><td class="py-1 pr-2">${esc(x.nombre || x.plu)} <span class="text-gris text-xs">${esc(x.plu)}</span></td>
-      <td class="py-1 pr-2"><input type="number" min="0" step="any" class="num-in w-20" value="${esc(x.cantidad ?? '')}" aria-label="Cantidad por unidad de ${esc(x.nombre || x.plu)}"></td>
-      <td class="py-1"><button type="button" class="fp-dlg-quitar text-gris hover:text-crit" aria-label="Quitar ${esc(x.nombre || x.plu)}">✕</button></td></tr>`).join('')
-      : '<tr><td class="text-gris py-1">Sin insumos.</td></tr>';
-  };
-  const leer = () => { lista = lista.map(x => ({ ...x, cantidad: numOrNull(filas.querySelector(`tr[data-plu="${CSS.escape(x.plu)}"] input`).value) })); };
+  const plu = d.querySelector('#fpPlu'), peso = d.querySelector('#fpBobinaG'), nombre = d.querySelector('.fp-dlg-nombre'), msg = d.querySelector('.fp-dlg-msg');
+  const nombres = fila.bolsaPlu && fila.bolsaNombre ? { [fila.bolsaPlu]: fila.bolsaNombre } : {}; // plu → nombre de lo que se sabe de SIGA
+  const pintarNombre = () => { nombre.textContent = nombres[plu.value.trim()] || AYUDA_PLU_FR; };
+  const leerPeso = () => (peso.validity.badInput ? 'x' : peso.value); // un texto que no es número no se confunde con vacío
+  const limpiar = () => { msg.textContent = ''; plu.removeAttribute('aria-invalid'); peso.removeAttribute('aria-invalid'); };
   d.querySelector('.fp-dlg-titulo').textContent = titulo;
-  msg.textContent = '';
+  plu.value = fila.bolsaPlu || '';
+  peso.value = fila.bobinaG ?? '';
+  limpiar();
+  pintarNombre();
   // El buscador se pinta de nuevo en cada apertura: conectarBuscadorSiga engancha con addEventListener (no se duplica así).
-  d.querySelector('.fp-dlg-bus').innerHTML = htmlBuscadorSiga('fpDlgBus', 'Agregar insumos (nombre o PLU)');
-  conectarBuscadorSiga('fpDlgBus', elegidos => { leer(); lista = conInsumosFr(lista, elegidos); pintar(); },
-    { multiple: true, deshabilitado: plu => (lista.some(x => x.plu === String(plu)) ? 'ya está' : null) });
-  filas.onclick = e => { const b = e.target.closest('.fp-dlg-quitar'); if (b) { leer(); lista = lista.filter(x => x.plu !== b.closest('tr').dataset.plu); pintar(); } };
-  d.querySelector('.fp-dlg-vaciar').onclick = () => { lista = []; pintar(); };
+  d.querySelector('.fp-dlg-bus').innerHTML = htmlBuscadorSiga('fpDlgBus', 'Buscar bolsa por nombre o PLU');
+  d.querySelector('#fpDlgBus').setAttribute('aria-label', 'Buscar la bolsa por nombre o PLU');
+  conectarBuscadorSiga('fpDlgBus', e => { nombres[e.plu] = e.nombre; plu.value = e.plu; limpiar(); pintarNombre(); plu.focus(); });
+  d.oninput = e => { limpiar(); if (e.target === plu) pintarNombre(); };
+  d.onkeydown = e => { if (e.key === 'Enter' && (e.target === plu || e.target === peso)) { e.preventDefault(); d.querySelector('.fp-dlg-ok').click(); } };
+  d.querySelector('.fp-dlg-vaciar').onclick = () => { plu.value = ''; peso.value = ''; limpiar(); pintarNombre(); plu.focus(); };
   d.querySelector('.fp-dlg-ok').onclick = () => {
-    leer();
-    const falla = errorInsumosFr(lista);
-    if (falla) { msg.textContent = falla; return; }
-    d.close('ok');
+    const falla = errorEnvaseFr(plu.value, leerPeso());
+    if (!falla) return d.close('ok');
+    const campo = falla.campo === 'bolsaPlu' ? plu : peso;
+    msg.textContent = falla.mensaje;
+    campo.setAttribute('aria-invalid', 'true');
+    campo.focus();
   };
   d.querySelector('.fp-dlg-cancelar').onclick = () => d.close('');
-  pintar();
   d.returnValue = '';
   d.showModal();
-  return new Promise(res => d.addEventListener('close', () => res(d.returnValue === 'ok' ? lista : null), { once: true }));
+  plu.focus();
+  return new Promise(res => d.addEventListener('close', () => res(d.returnValue === 'ok' ? cuerpoEnvaseFr(plu.value, leerPeso()) : null), { once: true }));
 }
 
 // ── Ajuste de margen por peso ──

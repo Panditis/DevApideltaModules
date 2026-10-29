@@ -128,7 +128,7 @@ test('Fraccionado con precios-config: 4 pasos en orden, cada uno con título y p
   assert.match(dom.cuerpo(), /<fieldset class="md-dec md-paso"><legend class="sr-only">¿Con qué costo calculo el precio nuevo\?<\/legend>/); // el grupo de radios sigue con su leyenda
   assert.match(dom.cuerpo(), /<p class="md-guia">Seguí los pasos en orden\./);
   // Costo del granel: cada bloque con su subtítulo y su ayuda
-  for (const t of ['>Tiempo y máquina <span', '>Costos extra<', '>Venta de pack/bulto pesables<']) assert.ok(dom.cuerpo().includes(t), `falta ${t}`);
+  for (const t of ['>Tiempo, máquina y envase <span', '>Costos extra<', '>Venta de pack/bulto pesables<']) assert.ok(dom.cuerpo().includes(t), `falta ${t}`);
   assert.strictEqual((dom.cuerpo().match(/class="md-sb-ayuda/g) || []).length, 4); // tiempo y máquina (para qué sirve y qué se usa hoy), costos extra, venta de pack/bulto
   assert.match(dom.cuerpo(), /<label for="mdFrMinKg"[^>]*>Min por kg<\/label>/);
   assert.match(dom.cuerpo(), /<label for="mdFrMaquina"[^>]*>Máquina<\/label>/);
@@ -145,7 +145,8 @@ test('Fraccionado con precios-config: "Tiempo y máquina" hereda del subrubro (i
   assert.match(html, /ajuste[^<]*tramo[^<]*se suma encima/);                  // y el ajuste del tramo de cada presentación se suma encima
   assert.match(html, /<p id="mdFrAyuda" class="md-sb-ayuda[^"]*">Hoy se usa 2 min\/kg, del subrubro Frutos secos\. Vacío = hereda 2 min\/kg del subrubro Frutos secos\./);
   assert.match(html, /<option value="">Sin máquina<\/option>/);                 // sin máquina es lo normal: primera opción, elegida sin atributo
-  assert.doesNotMatch(html, /<option[^>]*selected/);
+  assert.doesNotMatch(html.match(/<select id="mdFrMaquina".*?<\/select>/s)[0], /<option[^>]*selected/);
+  assert.match(html, /<select id="mdFrEnvase"[^>]*><option value="bolsa" selected>Bolsa \(por defecto\)<\/option><option value="bobina">Bobina<\/option><\/select>/); // sin elegir = bolsa
   assert.doesNotMatch(html, /facilidad|Del subrubro \(|sin subrubro: no suma/i);
   assert.match(html, /<button type="button" id="mdFrGuardar"/);
   assert.match(html, /id="mdFrMsg"[^>]*role="status"[^>]*aria-live="polite"/);
@@ -176,9 +177,9 @@ test('Fraccionado con precios-config: la máquina del granel viene seleccionada 
   guardar('1,5', 'env');
   guardar('0', '');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(enviados)), [ // JSON: los objetos nacen en el contexto vm (otro realm)
-    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: null, maquinaId: null }, 'PUT', 'mdFrMsg'],
-    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: 1.5, maquinaId: 'env' }, 'PUT', 'mdFrMsg'],
-    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: 0, maquinaId: null }, 'PUT', 'mdFrMsg']]);
+    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: null, maquinaId: null, envase: 'bolsa' }, 'PUT', 'mdFrMsg'],
+    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: 1.5, maquinaId: 'env', envase: 'bolsa' }, 'PUT', 'mdFrMsg'],
+    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: 0, maquinaId: null, envase: 'bolsa' }, 'PUT', 'mdFrMsg']]);
 });
 
 test('Fraccionado con precios-config: un min/kg inválido no se envía; el error queda en el aviso (aria-live) y el foco vuelve al campo', () => {
@@ -486,4 +487,18 @@ test('Fraccionado sin precios-config: ni chip ni botones ni pedido del historial
   assert.doesNotMatch(dom.cuerpo() + dom.cuerpoDer(), /hf-|Historial|mdFrHist|Usar/);
   assert.strictEqual(pedidosHistorial(pedidos).length, 0);
   assert.strictEqual(pedidos.length, 0);
+});
+
+test('Fraccionado con precios-config: granel en bobina → el select viene en Bobina y Guardar manda envase "bobina"', () => {
+  // Arrange
+  const { dom, html } = bloque({ envase: 'bobina' });
+  const enviados = [];
+  dom.ctx.__llamadas = enviados;
+  dom.correr('guardarCostoEsq = (...a) => { __llamadas.push(a); return Promise.resolve(true); }');
+  // Act
+  dom.el('mdFrMinKg').value = ''; dom.el('mdFrMaquina').value = ''; dom.el('mdFrEnvase').value = 'bobina';
+  dom.el('mdFrGuardar').onclick();
+  // Assert
+  assert.match(html, /<option value="bobina" selected>Bobina<\/option>/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(enviados))[0][1], { minKg: null, maquinaId: null, envase: 'bobina' });
 });

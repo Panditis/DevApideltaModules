@@ -10,7 +10,7 @@ const cheerio = require('cheerio');
 
 const RUTA = path.join(__dirname, '../public/js/precios_config_fraccionado.js');
 const { conTramoFr, indiceBaseFr, errorTramosFr, subrubrosSinMinKgFr, cambiosSubrubrosFr, errorSubrubrosFr, cuentaProductosFr, textoUsosFr,
-  coincideFr, subrubrosListaFr, conInsumosFr, errorInsumosFr, costoUnidadFr, filasPesosFr, textoPesoFr, pesoCortoFr, estadoPesosFr,
+  coincideFr, subrubrosListaFr, errorEnvaseFr, errorCostoBobinaFr, filasPesosFr, textoPesoFr, pesoCortoFr, estadoEnvaseFr,
   estadoConfigFr, textoAjustesPesoFr, textoTramosTiempoFr } = require(RUTA);
 
 // ── Puros ──
@@ -109,36 +109,49 @@ test('subrubrosListaFr: los de SIGA + los configurados que SIGA ya no trae (para
   assert.strictEqual(siga.length, 1); // no muta
 });
 
-test('conInsumosFr: agrega los elegidos con cantidad 1 sin repetir', () => {
-  assert.deepStrictEqual(conInsumosFr([{ plu: '900', nombre: 'Bolsa', cantidad: 2 }], [{ plu: 900, nombre: 'Bolsa' }, { plu: '901', nombre: 'Etiqueta' }]),
-    [{ plu: '900', nombre: 'Bolsa', cantidad: 2 }, { plu: '901', nombre: 'Etiqueta', cantidad: 1 }]);
+test('errorEnvaseFr: PLU sólo dígitos (hasta 12, con trim) y peso de bolsa > 0 hasta 1000; vacíos valen; dice qué campo', () => {
+  assert.strictEqual(errorEnvaseFr('900', '8'), null);
+  assert.strictEqual(errorEnvaseFr(' 900 ', ''), null);
+  assert.strictEqual(errorEnvaseFr('', ''), null);
+  assert.strictEqual(errorEnvaseFr('', '1000'), null);
+  assert.strictEqual(errorEnvaseFr('', '0.5'), null);
+  for (const plu of ['abc', '12a', '9.5', '1234567890123']) assert.strictEqual(errorEnvaseFr(plu, '').campo, 'bolsaPlu', plu);
+  for (const peso of ['0', '-1', 'x', '1001']) assert.strictEqual(errorEnvaseFr('', peso).campo, 'bobinaG', peso);
+  assert.match(errorEnvaseFr('abc', '').mensaje, /sólo dígitos/);
 });
 
-test('errorInsumosFr: cantidad mayor que 0 en cada insumo', () => {
-  assert.strictEqual(errorInsumosFr([{ plu: '900', nombre: 'Bolsa', cantidad: 2 }]), null);
-  assert.strictEqual(errorInsumosFr([]), null);
-  assert.match(errorInsumosFr([{ plu: '900', nombre: 'Bolsa "A"', cantidad: null }]), /Bolsa "A"/);
-  assert.notStrictEqual(errorInsumosFr([{ plu: '900', cantidad: 0 }]), null);
-  assert.notStrictEqual(errorInsumosFr([{ plu: '900', cantidad: -1 }]), null);
+test('cuerpoEnvaseFr: trim del PLU, vacío → null (saca el campo); peso a número (usa numOrNull global: en el vm)', () => {
+  const run = cargar();
+  const cuerpo = (p, g) => JSON.parse(JSON.stringify(run(`cuerpoEnvaseFr(${JSON.stringify(p)}, ${JSON.stringify(g)})`)));
+  assert.deepStrictEqual(cuerpo(' 900 ', '8.5'), { bolsaPlu: '900', bobinaG: 8.5 });
+  assert.deepStrictEqual(cuerpo('', ''), { bolsaPlu: null, bobinaG: null });
+  assert.deepStrictEqual(cuerpo('   ', '  '), { bolsaPlu: null, bobinaG: null });
 });
 
-test('costoUnidadFr: suma cantidad × costo de cada insumo; null si alguno no tiene costo', () => {
-  assert.strictEqual(costoUnidadFr([{ cantidad: 1, costo: 20 }, { cantidad: 2, costo: 1.255 }]), 22.51);
-  assert.strictEqual(costoUnidadFr([{ cantidad: 1, costo: 20 }, { cantidad: 1, costo: null }]), null);
-  assert.strictEqual(costoUnidadFr([]), 0);
-  assert.strictEqual(costoUnidadFr(undefined), 0);
+test('errorCostoBobinaFr: vacío vale (sin cargar); 0, negativo, texto o más de 1e7 no', () => {
+  assert.deepStrictEqual([errorCostoBobinaFr(''), errorCostoBobinaFr(' '), errorCostoBobinaFr('6000'), errorCostoBobinaFr('0.5')], [null, null, null, null]);
+  for (const malo of ['0', '-1', 'x', '10000001']) assert.match(errorCostoBobinaFr(malo), /mayor que 0/, malo);
 });
 
-test('filasPesosFr: un peso por fila, ascendente, con sus insumos; también los configurados que ya no tienen presentaciones', () => {
+test('filasPesosFr: un peso por fila, ascendente, con su envase plano; también los configurados que ya no tienen presentaciones', () => {
   const pesos = [{ pesoG: 250, presentaciones: 34 }, { pesoG: 1000, presentaciones: 2 }];
-  const ipp = { 1000: [{ plu: '900', cantidad: 1, nombre: 'Bolsa', costo: 20 }], 500: [{ plu: '901', cantidad: 1, nombre: 'Etiqueta', costo: 5 }] };
-  assert.deepStrictEqual(filasPesosFr(pesos, ipp), [
-    { pesoG: 250, presentaciones: 34, insumos: [] },
-    { pesoG: 500, presentaciones: 0, insumos: ipp[500] },
-    { pesoG: 1000, presentaciones: 2, insumos: ipp[1000] },
+  const epp = { 1000: { bolsaPlu: '900', bolsaNombre: 'Bolsa', bolsaCosto: 20 }, 500: { bobinaG: 8, bolsaNombre: null, bolsaCosto: null } };
+  assert.deepStrictEqual(filasPesosFr(pesos, epp), [
+    { pesoG: 250, presentaciones: 34 },
+    { pesoG: 500, presentaciones: 0, bobinaG: 8, bolsaNombre: null, bolsaCosto: null },
+    { pesoG: 1000, presentaciones: 2, bolsaPlu: '900', bolsaNombre: 'Bolsa', bolsaCosto: 20 },
   ]);
   assert.deepStrictEqual(filasPesosFr(undefined, undefined), []);
   assert.strictEqual(pesos.length, 2); // no muta
+});
+
+test('estadoEnvaseFr: el primero que aplique de los 5 casos del chip', () => {
+  assert.deepStrictEqual(estadoEnvaseFr([], 6000), { texto: 'sin pesos', estado: 'info' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bobinaG: 8 }, { bolsaPlu: '9', bolsaCosto: null }], null), { texto: 'falta costo de bobina', estado: 'falta' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: null }, {}], null), { texto: '1 bolsa sin costo', estado: 'falta' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: null }, { bolsaPlu: '8', bolsaCosto: null }], 6000), { texto: '2 bolsas sin costo', estado: 'falta' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: 5 }, {}, {}], null), { texto: '2 sin bolsa ni bobina', estado: 'info' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: 5 }, { bobinaG: 8 }], 6000), { texto: 'todos con envase', estado: 'ok' });
 });
 
 test('textoPesoFr / pesoCortoFr: "250 g · 34 presentaciones", kilos enteros en kg, sin presentaciones marcado', () => {
@@ -146,12 +159,6 @@ test('textoPesoFr / pesoCortoFr: "250 g · 34 presentaciones", kilos enteros en 
   assert.strictEqual(textoPesoFr({ pesoG: 1000, presentaciones: 1 }), '1 kg · 1 presentación');
   assert.strictEqual(textoPesoFr({ pesoG: 1500, presentaciones: 0 }), '1500 g · sin presentaciones');
   assert.deepStrictEqual([pesoCortoFr(250), pesoCortoFr(2000), pesoCortoFr(1500)], ['250 g', '2 kg', '1500 g']);
-});
-
-test('estadoPesosFr: pesos con insumos y pesos con algún insumo sin costo', () => {
-  const filas = [{ pesoG: 250, insumos: [] }, { pesoG: 500, insumos: [{ cantidad: 1, costo: 5 }] }, { pesoG: 1000, insumos: [{ cantidad: 1, costo: null }] }];
-  assert.deepStrictEqual(estadoPesosFr(filas), { total: 3, conInsumos: 2, sinCosto: 1 });
-  assert.deepStrictEqual(estadoPesosFr([]), { total: 0, conInsumos: 0, sinCosto: 0 });
 });
 
 test('textoAjustesPesoFr / textoTramosTiempoFr: cuántos tramos tiene cada tabla; null o sin tramos → sin ajuste', () => {
@@ -166,19 +173,19 @@ test('textoAjustesPesoFr / textoTramosTiempoFr: cuántos tramos tiene cada tabla
   assert.strictEqual(textoTramosTiempoFr([{ hastaG: 250, minKg: 3 }, { hastaG: 1000, minKg: 0 }]), '2 tramos');
 });
 
-test('estadoConfigFr: tramos, máquinas, subrubros, insumos por peso y margen por peso con su estado (ok | falta | info)', () => {
-  const filas = [{ pesoG: 250, insumos: [{ cantidad: 1, costo: 5 }] }, { pesoG: 500, insumos: [] }];
+test('estadoConfigFr: tramos, máquinas, subrubros, envase y margen por peso con su estado (ok | falta | info)', () => {
+  const filas = [{ pesoG: 250, bolsaPlu: '9', bolsaCosto: 5 }, { pesoG: 500 }];
   const e = estadoConfigFr([{ id: 'env' }], [{ id: '1' }, { id: '2' }], { 1: { minKg: 8 } }, filas, { tramosG: [100, 1000], puntos: [8, 0] },
-    [{ hastaG: 250, minKg: 3 }, { hastaG: 1000, minKg: 0 }]);
+    [{ hastaG: 250, minKg: 3 }, { hastaG: 1000, minKg: 0 }], 6000);
   assert.deepStrictEqual(e.map(p => [p.id, p.texto, p.estado]), [
     ['frTramos', '2 tramos', 'info'], ['frMaquinas', '1 cargada', 'ok'], ['frSubrubrosCard', '1 de 2 con min/kg', 'falta'],
-    ['frPesos', '1 de 2 pesos con insumos', 'info'], ['frAjustes', '2 tramos', 'info']]);
+    ['frPesos', '1 sin bolsa ni bobina', 'info'], ['frAjustes', '2 tramos', 'info']]);
   // sin nada cargado: ninguna máquina no es un faltante (la máquina es opcional)
   const vacio = estadoConfigFr([], [], {}, [], null, []);
   assert.deepStrictEqual(vacio.map(p => [p.texto, p.estado]),
     [['sin ajuste', 'info'], ['ninguna cargada', 'info'], ['sin subrubros', 'info'], ['sin pesos', 'info'], ['sin ajuste', 'info']]);
-  assert.deepStrictEqual(estadoConfigFr([{}, {}], [{ id: '1' }], { 1: { minKg: 0 } }, [{ pesoG: 250, insumos: [{ cantidad: 1, costo: null }] }], null).map(p => [p.texto, p.estado]),
-    [['sin ajuste', 'info'], ['2 cargadas', 'ok'], ['1 de 1 con min/kg', 'ok'], ['1 sin costo', 'falta'], ['sin ajuste', 'info']]);
+  assert.deepStrictEqual(estadoConfigFr([{}, {}], [{ id: '1' }], { 1: { minKg: 0 } }, [{ pesoG: 250, bobinaG: 8 }], null, [], null).map(p => [p.texto, p.estado]),
+    [['sin ajuste', 'info'], ['2 cargadas', 'ok'], ['1 de 1 con min/kg', 'ok'], ['falta costo de bobina', 'falta'], ['sin ajuste', 'info']]);
 });
 
 // ── HTML de las tarjetas (el script cargado en un contexto con los globales de precios_comun.js / precios_config.js) ──
@@ -196,7 +203,7 @@ const CFG = {
   subrubrosSiga: [
     { id: '1', nombre: 'Frutos secos', graneles: [{ plu: '900', nombre: 'Almendra', presentaciones: [{ plu: '901', nombre: 'Almendra 250g', pesoG: 250 }] }] },
     { id: '2', nombre: 'Harinas', graneles: [] }],
-  sinSubrubro: [{ plu: '950', nombre: 'Suelto', presentaciones: [] }], pesos: [], insumosPorPeso: {}, ajustesPeso: null };
+  sinSubrubro: [{ plu: '950', nombre: 'Suelto', presentaciones: [] }], pesos: [], envasePorPeso: {}, costoBobinaKg: null, ajustesPeso: null };
 
 // Las funciones del historial (public/js/precios_fraccionado_historial.js, con su propio test) se reemplazan por espías: acá sólo se prueba cómo se las conecta.
 const espiasHf = eventos => Object.fromEntries(['conectarSubrubrosHf', 'conectarTramosHf', 'pintarSubrubrosHf', 'pintarTramosHf', 'pintarEstadoHf', 'cargarHistorialHf',
@@ -339,22 +346,22 @@ test('la lista de productos de un subrubro marca cada renglón con su PLU (para 
   assert.strictEqual($.find('li[data-plu="900"]').length, 1);
 });
 
-test('fijarProductoFr: PUT granel/:plu sólo con { minKg }, mezcla la config nueva sin pisar los insumos y reescribe el renglón del producto', async () => {
+test('fijarProductoFr: PUT granel/:plu sólo con { minKg }, mezcla la config nueva sin pisar el envase y reescribe el renglón del producto', async () => {
   const llamadas = [];
   let renglon = '';
   const li = { set outerHTML(v) { renglon = v; } };
   const run = cargar(CFG, {
     CSS: { escape: s => s },
-    pedirEsq: async (m, u, b) => { llamadas.push([m, u, b]); return { migrado: true, porGranel: { 900: { minKg: 6.4, maquinaId: 'env' } }, insumosPorPeso: { 250: [{ plu: '1', cantidad: 1 }] } }; },
+    pedirEsq: async (m, u, b) => { llamadas.push([m, u, b]); return { migrado: true, porGranel: { 900: { minKg: 6.4, maquinaId: 'env' } }, envasePorPeso: { 250: { bolsaPlu: '1' } } }; },
     document: { querySelector: sel => (sel === '#frSubrubros li[data-plu="900"]' ? li : null) },
   });
-  run('cfFr.insumosPorPeso = { 500: [{ plu: "7", cantidad: 2, nombre: "Bolsa", costo: 10 }] }');
+  run('cfFr.envasePorPeso = { 500: { bolsaPlu: "7", bolsaNombre: "Bolsa", bolsaCosto: 10 } }');
   await run('fijarProductoFr("900", 6.4)');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(llamadas)), [['PUT', '/api/precios/config/esquema/fraccionado/granel/900', { minKg: 6.4 }]]); // JSON: objetos de otro contexto
   assert.match(renglon, /propio: 6,4 min\/kg/);
   assert.match(renglon, /data-plu="900"/);
   assert.strictEqual(run('cfFr.porGranel[900].minKg'), 6.4);
-  assert.strictEqual(run('cfFr.insumosPorPeso[500][0].nombre'), 'Bolsa'); // el insumosPorPeso crudo de la respuesta no pisa el del GET (con nombre y costo)
+  assert.strictEqual(run('cfFr.envasePorPeso[500].bolsaNombre'), 'Bolsa'); // el envasePorPeso crudo de la respuesta no pisa el del GET (con nombre y costo)
   assert.strictEqual(run('cfFr.subrubrosSiga.length'), 2);
   await assert.rejects(cargar(CFG, { CSS: { escape: s => s }, pedirEsq: async () => { throw new Error('minKg: número de 0 a 600 (min/kg)'); }, document: {} })('fijarProductoFr("900", 9999)'), /número de 0 a 600/);
 });
@@ -375,7 +382,7 @@ test('conexión: al pintar la configuración se pide el historial; al guardar lo
   const card = { querySelectorAll: () => filas, querySelector: sel => (sel === '.esq-msg' ? msg : sel === '.fr-guardar' ? boton : null) };
   const run2 = cargar(CFG, {
     ...espiasHf(eventos), msgEsq() {}, limpiarSucio() {}, esFraccCfg: () => true,
-    pedirEsq: async (m, u, b) => { eventos.push(`${m} ${u.split('/').pop()} ${JSON.stringify(b.tramos)}`); return { migrado: true, tramosTiempo: b.tramos, insumosPorPeso: {} }; },
+    pedirEsq: async (m, u, b) => { eventos.push(`${m} ${u.split('/').pop()} ${JSON.stringify(b.tramos)}`); return { migrado: true, tramosTiempo: b.tramos, envasePorPeso: {} }; },
     document: { activeElement: null, getElementById: id => (id === 'frTramos' ? nuevo : id === 'cfgFraccAviso' ? nodo() : null) },
   });
   await run2('guardarTramosFr')(card);
@@ -384,4 +391,85 @@ test('conexión: al pintar la configuración se pide el historial; al guardar lo
 
 test('no hay diálogos nativos ni console en el script de la configuración', () => {
   assert.doesNotMatch(fs.readFileSync(RUTA, 'utf8'), /(alert|confirm|prompt)\s*\(|console\./);
+});
+
+// ── Tarjeta Envase ──
+const CFG_ENV = { ...CFG, costoBobinaKg: 6000, pesos: [{ pesoG: 250, presentaciones: 3 }, { pesoG: 500, presentaciones: 1 }, { pesoG: 1000, presentaciones: 2 }],
+  envasePorPeso: { 250: { bolsaPlu: '900', bolsaNombre: '<img src=x onerror=alert(1)>', bolsaCosto: 20 }, 500: { bolsaPlu: '901', bolsaNombre: null, bolsaCosto: null, bobinaG: 8 } } };
+
+test('tarjeta Envase: costo de bobina arriba; por peso bolsa (nombre escapado · PLU · $) o "falta costo", bobina "8 g → $ 48 por unidad", vacío "—"', () => {
+  // Arrange / Act
+  const $ = tarjeta(cargar(CFG_ENV)('htmlPesosFr()'));
+  const filas = $.find('tbody tr').toArray().map(tr => $.find(tr).find('td').toArray().map(td => $.find(td).text().replace(/\s+/g, ' ').trim()));
+  // Assert
+  assert.strictEqual($.find('h3').text(), 'Envase');
+  assert.strictEqual($.find('#frBobinaKg').attr('value'), '6000');
+  assert.strictEqual($.find('img').length, 0); // el nombre de SIGA con HTML va escapado
+  assert.deepStrictEqual(filas.map(f => f.slice(1, 3)), [
+    ['<img src=x onerror=alert(1)> · 900 · $ 20', '—'],
+    ['PLU 901 · ⚠ falta costo', '8 g → $ 48 por unidad'],
+    ['—', '—']]);
+  assert.deepStrictEqual($.find('.fr-peso-editar').toArray().map(b => $.find(b).text()), ['Editar', 'Editar', '+ Cargar envase']);
+});
+
+test('tarjeta Envase: sin costo de bobina la bobina dice "falta el costo de bobina"', () => {
+  const $ = tarjeta(cargar({ ...CFG_ENV, costoBobinaKg: null })('htmlTablaPesosFr()'));
+  assert.match($.find('tr[data-peso="500"]').text(), /8 g → ⚠ falta el costo de bobina/);
+});
+
+test('guardarBobinaFr: valida en el campo sin PUT; si vale, PUT costo-bobina y el envasePorPeso crudo de la respuesta no pisa el del GET', async () => {
+  // Arrange
+  const llamadas = [], mensajes = [];
+  const nodo = () => ({ classList: { toggle() {}, add() {}, remove() {} }, querySelector: () => nodo(), querySelectorAll: () => [], dataset: {} });
+  const input = { value: '0' }, msg = {}, boton = { disabled: false };
+  const bloque = { querySelector: sel => (sel === 'input' ? input : sel === '.esq-msg' ? msg : sel === '.fr-guardar' ? boton : null), querySelectorAll: () => [] };
+  const run = cargar(CFG_ENV, {
+    msgEsq: (_m, t, c) => mensajes.push([t, c]), limpiarSucio() {}, esFraccCfg: () => true,
+    pedirEsq: async (m, u, b) => { llamadas.push([m, u.split('/').pop(), b]); return { migrado: true, costoBobinaKg: b.costoBobinaKg, envasePorPeso: { 250: { bolsaPlu: '900' } } }; },
+    document: { activeElement: null, getElementById: () => nodo(), querySelector: () => null },
+  });
+  // Act: 0 no vale
+  await run('guardarBobinaFr')(bloque);
+  // Assert
+  assert.deepStrictEqual([llamadas.length, mensajes[0][1]], [0, 'text-crit']);
+  input.value = '7000';
+  await run('guardarBobinaFr')(bloque);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(llamadas)), [['PUT', 'costo-bobina', { costoBobinaKg: 7000 }]]);
+  assert.deepStrictEqual([run('cfFr.costoBobinaKg'), run('cfFr.envasePorPeso[250].bolsaNombre')], [7000, '<img src=x onerror=alert(1)>']);
+});
+
+test('diálogo de envase: el PLU se tipea; no numérico se rechaza en el diálogo sin cerrar; el buscador lo llena; vacío saca la bolsa', async () => {
+  // Arrange: un #dlgFP falso con sus inputs
+  const attrs = el => ({ ...el, setAttribute(k, v) { this[k] = v; }, removeAttribute(k) { delete this[k]; }, focus() {} });
+  const plu = attrs({ value: '' }), peso = attrs({ value: '', validity: { badInput: false } });
+  const nombre = { textContent: '' }, msg = { textContent: '' }, titulo = { textContent: '' }, bus = { innerHTML: '' };
+  const botones = { '.fp-dlg-ok': {}, '.fp-dlg-cancelar': {}, '.fp-dlg-vaciar': {} };
+  let onClose = null, elegir = null;
+  const d = { returnValue: '', showModal() {}, close(v) { this.returnValue = v; onClose(); }, addEventListener: (_e, fn) => { onClose = fn; },
+    querySelector: sel => ({ '#fpPlu': plu, '#fpBobinaG': peso, '.fp-dlg-nombre': nombre, '.fp-dlg-msg': msg, '.fp-dlg-titulo': titulo, '.fp-dlg-bus': bus,
+      '#fpDlgBus': { setAttribute() {} } }[sel] || botones[sel]) };
+  const run = cargar(CFG_ENV, { document: { getElementById: () => d }, htmlBuscadorSiga: () => '', conectarBuscadorSiga: (_id, fn) => { elegir = fn; } });
+  // Act 1: PLU con letras
+  const p1 = run('editarEnvaseFr')({ pesoG: 500, bolsaPlu: '901', bobinaG: 8 }, 'Envase 500 g');
+  assert.deepStrictEqual([plu.value, peso.value], ['901', 8]);
+  plu.value = '90a';
+  botones['.fp-dlg-ok'].onclick();
+  // Assert 1: sigue abierto, con el error en el campo
+  assert.deepStrictEqual([d.returnValue, plu['aria-invalid'], /dígitos/.test(msg.textContent)], ['', 'true', true]);
+  // Act 2: el buscador llena el PLU y se acepta
+  elegir({ plu: '902', nombre: 'Bolsa 1kg' });
+  assert.deepStrictEqual([plu.value, nombre.textContent, msg.textContent], ['902', 'Bolsa 1kg', '']);
+  botones['.fp-dlg-ok'].onclick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(await p1)), { bolsaPlu: '902', bobinaG: 8 });
+  // Act 3: tipeado con espacios y peso vaciado; "Sin envase" saca los dos
+  const p2 = run('editarEnvaseFr')({ pesoG: 500 }, 't');
+  plu.value = ' 77 '; peso.value = '';
+  botones['.fp-dlg-ok'].onclick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(await p2)), { bolsaPlu: '77', bobinaG: null });
+  const p3 = run('editarEnvaseFr')({ pesoG: 500, bolsaPlu: '9' }, 't');
+  botones['.fp-dlg-vaciar'].onclick(); botones['.fp-dlg-ok'].onclick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(await p3)), { bolsaPlu: null, bobinaG: null });
+  const p4 = run('editarEnvaseFr')({ pesoG: 500 }, 't');
+  botones['.fp-dlg-cancelar'].onclick();
+  assert.strictEqual(await p4, null);
 });

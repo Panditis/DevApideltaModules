@@ -65,25 +65,49 @@ test('aplicarGranel: minKg y maquinaId (ausente = no tocar, null = sacar); vací
   assert.throws(() => CF.aplicarGranel({}, '100', null, MAQ), /objeto/);
 });
 
-test('aplicarInsumosPeso: lista validada por peso en gramos; [] o null saca el peso; máximo 200 pesos', () => {
-  const r = CF.aplicarInsumosPeso({}, '500', { insumos: [{ plu: '900', cantidad: 1 }] });
-  assert.deepStrictEqual(r, { 500: [{ plu: '900', cantidad: 1 }] });
-  assert.deepStrictEqual(CF.aplicarInsumosPeso(r, '500', { insumos: [] }), {});
-  assert.deepStrictEqual(CF.aplicarInsumosPeso(r, '500', { insumos: null }), {});
-  assert.deepStrictEqual(CF.aplicarInsumosPeso(r, '250', { insumos: [{ plu: 901, cantidad: 2 }] }), { 500: r[500], 250: [{ plu: '901', cantidad: 2 }] });
-  for (const malo of ['0', 'x', '1234567', '0500', '-5']) assert.throws(() => CF.aplicarInsumosPeso({}, malo, { insumos: [] }), /peso/, malo);
-  assert.throws(() => CF.aplicarInsumosPeso({}, '500', null), /objeto/);
-  assert.throws(() => CF.aplicarInsumosPeso({}, '500', { insumos: [{ plu: '9', cantidad: 0 }] }), /insumos\[0\]\.cantidad/);
-  assert.throws(() => CF.aplicarInsumosPeso({}, '500', { insumos: [{ plu: '9', cantidad: 1 }, { plu: '9', cantidad: 1 }] }), /repetido/);
-  const lleno = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [String(i + 1), [{ plu: '9', cantidad: 1 }]]));
-  assert.throws(() => CF.aplicarInsumosPeso(lleno, '999', { insumos: [{ plu: '9', cantidad: 1 }] }), /200 pesos/);
-  assert.deepStrictEqual(CF.aplicarInsumosPeso(lleno, '200', { insumos: [{ plu: '8', cantidad: 1 }] })[200], [{ plu: '8', cantidad: 1 }]); // uno que ya está se puede cambiar
+test('aplicarEnvasePeso: bolsaPlu (trim, número ok) y bobinaG por peso; ausente no toca; null/"" saca; los dos vacíos borran el peso', () => {
+  const r = CF.aplicarEnvasePeso({}, '500', { bolsaPlu: ' 900 ', bobinaG: 8.5 });
+  assert.deepStrictEqual(r, { 500: { bolsaPlu: '900', bobinaG: 8.5 } });
+  assert.deepStrictEqual(CF.aplicarEnvasePeso(r, '500', { bolsaPlu: 901 }), { 500: { bolsaPlu: '901', bobinaG: 8.5 } });
+  assert.deepStrictEqual(CF.aplicarEnvasePeso(r, '500', { bobinaG: null }), { 500: { bolsaPlu: '900' } });
+  assert.deepStrictEqual(CF.aplicarEnvasePeso(r, '500', { bolsaPlu: '' }), { 500: { bobinaG: 8.5 } });
+  assert.deepStrictEqual(CF.aplicarEnvasePeso(r, '500', { bolsaPlu: null, bobinaG: null }), {});
+  assert.deepStrictEqual(CF.aplicarEnvasePeso(r, '250', { bolsaPlu: '900' }), { ...r, 250: { bolsaPlu: '900' } }); // mismo PLU en dos pesos vale
+  assert.deepStrictEqual(CF.aplicarEnvasePeso({}, '500', {}), {});
 });
 
-test('insumosConCosto: nombre y costo (en su tab) de cada insumo; sin fila en SIGA → null', () => {
-  const costoDe = plu => ({ 900: { costo: 20, fuente: 'sistema', nombre: 'Bolsa' } }[plu] || null);
-  assert.deepStrictEqual(CF.insumosConCosto({ 500: [{ plu: '900', cantidad: 1 }, { plu: '901', cantidad: 2 }] }, costoDe),
-    { 500: [{ plu: '900', cantidad: 1, nombre: 'Bolsa', costo: 20 }, { plu: '901', cantidad: 2, nombre: null, costo: null }] });
+test('aplicarEnvasePeso: rechaza sin escribir bobinaG 0, -1, "x", >1000, bolsaPlu "abc", peso inválido y el peso 201', () => {
+  const previo = Object.freeze({ 500: Object.freeze({ bolsaPlu: '900' }) });
+  for (const malo of [0, -1, 'x', 1000.5, 1001]) assert.throws(() => CF.aplicarEnvasePeso(previo, '500', { bobinaG: malo }), /bobinaG/, String(malo));
+  for (const malo of ['abc', '12a', '1234567890123']) assert.throws(() => CF.aplicarEnvasePeso(previo, '500', { bolsaPlu: malo }), /bolsaPlu/, malo);
+  assert.deepStrictEqual(CF.aplicarEnvasePeso(previo, '500', { bobinaG: 1000 })[500].bobinaG, 1000);
+  for (const malo of ['0', 'x', '1234567', '0500', '-5']) assert.throws(() => CF.aplicarEnvasePeso({}, malo, {}), /peso/, malo);
+  assert.throws(() => CF.aplicarEnvasePeso({}, '500', null), /objeto/);
+  const lleno = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [String(i + 1), { bolsaPlu: '9' }]));
+  assert.throws(() => CF.aplicarEnvasePeso(lleno, '999', { bolsaPlu: '9' }), /200 pesos/);
+  assert.deepStrictEqual(CF.aplicarEnvasePeso(lleno, '200', { bobinaG: 5 })[200], { bolsaPlu: '9', bobinaG: 5 }); // uno que ya está se puede cambiar
+});
+
+test('validarCostoBobina: número > 0 hasta 1e7; null/"" = sin cargar; 0, negativo, texto o más de 1e7 → error', () => {
+  assert.deepStrictEqual([CF.validarCostoBobina({ costoBobinaKg: 6000 }), CF.validarCostoBobina({ costoBobinaKg: null }), CF.validarCostoBobina({ costoBobinaKg: '' }), CF.validarCostoBobina({})],
+    [{ costoBobinaKg: 6000 }, { costoBobinaKg: null }, { costoBobinaKg: null }, { costoBobinaKg: null }]);
+  for (const malo of [0, -1, '6000', 1e7 + 1, NaN]) assert.throws(() => CF.validarCostoBobina({ costoBobinaKg: malo }), /costoBobinaKg/, String(malo));
+});
+
+test('aplicarGranel: envase "bobina" se guarda; "bolsa" y null borran la clave; otro valor tira; ausente no toca', () => {
+  const g = CF.aplicarGranel({}, '100', { envase: 'bobina', minKg: 2 }, MAQ);
+  assert.deepStrictEqual(g, { 100: { minKg: 2, envase: 'bobina' } });
+  assert.deepStrictEqual(CF.aplicarGranel(g, '100', { minKg: 3 }, MAQ), { 100: { minKg: 3, envase: 'bobina' } });
+  assert.deepStrictEqual(CF.aplicarGranel(g, '100', { envase: 'bolsa' }, MAQ), { 100: { minKg: 2 } });
+  assert.deepStrictEqual(CF.aplicarGranel({ 100: { envase: 'bobina' } }, '100', { envase: null }, MAQ), {});
+  assert.throws(() => CF.aplicarGranel(g, '100', { envase: 'otra' }, MAQ), /envase/);
+});
+
+test('envaseConCosto: nombre y costo (en su tab) de la bolsa; sin fila, sin costo o costo 0 → null; bobina sin tocar', () => {
+  const costoDe = plu => ({ 900: { costo: 20, fuente: 'sistema', nombre: 'Bolsa' }, 902: { costo: 0, nombre: 'Cero' } }[plu] || null);
+  assert.deepStrictEqual(CF.envaseConCosto({ 500: { bolsaPlu: '900', bobinaG: 8 }, 250: { bolsaPlu: '901' }, 750: { bolsaPlu: '902' }, 1000: { bobinaG: 5 } }, costoDe), {
+    500: { bolsaPlu: '900', bobinaG: 8, bolsaNombre: 'Bolsa', bolsaCosto: 20 }, 250: { bolsaPlu: '901', bolsaNombre: null, bolsaCosto: null },
+    750: { bolsaPlu: '902', bolsaNombre: 'Cero', bolsaCosto: null }, 1000: { bobinaG: 5, bolsaNombre: null, bolsaCosto: null } });
 });
 
 test('fraccionadoConCambios: escribe la forma nueva (sin escalas ni facilidad/tramos/máquina de subrubro ni claves viejas) sin perder lo vigente', () => {
@@ -93,9 +117,9 @@ test('fraccionadoConCambios: escribe la forma nueva (sin escalas ni facilidad/tr
     insumosSubrubro: {}, insumosPresentacion: { 101: [{ plu: '900', cantidad: 1 }] }, presentaciones: { 101: { facilidad: 'facil' } },
     porGranel: { 100: { facilidad: 'medio', maquinaId: 'env' } }, maquinas: MAQ, insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] } };
   const f = CF.fraccionadoConCambios(viejo, { maquinas: [] });
-  assert.deepStrictEqual(Object.keys(f).sort(), ['costoHora', 'insumosPorPeso', 'ivaVentaPct', 'maquinas', 'porGranel', 'subrubros', 'tramosTiempo']);
-  assert.deepStrictEqual([f.maquinas, f.tramosTiempo, f.subrubros, f.insumosPorPeso, f.porGranel, f.ivaVentaPct],
-    [[], [], { 8: { minKg: 2 } }, { 500: [{ plu: '900', cantidad: 1 }] }, { 100: { maquinaId: 'env' } }, 21]);
+  assert.deepStrictEqual(Object.keys(f).sort(), ['costoBobinaKg', 'costoHora', 'envasePorPeso', 'ivaVentaPct', 'maquinas', 'porGranel', 'subrubros', 'tramosTiempo']);
+  assert.deepStrictEqual([f.maquinas, f.tramosTiempo, f.subrubros, f.envasePorPeso, f.costoBobinaKg, f.porGranel, f.ivaVentaPct],
+    [[], [], { 8: { minKg: 2 } }, {}, null, { 100: { maquinaId: 'env' } }, 21]); // insumosPorPeso viejo se ignora y no se reescribe
 });
 
 test('productosPorSubrubro: graneles con sus presentaciones (y su peso) por subrubro (A→Z), los sin subrubro aparte y los pesos', () => {
