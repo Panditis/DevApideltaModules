@@ -20,8 +20,8 @@ const RUTAS_CONFIG_ESPERADAS = [
   'get /api/precios/config/esquema/fraccionado',
   'get /api/precios/config/esquema/fraccionado/costeo',
   'put /api/precios/config/esquema/fraccionado/maquinas',
-  'put /api/precios/config/esquema/fraccionado/escalas',
-  'put /api/precios/config/esquema/fraccionado/subrubros/:id',
+  'put /api/precios/config/esquema/fraccionado/tramos-tiempo',
+  'put /api/precios/config/esquema/fraccionado/subrubros',
   'put /api/precios/config/esquema/fraccionado/granel/:plu',
   'put /api/precios/config/esquema/fraccionado/insumos-peso/:pesoG',
   'put /api/precios/config/esquema/fraccionado/ajustes-peso',
@@ -135,7 +135,7 @@ test('admin asigna precios-config: se guarda en modulos y tienePermiso lo lee fr
 });
 
 test('CLAVES_OCULTAS: la configuración del costeo de Fraccionado no viaja sin el permiso; los avisos sí', () => {
-  const fila = { plu: '1', avisosCosto: ['sinMaquina'], costeoGranel: { maquina: 'Envasadora' }, maquinas: [], escalas: {}, porGranel: {},
+  const fila = { plu: '1', avisosCosto: ['sinMinutos'], costeoGranel: { maquina: 'Envasadora' }, maquinas: [], tramosTiempo: [], porGranel: {},
     insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] } };
-  assert.deepStrictEqual(permisos.sinClavesOcultas(fila), { plu: '1', avisosCosto: ['sinMaquina'] });
+  assert.deepStrictEqual(permisos.sinClavesOcultas(fila), { plu: '1', avisosCosto: ['sinMinutos'] });
 });

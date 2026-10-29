@@ -23,7 +23,7 @@ function crearContexto() {
     if (!elementos.has(id)) {
       elementos.set(id, { id, innerHTML: '', textContent: '', value: '', options: [], hidden: false, open: false,
         classList: clases(id === 'mDetCaja' ? ['max-w-2xl'] : id === 'mDet' || id === 'mDetDer' ? ['hidden'] : []),
-        focus() {}, setAttribute() {}, addEventListener() {}, scrollIntoView() {}, insertAdjacentHTML() {},
+        focus() {}, setAttribute() {}, removeAttribute() {}, addEventListener() {}, scrollIntoView() {}, insertAdjacentHTML() {},
         querySelector: () => el(`${id}>*`), querySelectorAll: () => [] });
     }
     return elementos.get(id);
@@ -57,8 +57,8 @@ function crearContexto() {
   return { ctx, el, ids, cuerpo, cuerpoDer, correr, llamadas };
 }
 
-// Granel con dos presentaciones (una con bulto pesable) tal como lo arma el server; conPermiso = fila entera + costeoGranel.
-function granel({ conPermiso }) {
+// Granel con dos presentaciones (una con bulto pesable) tal como lo arma el server; conPermiso = fila entera + costeoGranel (pisable con costeoGranel).
+function granel({ conPermiso, costeoGranel = {} }) {
   const vinculos = [{ plu: '201', nombre: 'Almendras Bulto x6', basePlu: '101', cantidad: 6, tipo: 'bulto' }];
   const v = new Map([['101', 1950], ['102', 1500], ['201', 9000]]);
   const [g] = L.listadoFraccionado({
@@ -67,7 +67,7 @@ function granel({ conPermiso }) {
     mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes: v, ventaPesable: { 201: { modo: 'kg' } } }), costeo: {}, cfg: CFG,
   });
   if (!conPermiso) return L.filaPublica(g);
-  return { ...g, costoManual: 1100, costeoGranel: { maquinaId: null, maquina: null, maquinaOrigen: 'subrubro', maquinaSubrubro: 'Envasadora', subrubroId: 7, subrubro: 'Frutos secos' } };
+  return { ...g, costoManual: 1100, costeoGranel: { maquinaId: null, maquina: null, minKgPropio: null, minKgSubrubro: 2, minKgOrigen: 'subrubro', subrubroId: 7, subrubro: 'Frutos secos', ...costeoGranel } };
 }
 const abrir = (dom, tipo, fila, { sinConfig = false, detalle = false } = {}) => {
   dom.ctx.__fila = fila;
@@ -95,7 +95,7 @@ test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids ú
   abrir(dom, 'fraccionado', granel({ conPermiso: true }));
   const html = dom.cuerpo(), der = dom.cuerpoDer();
   assert.deepStrictEqual(repetidos(dom.ids()), []); // el costo manual está una sola vez (en su tarjeta), no también en "Costo del granel"
-  // Izquierda (#mDetBody) en orden: resumen → tarjetas (con el costo manual adentro) → costo del granel (máquina + costos) → margen → estado → cómo se conforma.
+  // Izquierda (#mDetBody) en orden: resumen → tarjetas (con el costo manual adentro) → costo del granel (min/kg y máquina + costos) → margen → estado → cómo se conforma.
   const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdManual"', 'id="mdFr"', 'id="mdExtras"', 'id="mdVentas"', 'class="md-margen-prod md-paso"', 'id="mdAct"', 'id="mdDetCuerpo"']
     .map(t => { const i = html.indexOf(t); assert.ok(i >= 0, `falta ${t}`); return i; });
   assert.deepStrictEqual(pos, [...pos].sort((a, b) => a - b));
@@ -128,9 +128,72 @@ test('Fraccionado con precios-config: 4 pasos en orden, cada uno con título y p
   assert.match(dom.cuerpo(), /<fieldset class="md-dec md-paso"><legend class="sr-only">¿Con qué costo calculo el precio nuevo\?<\/legend>/); // el grupo de radios sigue con su leyenda
   assert.match(dom.cuerpo(), /<p class="md-guia">Seguí los pasos en orden\./);
   // Costo del granel: cada bloque con su subtítulo y su ayuda
-  for (const t of ['>Máquina <span', '>Costos extra<', '>Venta de pack/bulto pesables<']) assert.ok(dom.cuerpo().includes(t), `falta ${t}`);
-  assert.strictEqual((dom.cuerpo().match(/class="md-sb-ayuda/g) || []).length, 4); // máquina (para qué sirve y dónde se cargan los tiempos), costos extra, venta de pack/bulto
-  assert.match(dom.cuerpo(), /<label for="mdFrMaquina" class="sr-only">Máquina<\/label>/);
+  for (const t of ['>Tiempo y máquina <span', '>Costos extra<', '>Venta de pack/bulto pesables<']) assert.ok(dom.cuerpo().includes(t), `falta ${t}`);
+  assert.strictEqual((dom.cuerpo().match(/class="md-sb-ayuda/g) || []).length, 4); // tiempo y máquina (para qué sirve y qué se usa hoy), costos extra, venta de pack/bulto
+  assert.match(dom.cuerpo(), /<label for="mdFrMinKg"[^>]*>Min por kg<\/label>/);
+  assert.match(dom.cuerpo(), /<label for="mdFrMaquina"[^>]*>Máquina<\/label>/);
+});
+
+// Bloque "Tiempo y máquina" del granel (spec 2026-10-29): min/kg propio (vacío = hereda, se ve el heredado) y máquina con "Sin máquina" por defecto.
+const bloqueTiempo = html => html.match(/<div class="md-edicion" id="mdFr">.*?<p id="mdFrMsg"[^>]*><\/p><\/div>/s)[0];
+const bloque = costeoGranel => { const dom = crearContexto(); abrir(dom, 'fraccionado', granel({ conPermiso: true, costeoGranel })); return { dom, html: bloqueTiempo(dom.cuerpo()) }; };
+
+test('Fraccionado con precios-config: "Tiempo y máquina" hereda del subrubro (input vacío, valor heredado visible) y no habla de facilidad ni de máquina del subrubro', () => {
+  const { html } = bloque({});
+  assert.match(html, /<input id="mdFrMinKg" type="number" min="0" max="600" step="any" value=""[^>]*aria-describedby="mdFrAyuda"/);
+  assert.match(html, /por 1 kg/);                                             // el valor es por kilo
+  assert.match(html, /ajuste[^<]*tramo[^<]*se suma encima/);                  // y el ajuste del tramo de cada presentación se suma encima
+  assert.match(html, /<p id="mdFrAyuda" class="md-sb-ayuda[^"]*">Hoy se usa 2 min\/kg, del subrubro Frutos secos\. Vacío = hereda 2 min\/kg del subrubro Frutos secos\./);
+  assert.match(html, /<option value="">Sin máquina<\/option>/);                 // sin máquina es lo normal: primera opción, elegida sin atributo
+  assert.doesNotMatch(html, /<option[^>]*selected/);
+  assert.doesNotMatch(html, /facilidad|Del subrubro \(|sin subrubro: no suma/i);
+  assert.match(html, /<button type="button" id="mdFrGuardar"/);
+  assert.match(html, /id="mdFrMsg"[^>]*role="status"[^>]*aria-live="polite"/);
+});
+
+test('Fraccionado con precios-config: min/kg propio (0 incluido) llena el input y la ayuda dice cuál manda; sin min/kg avisa que no suma MO', () => {
+  assert.match(bloque({ minKgPropio: 4, minKgOrigen: 'granel' }).html, /value="4"[^>]*aria-describedby[\s\S]*Hoy se usa 4 min\/kg, propio de este producto\. Vacío = hereda 2 min\/kg del subrubro Frutos secos\./);
+  assert.match(bloque({ minKgPropio: 0, minKgOrigen: 'granel' }).html, /value="0"[\s\S]*Hoy se usa 0 min\/kg, propio de este producto\./);   // 0 es un valor, no "vacío"
+  const sin = bloque({ minKgSubrubro: null, minKgOrigen: null }).html;
+  assert.match(sin, /value=""/);
+  assert.match(sin, /Hoy no hay min\/kg: sin minutos no suma mano de obra ni máquina\. Vacío = hereda el del subrubro Frutos secos, que todavía no tiene min\/kg\./);
+});
+
+test('Fraccionado con precios-config: sin subrubro en SIGA el min/kg y la máquina siguen editables (ya no dependen del subrubro)', () => {
+  const html = bloque({ subrubroId: null, subrubro: null, minKgSubrubro: null, minKgOrigen: null }).html;
+  assert.match(html, /sin subrubro en SIGA/);
+  assert.doesNotMatch(html, /<(input|select)[^>]*disabled/);
+});
+
+test('Fraccionado con precios-config: la máquina del granel viene seleccionada (escapada) y Guardar manda { minKg, maquinaId } con null para vacío', () => {
+  const { dom, html } = bloque({ maquinaId: 'env', maquina: 'Envasadora <A>' });
+  assert.match(html, /<option value="">Sin máquina<\/option><option value="env" selected>Envasadora &lt;A&gt;<\/option>/);
+  const enviados = [];
+  dom.correr('guardarCostoEsq = (...a) => { __llamadas.push(a); return Promise.resolve(true); }');
+  dom.ctx.__llamadas = enviados;
+  const guardar = (minKg, maquina) => { dom.el('mdFrMinKg').value = minKg; dom.el('mdFrMaquina').value = maquina; dom.el('mdFrGuardar').onclick(); };
+  guardar('', '');
+  guardar('1,5', 'env');
+  guardar('0', '');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(enviados)), [ // JSON: los objetos nacen en el contexto vm (otro realm)
+    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: null, maquinaId: null }, 'PUT', 'mdFrMsg'],
+    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: 1.5, maquinaId: 'env' }, 'PUT', 'mdFrMsg'],
+    ['/api/precios/config/esquema/fraccionado/granel/100', { minKg: 0, maquinaId: null }, 'PUT', 'mdFrMsg']]);
+});
+
+test('Fraccionado con precios-config: un min/kg inválido no se envía; el error queda en el aviso (aria-live) y el foco vuelve al campo', () => {
+  const { dom } = bloque({});
+  const enviados = [];
+  dom.ctx.__llamadas = enviados;
+  dom.correr('guardarCostoEsq = (...a) => { __llamadas.push(a); return Promise.resolve(true); }');
+  let foco = false;
+  dom.el('mdFrMinKg').focus = () => { foco = true; };
+  dom.el('mdFrMinKg').value = '601';
+  dom.el('mdFrGuardar').onclick();
+  assert.deepStrictEqual(enviados, []);
+  assert.strictEqual(dom.el('mdFrMsg').textContent, 'Min por kg: un número de 0 a 600 (vacío = hereda el del subrubro)');
+  assert.match(dom.el('mdFrMsg').className, /text-crit/);
+  assert.strictEqual(foco, true);
 });
 
 test('Fraccionado sin precios-config: sólo dos pasos (costo y estado) y el estado es el segundo', () => {

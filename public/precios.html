@@ -358,9 +358,8 @@
   .cfg-tabla th{font-size:11px;font-weight:600;color:#5c5f52;padding-bottom:6px}
   .cfg-tabla td{vertical-align:middle}
   /* ── Configuración › Costeo Fraccionado (public/js/precios_config_fraccionado.js) ──────────────────────────────
-     Barra de estado arriba (cada parte lleva a su tarjeta), tarjetas Máquinas/Escalas del mismo alto con el Guardar alineado,
-     y los subrubros como filas-tabla desplegables: .fr-cols da las mismas columnas al encabezado y a cada fila; abierto, el
-     subrubro se reparte en 3 columnas (máquina y tramos | facilidad y efecto | productos). */
+     Barra de estado arriba (cada parte lleva a su tarjeta), tarjetas Máquinas/Tramos de tiempo del mismo alto con el Guardar alineado,
+     y la tabla de subrubros con su min/kg. */
   .fr-ancla{scroll-margin-top:190px} /* debajo del header y de la franja de sub-tabs, que son sticky */
   .fr-barra{display:flex;align-items:center;gap:4px;margin-bottom:16px}
   .fr-est{display:flex;align-items:center;gap:10px;padding:8px 16px 8px 12px;border:1px solid rgba(26,28,24,.16);border-radius:10px;background:#fff;text-align:left;
@@ -379,50 +378,20 @@
   table:has(>tbody:empty)+.fr-vacio{display:block} /* tabla sin filas: el texto de "todavía no hay" y sin encabezado */
   table:has(>tbody:empty)>thead{display:none}
   .btn-quitar:disabled:hover{color:#5c5f52;background:transparent;cursor:not-allowed}
-  /* Facilidad: una tabla (opción | factor | efecto | significado) */
+  /* Tablas de filas de Configuración (tramos de tiempo, insumos por peso) */
   .fr-filas th{font-size:11px;font-weight:600;color:#5c5f52;padding:0 12px 6px 0}
   .fr-filas td{padding:7px 12px 7px 0;font-size:13px}
   .fr-filas tbody tr+tr td{border-top:1px solid rgba(26,28,24,.08)}
-  .fr-esc-efecto{font-size:12px;font-weight:600;color:#3d4136}
   /* Subrubros */
   .fr-card-cab{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
   .fr-filtro{display:inline-flex;align-items:center;gap:8px;flex:none;padding-top:2px;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer}
   .fr-filtro input{accent-color:#405936;width:15px;height:15px}
   .fr-faltan{min-width:22px;padding:0 6px;border-radius:11px;background:rgba(138,93,0,.14);color:#8a5d00;font-size:11.5px;line-height:20px;text-align:center}
   .fr-faltan[data-n="0"]{background:#eef1ea;color:#5c5f52}
-  .fr-cols{display:grid;grid-template-columns:16px minmax(9rem,1.4fr) minmax(11rem,1.3fr) minmax(7rem,1fr) 5.5rem 6.5rem 6.5rem;column-gap:14px;align-items:center}
-  .fr-cols-cab{padding:0 13px 6px;font-size:11px;font-weight:600;color:#5c5f52}
-  .fr-sub{margin-top:6px;border:1px solid rgba(26,28,24,.16);border-radius:10px;background:#fff;transition:border-color 140ms ease}
-  .fr-sub:hover{border-color:rgba(26,28,24,.32)}
-  .fr-sub[open]{border-color:rgba(64,89,54,.55)}
-  .fr-sub>summary{list-style:none;cursor:pointer;padding:10px 12px;border-radius:9px;font-size:13px}
-  .fr-sub>summary::-webkit-details-marker{display:none}
-  .fr-sub>summary:hover{background:#f5f8f1}
-  .fr-sub[open]>summary{background:#f2f6ec;border-bottom-left-radius:0;border-bottom-right-radius:0}
-  .fr-chev{width:7px;height:7px;justify-self:center;border-right:2px solid #5c5f52;border-bottom:2px solid #5c5f52;transform:rotate(-45deg);transition:transform 140ms ease}
-  .fr-sub[open] .fr-chev{transform:rotate(45deg)}
-  @media (prefers-reduced-motion:reduce){.fr-chev,.fr-sub,.fr-est{transition:none}}
-  .fr-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;color:#242423}
-  .fr-cel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#242423}
-  .fr-cel-prod{color:#5c5f52}
-  .fr-cel[data-falta]{color:#8a5d00;font-weight:600}
-  .fr-resumen{display:contents}
-  .fr-estado{justify-self:start;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
-  .fr-estado[data-ok]{background:rgba(14,112,14,.1);color:#0e700e}
-  .fr-estado[data-falta]{background:rgba(138,93,0,.14);color:#8a5d00}
-  #frSubrubros.solo-falta details[data-completo]:not([open]){display:none} /* el que se está editando queda aunque ya esté completo */
-  .fr-todo-ok{display:none;margin-top:10px;font-size:13px;font-weight:600;color:#0e700e}
-  #frSubrubros.solo-falta:not(:has(details[data-sub]:not([data-completo]))) .fr-todo-ok{display:block}
-  .fr-sub-cuerpo{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:20px 32px;padding:16px 16px 4px;border-top:1px solid rgba(26,28,24,.1)}
-  .fr-sub>.cfg-pie{margin:8px 16px 0;padding-bottom:12px}
-  .fr-paso+.fr-paso{margin-top:20px}
-  .fr-paso-cab{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;font-weight:700;color:#242423}
+  @media (prefers-reduced-motion:reduce){.fr-est{transition:none}}
   .fr-n{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;background:#fff;color:#405936;box-shadow:inset 0 0 0 1.5px rgba(64,89,54,.45)}
   .fr-hint{margin-top:5px;font-size:12px;line-height:1.45;color:#5c5f52}
   .fr-hint::first-letter{text-transform:uppercase}
-  .fr-efecto{margin-top:20px;padding:10px 12px;border-radius:10px;background:#f2f6ec}
-  .fr-efecto .fr-sub-efecto{margin-top:3px;font-size:12.5px;line-height:1.5;font-weight:600;color:#242423}
-  .fr-efecto-nota{margin-top:4px;font-size:12px;line-height:1.45;color:#5c5f52}
   .fr-prod-n{padding:0 7px;border-radius:10px;background:#eef1ea;font-size:11.5px;line-height:20px;color:#3d4136}
   .fr-prod{max-height:19rem;overflow-y:auto;border:1px solid rgba(26,28,24,.16);border-radius:8px;background:#fff}
   .fr-prod li{padding:6px 10px;font-size:13px;line-height:1.35}
@@ -793,7 +762,7 @@
     </div>
   </section>
 
-  <!-- Costeo de Fraccionado (máquinas, facilidad, y por subrubro máquina, tramos y facilidad): lo pinta /js/precios_config_fraccionado.js. Sólo con el
+  <!-- Costeo de Fraccionado (máquinas, tramos de tiempo, min/kg por subrubro e insumos por peso): lo pinta /js/precios_config_fraccionado.js. Sólo con el
        switch de Configuración en Fraccionado (mostrarCosteoFracc). -->
   <section id="panel-costeo-fracc" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costeo-fracc"></section>
   </div>

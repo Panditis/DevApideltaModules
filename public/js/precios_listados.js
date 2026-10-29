@@ -161,14 +161,15 @@ const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio pl
   ...lista.map(r => [pluXlsx(r.codigo), r.nombre || null, r.costo ?? null, r.precio ?? null, r.costoSistema ?? null, r.costoUltimaCompra ?? null,
     r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, r.motivo])];
 
-// Costeo de Fraccionado (spec 2026-10-23 §3): textos de los avisos que no bloquean el precio (se completan en Configuración ›
-// Costeo Fraccionado: facilidad en el subrubro, insumos por peso) y "subrubro · máquina" del granel.
-const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinSubrubro: 'granel sin subrubro en SIGA (sin mano de obra ni máquina)',
-  sinTramos: 'su subrubro no tiene tiempos por peso', sinFacilidad: 'subrubro sin facilidad (× 1)',
-  sinMaquina: 'sin máquina (ni del subrubro ni del granel)', costoHora: 'sin costo hora de Fraccionado', sinInsumos: 'su peso no tiene insumos' };
+// Costeo de Fraccionado (spec 2026-10-29): textos de los avisos que no bloquean el precio (se completan en Configuración › Costeo Fraccionado:
+// min/kg del subrubro, insumos por peso, costo hora; o el min/kg propio en el modal del granel) y "subrubro · min/kg · máquina" del granel.
+const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinMinutos: 'sin min/kg (ni del subrubro ni del producto): sin mano de obra ni máquina',
+  costoHora: 'sin costo hora de Fraccionado', sinInsumos: 'su peso no tiene insumos' };
 const textoAvisosCosto = avisos => (avisos || []).map(a => TXT_AVISO_COSTO[a] || a);
-// costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS).
-const textoCosteoGranel = c => `${c.subrubro || 'sin subrubro'} · ${c.maquina ? `${c.maquina}${c.maquinaOrigen === 'granel' ? ' (propia del granel)' : ''}` : 'sin máquina'}`;
+// costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS). Sin máquina no se nombra: es el estado normal.
+const numMinLst = n => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n);
+const textoMinKgLst = c => (c.minKgOrigen === 'granel' ? `${numMinLst(c.minKgPropio)} min/kg (propio)` : c.minKgOrigen === 'subrubro' ? `${numMinLst(c.minKgSubrubro)} min/kg` : 'sin min/kg');
+const textoCosteoGranel = c => [c.subrubro || 'sin subrubro', textoMinKgLst(c), c.maquina].filter(Boolean).join(' · ');
 
 // Tab Fraccionado: el granel es la fila principal y sus presentaciones se despliegan con ▸/▾ (cerrado por defecto). Clave del
 // grupo = PLU del granel ('sin' para el "sin granel"). abiertos = Map clave → lo elegido con el botón, que manda; sin elegir, se
@@ -237,7 +238,7 @@ const badgeMargenProducto = f => {
   const t = Object.entries(canales).map(([c, v]) => `${TXT_CANAL_LST[c] || c} ${!fijo && v > 0 ? '+' : ''}${fmtNum(v)} %`).join(' · ');
   return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${fijo ? 'Margen fijo' : 'Ajuste de margen'} del producto: ${esc(t)}">${fijo ? 'm=' : '±m'}</span>`;
 };
-// Avisos del costeo (⚠ n, detalle en el title) + subrubro · máquina del granel. avisosCosto es público; costeoGranel no.
+// Avisos del costeo (⚠ n, detalle en el title) + subrubro · min/kg · máquina del granel. avisosCosto es público; costeoGranel no.
 const badgeAvisosCosto = f => ((f.avisosCosto || []).length
   ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="${ESC_LST(textoAvisosCosto(f.avisosCosto).join('\n'))}">⚠ ${f.avisosCosto.length}</span>` : '')
   + (f.costeoGranel ? ` <span class="text-xs text-gris font-normal">${ESC_LST(textoCosteoGranel(f.costeoGranel))}</span>` : '');

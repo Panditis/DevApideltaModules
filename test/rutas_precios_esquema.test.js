@@ -470,7 +470,7 @@ test('config por tipo: GET ?tipo=fraccionado lee su bloque (o la raíz sin migra
   const a = appCon(MIGRADO);
   try {
     const sin = await a.pedir('GET', '/api/precios/config/esquema?tipo=fraccionado');
-    assert.deepStrictEqual([sin.fraccionadoMigrado, sin.maquinas, sin.escalas.facilidad.normal], [false, [], 1.25]);
+    assert.deepStrictEqual([sin.fraccionadoMigrado, sin.maquinas, sin.tramosTiempo], [false, [], []]);
     assert.match((await a.pedir('GET', '/api/precios/config/esquema?tipo=produccion')).error, /tipo inválido/);
     assert.match((await a.pedir('PUT', '/api/precios/config/esquema/precio?tipo=fraccionado', { ivaVentaPct: 10, toleranciaPct: 3, redondeo: RED })).error, /migrar_config_fraccionado/);
     assert.deepStrictEqual(a.leer(), MIGRADO); // sin migrar no escribe
@@ -517,11 +517,11 @@ test('config por tipo: Fraccionado usa sus márgenes; Reventa y Producción sigu
   } finally { a.cerrar(); }
 });
 
-test('listado Fraccionado: la presentación suma los insumos de su peso + la MO del tramo de su subrubro; el desglose sólo en el detalle', async () => {
-  // Harina (300, 330,58) como insumo de 51 "Almendra 500G"; tramo 1 min × 6000/60 = 100 de MO → 430,58 por unidad ÷ 0,5 kg = 861,16
+test('listado Fraccionado: la presentación suma los insumos de su peso + la MO (min/kg del subrubro × kg); el desglose sólo en el detalle', async () => {
+  // Harina (300, 330,58) como insumo de 51 "Almendra 500G"; 2 min/kg × 0,5 kg = 1 min × 6000/60 = 100 de MO → 430,58 por unidad ÷ 0,5 kg = 861,16
   const conSub = async sql => (sql.includes('SubRubros')
     ? [{ IdProducto: '50', NombreProducto: 'Almendra granel', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' }] : sigaFalso(sql));
-  const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, subrubros: { 7: { tramos: [{ hastaG: 1000, minutos: 1 }] } },
+  const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, subrubros: { 7: { minKg: 2 } },
     insumosPorPeso: { 500: [{ plu: '300', cantidad: 1 }] } };
   const a = appCon({ ...CON_FRACC, fraccionado }, { query: conSub, archivos: ARCHIVOS_FALSOS });
   try {
@@ -531,7 +531,7 @@ test('listado Fraccionado: la presentación suma los insumos de su peso + la MO 
     assert.deepStrictEqual(det.presentaciones[0].componentesCosto.map(l => [l.plu, l.rol, l.importe]),
       [['50', 'granel', 5000], ['300', 'insumo', 330.58], ['_manoObra', 'mo', 100]]);
     const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
-    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto], [['sinFacilidad', 'sinMaquina'], undefined]);
+    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto], [[], undefined]);
   } finally { a.cerrar(); }
 });
 
@@ -645,5 +645,28 @@ test('activo del granel: PUT guarda true/false, null vuelve a automático; invá
     assert.strictEqual(a.escrituras(), escrituras);
     assert.deepStrictEqual(await fijar('50', { activo: null }), { ok: true, activoManual: null });
     assert.deepStrictEqual(a.leer().activoGranel, { 7: true });
+  } finally { a.cerrar(); }
+});
+
+test('detalle Fraccionado: min/kg propio del granel + ajuste del tramo + máquina del granel, calculado a mano', async () => {
+  // Arrange: subrubro 2 min/kg, propio 4 (gana), tramo de 500 g +2 → (4 + 2) × 0,5 kg = 3 min.
+  // MO 3 × 6000/60 = 300; máquina 3 × 1200/60 = 60; insumo 330,58 → 690,58 por unidad ÷ 0,5 kg = 1381,16 $/kg extra.
+  const conSub = async sql => (sql.includes('SubRubros')
+    ? [{ IdProducto: '50', NombreProducto: 'Almendra granel', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' }] : sigaFalso(sql));
+  const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, subrubros: { 7: { minKg: 2 } },
+    maquinas: [{ id: 'sel', nombre: 'Selladora', costoHora: 1200 }], porGranel: { 50: { minKg: 4, maquinaId: 'sel' } },
+    tramosTiempo: [{ hastaG: 500, minKg: 2 }, { hastaG: 1000, minKg: 0 }], insumosPorPeso: { 500: [{ plu: '300', cantidad: 1 }] } };
+  const a = appCon({ ...CON_FRACC, fraccionado }, { query: conSub, archivos: ARCHIVOS_FALSOS });
+  try {
+    // Act
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    // Assert
+    const p = det.presentaciones[0];
+    assert.strictEqual(p.costos.sistema, 11381.16);
+    assert.deepStrictEqual(p.componentesCosto.map(l => [l.plu, l.rol, l.importe]),
+      [['50', 'granel', 5000], ['300', 'insumo', 330.58], ['_manoObra', 'mo', 300], ['_maquina', 'maquina', 60]]);
+    assert.deepStrictEqual(det.avisosCosto, []);
+    assert.deepStrictEqual(det.costeoGranel, { maquinaId: 'sel', maquina: 'Selladora', minKgPropio: 4, minKgSubrubro: 2,
+      minKgOrigen: 'granel', subrubroId: '7', subrubro: 'Frutos secos' });
   } finally { a.cerrar(); }
 });
