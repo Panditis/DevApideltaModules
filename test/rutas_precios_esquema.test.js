@@ -353,6 +353,21 @@ test('margen del producto: PUT guarda/quita por PLU decidible (granel en Fraccio
   } finally { a.cerrar(); }
 });
 
+test('margen del producto modo precio: sólo PLU de Reventa; el listado toma el precio fijo; quitar lo borra', async () => {
+  const a = appCon({ ...MIGRADO }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const poner = (plu, body) => a.pedir('PUT', `/api/precios/config/esquema/margen-producto/${plu}`, body);
+  try {
+    const antes = JSON.stringify(a.leer().margenProducto ?? null);
+    for (const plu of ['50', '6319']) assert.match((await poner(plu, { modo: 'precio', minorista: 3999 })).error, /sólo vale para productos de Reventa/, plu);
+    assert.strictEqual(JSON.stringify(a.leer().margenProducto ?? null), antes); // ningún rechazo escribió
+    assert.deepStrictEqual((await poner('1', { modo: 'precio', minorista: 3999 })).margenProducto, { modo: 'precio', minorista: 3999 });
+    const f = await a.pedir('GET', '/api/precios/esquema/detalle/1?tipo=almacen');
+    assert.strictEqual(f.sugeridos.sistema.minorista.precio, 3999);
+    assert.strictEqual((await poner('1', { modo: 'precio' })).margenProducto, null); // sin valores: se borra
+    assert.ok(!('1' in (a.leer().margenProducto || {})));
+  } finally { a.cerrar(); }
+});
+
 test('margen del producto: sin precios-config → 403 al guardar y ni listado ni detalle lo traen (tampoco margenProductoPct)', async () => {
   const costeo = { ...MIGRADO, margenProducto: { 1: { minorista: 20 }, 50: { minorista: 5 }, 6319: { minorista: 3 } } };
   const a = appCon(costeo, { query: sigaFalso, archivos: ARCHIVOS_FALSOS, sinConfig: true, guard: true });

@@ -175,13 +175,24 @@ function igualarSigaMd(fila, tipo, fuente) {
   return { valores, notas, motivo: null, fuente: usada };
 }
 
+// Modo "Precio fijo": margen que da cada precio tipeado (minorista final con IVA; pack/bulto neto por unidad) con el costo de la
+// fuente elegida (sin desglose en esa fuente → sistema, como igualarSigaMd). Misma cuenta que el motor (PE_MD.margenDePrecio).
+// precios = { canal: número|null }; el canal sin precio (> 0) no aparece. Sin desglose (sin permiso o sin costo) → {}.
+function margenesDePrecioMd(fila, fuente, precios) {
+  const des = fu => ((fila.sugeridos || {})[fu] || {}).desglose || null;
+  const d = des(fuente) || des('sistema');
+  if (!d) return {};
+  return Object.fromEntries(Object.entries(precios).filter(([, p]) => p > 0)
+    .map(([canal, precio]) => [canal, PE_MD.margenDePrecio({ canal, precio, costoCG: d.costoConGastos, extrasPct: d.minorista.extrasPct, ivaPct: d.minorista.ivaPct })]));
+}
+
 // Precio en pesos: enteros sin decimales, el resto con centavos; null → "—". Compartidos con la tarjeta de precios de Fraccionado.
 const fmtSug = n => (Number.isInteger(n) ? FMT_MD.fmtPrecio(n) : FMT_MD.fmtMoney(n));
 const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug(n)}`);
 // "con última compra" (con decisión: la fuente elegida) o "con costo sistema, para comparar" (sin decisión: nada se exporta).
 const textoFuenteMd = (fila, fuente) => (fila.decision ? `con ${(TXT_OPCION[fuente] || fuente).toLowerCase()}` : 'con costo sistema, para comparar');
 
-if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd };
+if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -412,6 +423,7 @@ const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-
 const signoPctMd = n => `${n > 0 ? '+' : ''}${pctMd(n)}`;
 function pasosAjusteMd(c) {
   if (c.margenProductoModo === 'fijo') return [['', `margen fijo del producto ${pctMd(c.margenPct)} (general ${pctMd(c.margenGeneralPct)})`, null]];
+  if (c.margenProductoModo === 'precio') return [['', `precio fijo del producto $ ${fmtSug(c.precioFijo)} → margen ${pctMd(c.margenPct)} (general ${pctMd(c.margenGeneralPct)})`, null]];
   const esp = c.margenEspecialPct || 0, prod = c.margenProductoPct || 0, dto = c.descuentoDistribuidorPct || 0;
   const general = ` (general ${pctMd(c.margenPct - esp - prod + dto)})`;
   return [esp ? ['', `incluye margen especial del producto ${signoPctMd(esp)}${prod ? '' : general}`, null] : null,
@@ -423,17 +435,17 @@ function pasosAjusteMd(c) {
 function pasosMinoristaMd(d, costoTxt) {
   const m = d.minorista;
   return [['', costoTxt, d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos], ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], ...pasosAjusteMd(m),
-    ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras], ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', 'Precio redondeado', m.precio]];
+    ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras], ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', m.margenProductoModo === 'precio' ? 'Precio fijo' : 'Precio redondeado', m.precio]];
 }
 function pasosMayoristaMd(d, c) {
   return [['', 'Costo con gastos', d.costoConGastos], ['×', `Margen ${pctMd(c.margenPct)}`, c.netoUnidad], ...pasosAjusteMd(c), ['×', `${c.unidades} unidades`, c.exactoNeto],
-    ['=', 'Sin IVA redondeado', c.neto], ['×', 'IVA', c.exactoIva], ['=', 'Con IVA redondeado', c.conIva]];
+    ['=', c.margenProductoModo === 'precio' ? 'Sin IVA (precio fijo)' : 'Sin IVA redondeado', c.neto], ['×', 'IVA', c.exactoIva], ['=', 'Con IVA redondeado', c.conIva]];
 }
 // Margen general de cada canal (sin el del producto, con el especial) en la fuente: placeholder del margen fijo. Pack/bulto: el
 // primer vínculo de ese tipo (Fraccionado: también los de sus presentaciones). Sin desglose → null.
 function generalesCanalMd(fila, fuente) {
   const des = f => { const s = (f.sugeridos || {})[fuente]; return (s && s.desglose) || null; };
-  const general = c => (!c ? null : c.margenProductoModo === 'fijo' ? c.margenGeneralPct
+  const general = c => (!c ? null : c.margenProductoModo === 'fijo' || c.margenProductoModo === 'precio' ? c.margenGeneralPct
     : Math.round((c.margenPct - (c.margenProductoPct || 0) + (c.descuentoDistribuidorPct || 0)) * 100) / 100);
   const vinculos = [fila, ...(fila.presentaciones || [])].flatMap(f => (f.mayoristas || []).map(m => ({ m, d: des(f) })));
   const mayor = tipo => { const v = vinculos.find(x => x.m.tipo === tipo && x.d && x.d.porVinculo[x.m.plu]); return v ? general(v.d.porVinculo[v.m.plu]) : null; };
@@ -500,37 +512,52 @@ function htmlEdicionCostos(f) {
     ${htmlVentasPesablesMd(f)}
     <p id="mdMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
-// Margen de este producto (sólo con el permiso), por canal y en uno de dos modos: 'fijo' = el margen % final del canal
-// (reemplaza general, ajuste por peso y especial; vacío = general) o 'ajuste' = puntos % que se suman. Se guarda en el PLU de
+// Margen de este producto (sólo con el permiso), por canal y en uno de tres modos: 'fijo' = el margen % final del canal
+// (reemplaza general, ajuste por peso y especial; vacío = general), 'ajuste' = puntos % que se suman o 'precio' = el precio del
+// canal (sólo Reventa; el margen sale del costo y se ve debajo, margenesDePrecioMd). Se guarda en el PLU de
 // la fila (Fraccionado: el granel, vale para todas sus presentaciones). Los valores guardados se ven sólo en su modo.
 const CANALES_AJUSTE_MD = [['minorista', 'Minorista'], ['pack', 'Pack'], ['bulto', 'Bulto']];
 const numMd = n => String(+(+n).toFixed(2)).replace('.', ',');
-function ayudaMargenProductoMd(fijo) {
+const MODOS_MP_MD = [['fijo', 'Margen fijo'], ['ajuste', 'Ajuste ±'], ['precio', 'Precio fijo']]; // precio: sólo Reventa
+const UNIDAD_MP_MD = { fijo: 'Margen %', ajuste: '+ pts %', precio: '$' };
+function ayudaMargenProductoMd(modo) {
   const { tipo } = mdEsq;
-  const txt = fijo
-    ? `Margen % final de cada canal: reemplaza al margen general${tipo === 'fraccionado' ? ' y al ajuste por peso' : ''}${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío = margen general.`
-    : `Puntos % por canal: se suman al margen general${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío o 0 = sin ajuste.`;
+  const txt = modo === 'precio'
+    ? 'Precio de cada canal: el margen sale del costo y el precio no se mueve si el costo cambia. Minorista: precio final con IVA. Pack y bulto: precio por unidad sin IVA. Vacío = margen general.'
+    : modo === 'fijo'
+      ? `Margen % final de cada canal: reemplaza al margen general${tipo === 'fraccionado' ? ' y al ajuste por peso' : ''}${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío = margen general.`
+      : `Puntos % por canal: se suman al margen general${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío o 0 = sin ajuste.`;
   return txt + (tipo === 'fraccionado' ? ' Aplica a todas las presentaciones del granel.' : '');
 }
 function htmlMargenProductoMd(f) {
   if (preciosSinConfig || f.plu == null) return '';
-  const fijo = mdMpModo === 'fijo';
+  const fijo = mdMpModo === 'fijo', precio = mdMpModo === 'precio';
   const guardado = f.margenProducto || {};
   const m = (guardado.modo || 'ajuste') === mdMpModo ? guardado : {};
   const gen = generalesCanalMd(f, mdFuente);
-  const ph = c => (!fijo ? '0' : gen[c] == null ? 'general' : `${numMd(gen[c])} (general)`);
+  const ph = c => (precio ? 'general' : !fijo ? '0' : gen[c] == null ? 'general' : `${numMd(gen[c])} (general)`);
+  const etiqueta = t => (precio ? `Precio fijo ${t} en pesos` : fijo ? `Margen ${t} en %` : `Ajuste de margen ${t} en puntos %`);
   const modo = (v, t) => `<button type="button" class="seg-opt md-mp-modo" data-modo="${v}" aria-pressed="${mdMpModo === v}">${t}</button>`;
+  const modos = MODOS_MP_MD.filter(([v]) => v !== 'precio' || mdEsq.tipo === 'almacen').map(([v, t]) => modo(v, t)).join('');
   const campos = CANALES_AJUSTE_MD.map(([c, t]) => `<label class="flex items-center gap-1 text-sm">${t}
-    ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="${esc(ph(c))}" aria-label="${fijo ? `Margen ${t} en %` : `Ajuste de margen ${t} en puntos %`}">`,
-    fijo ? 'Margen %' : '+ pts %', { w: fijo ? 'w-44' : 'w-32' })}</label>`).join('');
+    ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="${esc(ph(c))}" aria-label="${etiqueta(t)}"${precio ? ` aria-describedby="mdMpMargen-${c}"` : ''}>`,
+    UNIDAD_MP_MD[mdMpModo], { w: fijo || precio ? 'w-44' : 'w-32', pre: precio })}${precio ? `<span id="mdMpMargen-${c}" class="md-mp-margen text-xs text-gris tabular-nums min-w-[6.5rem]" data-canal="${c}"></span>` : ''}</label>`).join('');
   const fr = mdEsq.tipo === 'fraccionado'; // Fraccionado: paso numerado (encabezado con para qué sirve + cuerpo); el resto, como siempre
   const cab = `<div class="${fr ? 'md-paso-cab ' : ''}flex flex-wrap items-center gap-3"><h4 class="md-h">Margen de este producto</h4>
-    <div class="seg seg-sub" role="group" aria-label="Cómo se define el margen de este producto">${modo('fijo', 'Margen fijo')}${modo('ajuste', 'Ajuste ±')}</div>${fr ? '<p class="md-paso-para">Cuánto se gana sobre el costo, canal por canal.</p>' : ''}</div>`;
-  const cuerpo = `<p class="md-ayuda">${esc(ayudaMargenProductoMd(fijo))}</p>
+    <div class="seg seg-sub" role="group" aria-label="Cómo se define el margen de este producto">${modos}</div>${fr ? '<p class="md-paso-para">Cuánto se gana sobre el costo, canal por canal.</p>' : ''}</div>`;
+  const cuerpo = `<p class="md-ayuda">${esc(ayudaMargenProductoMd(mdMpModo))}</p>
     <div class="flex flex-wrap items-center gap-3">${campos}<button type="button" id="mdMargenGuardar" class="cfg-btn2">Guardar</button>
       ${htmlIgualarSigaMd(f)}</div>
     <p id="mdMargenMsg" class="text-sm mt-1" role="status" aria-live="polite"></p>`;
   return fr ? `<section class="md-margen-prod md-paso">${cab}<div class="md-paso-cuerpo">${cuerpo}</div></section>` : `<section class="md-margen-prod">${cab}${cuerpo}</section>`;
+}
+// Modo "Precio fijo": debajo de cada precio tipeado, el margen que da con el costo de la fuente elegida (margenesDePrecioMd).
+function pintarMargenesPrecioMd() {
+  const sec = document.querySelector('#mDetBody .md-margen-prod');
+  if (!sec) return;
+  const precios = Object.fromEntries([...sec.querySelectorAll('.md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)]));
+  const margenes = margenesDePrecioMd(mdEsq.fila, mdFuente, precios);
+  sec.querySelectorAll('.md-mp-margen').forEach(s => { s.textContent = margenes[s.dataset.canal] == null ? '' : `Margen ${pctMd(margenes[s.dataset.canal])}`; });
 }
 // Botón "Igualar a SIGA": deshabilitado con el motivo en el title si no hay costo o vigentes para calcular.
 function htmlIgualarSigaMd(f) {
@@ -560,6 +587,10 @@ function conectarMargenProductoMd() {
     conectarMargenProductoMd();
     document.querySelector(`#mDetBody .md-mp-modo[data-modo="${mdMpModo}"]`).focus();
   });
+  if (mdMpModo === 'precio') {
+    sec.querySelectorAll('.md-mp-in').forEach(i => { i.oninput = pintarMargenesPrecioMd; });
+    pintarMargenesPrecioMd();
+  }
   document.getElementById('mdMargenIgualar').onclick = igualarSigaClickMd;
   document.getElementById('mdMargenGuardar').onclick = () => guardarCostoEsq(`/api/precios/config/esquema/margen-producto/${encodeURIComponent(mdEsq.fila.plu)}`,
     { modo: mdMpModo, ...Object.fromEntries([...sec.querySelectorAll('.md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)])) }, 'PUT', 'mdMargenMsg');

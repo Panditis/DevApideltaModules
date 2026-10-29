@@ -257,6 +257,16 @@ test('validarMargenProducto: modo fijo (0 vale) | ajuste (0 se omite; sin modo =
   assert.throws(() => validarMargenProducto({ modo: 'fijo', bulto: -100 }), /margenProducto\.bulto: El margen/);
 });
 
+test('validarMargenProducto: modo precio — precio > 0 con hasta 2 decimales por canal (0, negativos y más decimales son error), vacío se omite, sin canales → null', () => {
+  assert.deepStrictEqual(validarMargenProducto({ modo: 'precio', minorista: 3999, pack: null, bulto: 12.5 }), { modo: 'precio', minorista: 3999, bulto: 12.5 });
+  // Decimales de coma flotante típicos: el chequeo de 2 decimales no los rechaza.
+  assert.deepStrictEqual(validarMargenProducto({ modo: 'precio', minorista: 2999.99, pack: 4.35, bulto: 0.29 }), { modo: 'precio', minorista: 2999.99, pack: 4.35, bulto: 0.29 });
+  assert.strictEqual(validarMargenProducto({ modo: 'precio' }), null);
+  assert.strictEqual(validarMargenProducto({ modo: 'precio', minorista: null }), null);
+  for (const v of [0, -5, NaN, Infinity, '10', 3999.999]) assert.throws(() => validarMargenProducto({ modo: 'precio', minorista: v }), /margenProducto\.minorista: El precio debe ser mayor a 0/, String(v));
+  assert.throws(() => validarMargenProducto({ modo: 'precio', mayorista: 5 }), /margenProducto: canal desconocido/);
+});
+
 // Las presentaciones eligen una VARIEDAD (decisión 14), no la base.
 const PRESV = { ...PRES, recetaId: 'pasas' };
 const PRODUCTO = { nombre: 'Granola', recetas: RECETAS, presentaciones: { 6319: PRES } };
