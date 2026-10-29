@@ -1292,6 +1292,7 @@ function _pfSyncTapaBloque(blk){
   const tapSel = blk.querySelector('.pf-elem-tapa');
   if (!envSel || !tapSel) return;
   if (blk.dataset.cargado === '1') return;   // ya cargado: los selectores quedan deshabilitados
+  if (tapSel.dataset.bloq === '1') { tapSel.value = ''; tapSel.disabled = true; return; }   // la fórmula no trae tapa
   const envVal = envSel.value;
   // Granel / ninguno: no hay envase → tapa deshabilitada y vacía.
   if (!envVal) {
@@ -2585,6 +2586,15 @@ function _pfGranelRowHTML(nombre, cant, unidad) {
   </div>`;
 }
 
+// Fórmula sin envase/tapa: no se puede cargar uno que la fórmula no tiene (aunque la orden lo traiga).
+// `sugerido` = respuesta de /api/plan/packaging para el PLU; si el endpoint falló no se llama y no se bloquea nada.
+function _pfBloquearPackSinFormula(el, sugerido) {
+  el.sinEnvaseFormula = !sugerido.envase;
+  el.sinTapaFormula   = !sugerido.tapa;
+  if (el.sinEnvaseFormula) el.envase = '';
+  if (el.sinTapaFormula)   el.tapa   = '';
+}
+
 // Bloque de carga por elemento (cantidad producida + envase/tapa + graneles propios).
 // El envase y la tapa van por elemento: una orden multi-presentación puede tener un
 // envase distinto en cada presentación, y un selector único los pisaría a todos.
@@ -2599,6 +2609,11 @@ function _pfElemBlockHTML(el, eidx, multi) {
   const esGranel = /granel/i.test(el.presentacion || '') || /granel/i.test((_pfOrden && _pfOrden.producto) || '');
   const bloquearPack = esGranel && !el.envase && !el.tapa;
   const disPack = bloquearPack ? ' disabled title="Producto a granel: sin envase ni tapa"' : dis;
+  // La fórmula de SiGA no trae envase y/o tapa: ese selector queda vacío y bloqueado (ver openProdFinalModal).
+  const bloqEnv = !el.cargado && el.sinEnvaseFormula;
+  const bloqTap = !el.cargado && el.sinTapaFormula;
+  const disEnv = bloqEnv ? ' disabled data-bloq="1" title="La fórmula del producto no tiene envase"' : disPack;
+  const disTap = bloqTap ? ' disabled data-bloq="1" title="La fórmula del producto no tiene tapa"' : disPack;
   const head = multi ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
     <span style="font-weight:800;font-family:system-ui,'Segoe UI',sans-serif;font-size:16px">${el.presentacion||'—'}</span>
     ${el.cargado ? '<span style="font-size:11px;font-weight:700;color:var(--green-dark)">✅ ya cargado</span>' : ''}
@@ -2607,11 +2622,11 @@ function _pfElemBlockHTML(el, eidx, multi) {
   const packSection = `<div style="display:flex;gap:10px;margin-top:8px">
     <div class="form-group" style="flex:1;margin:0">
       <label class="form-label">📦 Envase</label>
-      <select class="form-select pf-elem-envase" data-eidx="${eidx}" style="width:100%" onchange="_pfSyncTapa(${eidx})"${disPack}>${_pfEnvaseOpts(String(el.envase || ''))}</select>
+      <select class="form-select pf-elem-envase" data-eidx="${eidx}" style="width:100%" onchange="_pfSyncTapa(${eidx})"${disEnv}>${_pfEnvaseOpts(String(el.envase || ''))}</select>
     </div>
     <div class="form-group" style="flex:1;margin:0">
       <label class="form-label">⭕ Tapa</label>
-      <select class="form-select pf-elem-tapa" data-eidx="${eidx}" style="width:100%"${disPack}>${_pfTapaOpts(String(el.tapa || ''))}</select>
+      <select class="form-select pf-elem-tapa" data-eidx="${eidx}" style="width:100%"${disTap}>${_pfTapaOpts(String(el.tapa || ''))}</select>
     </div>
   </div>`;
   return `<div class="pf-elem" data-eidx="${eidx}" data-presindex="${el.presIndex}" data-presentacion="${pres}" data-plu="${String(el.plu || '').replace(/"/g, '&quot;')}" data-cargado="${el.cargado ? '1' : '0'}" style="${multi ? 'border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px' + (el.cargado ? ';opacity:.55' : '') : ''}">
@@ -2719,6 +2734,7 @@ async function openProdFinalModal(id, presIndex = null) {
     if (!sugerido) return;
     if (!el.envase && sugerido.envase) el.envase = sugerido.envase.codigo;
     if (!el.tapa   && sugerido.tapa)   el.tapa   = sugerido.tapa.codigo;
+    _pfBloquearPackSinFormula(el, sugerido);
   });
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   // Editables por elemento: todos los componentes salvo envase/tapa/etiqueta.
@@ -3188,6 +3204,7 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   if (sugerido) {
     if (sugerido.envase) { _pfElementos[0].envase = sugerido.envase.codigo; if (sugerido.envase.codigo && !ENVASES_MAP[String(sugerido.envase.codigo)]) ENVASES_MAP[String(sugerido.envase.codigo)] = sugerido.envase.nombre || String(sugerido.envase.codigo); }
     if (sugerido.tapa)   { _pfElementos[0].tapa   = sugerido.tapa.codigo;   if (sugerido.tapa.codigo   && !TAPAS_MAP[String(sugerido.tapa.codigo)])     TAPAS_MAP[String(sugerido.tapa.codigo)]     = sugerido.tapa.nombre   || String(sugerido.tapa.codigo); }
+    _pfBloquearPackSinFormula(_pfElementos[0], sugerido);
   }
 
   const allComps = formulaData.componentes || [];
