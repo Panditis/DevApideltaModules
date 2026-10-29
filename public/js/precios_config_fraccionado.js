@@ -9,10 +9,12 @@
 // los tres canales según el peso de la presentación; se editaba en Márgenes). Cada tarjeta guarda con su botón (PUT
 // /api/precios/config/esquema/fraccionado/…) y se repinta sólo ella: lo que las otras tengan sin guardar queda. Los insumos de
 // un peso se guardan al aceptar su diálogo (#dlgFP). El min/kg y la máquina propios de un granel, en su modal. Estilos: bloque
-// "Costeo Fraccionado" de precios.html (.fr-*).
+// "Costeo Fraccionado" de precios.html (.fr-*). El sugerido del historial (chips "Historial" + "Usar" en subrubros y tramos, "Ver
+// distribución" con "Fijar") lo arma /js/precios_fraccionado_historial.js (.hf-*); acá sólo se lo conecta y se guarda lo que fija.
 // Globales: esc, numOrNull, fmtMoney (precios_comun.js), campoU, marcarSucio, limpiarSucio (precios_config.js), pedirEsq,
 // msgEsq, esFraccCfg (precios_config_esquema.js), htmlBuscadorSiga, conectarBuscadorSiga (precios_produccion.js), PreciosEsquema
-// (/js/precios_esquema.js: generarAjustesPeso, AJUSTES_PESO_MAX).
+// (/js/precios_esquema.js: generarAjustesPeso, AJUSTES_PESO_MAX), del historial: cargarHistorialHf, invalidarHistorialHf, pintarEstadoHf,
+// pintarSubrubrosHf, pintarTramosHf, conectarSubrubrosHf, conectarTramosHf.
 const API_FR = '/api/precios/config/esquema/fraccionado';
 // Espejo de los límites del servidor (lib/precios_config_fraccionado.js y lib/precios_fraccionado_costo.js): el servidor valida igual.
 const MIN_KG_MAX_FR = 600;
@@ -174,6 +176,7 @@ const CABECERA_FR = `<p class="cfg-cab"><b>Costeo de Fraccionado</b> — mano de
     desde el listado (el del producto reemplaza al del subrubro; el ajuste del tramo se suma igual).</p>`;
 function pintarCosteoFracc(panel) {
   panel.innerHTML = `${CABECERA_FR}
+    <div id="frHistorial" class="hf-estado"></div>
     <div id="frEstado" class="fr-barra flex-wrap" role="group" aria-label="Estado de la configuración">${htmlEstadoFr()}</div>
     <div class="grid gap-4 xl:grid-cols-2">${htmlTramosFr()}${htmlMaquinasFr()}</div>
     ${htmlSubrubrosCardFr()}
@@ -185,6 +188,7 @@ function pintarCosteoFracc(panel) {
   conectarSubrubrosFr(panel.querySelector('#frSubrubrosCard'));
   conectarPesosFr(panel.querySelector('#frPesos'));
   conectarAjustesPesoFr(panel.querySelector('#frAjustes'));
+  cargarHistorialFr();
 }
 
 // ── Barra de estado: qué falta de cada parte; cada una lleva a su tarjeta ──
@@ -215,17 +219,18 @@ const htmlAjusteTramoFr = (minKg, esBase) => `${campoU(`<input type="number" min
   esBase ? '<span class="fp-chip ml-2">base</span>' : ''}`;
 const htmlFilaTramoFr = (t = {}, esBase = false) => `<tr data-base="${esBase}"><td class="py-1 pr-2">${campoU(`<input type="number" min="1" step="1" data-k="hastaG" value="${esc(t.hastaG ?? '')}" aria-label="Hasta (g)">`, 'g', { w: 'w-28' })}</td>
   <td class="fr-t-ajuste py-1 pr-2">${htmlAjusteTramoFr(t.minKg, esBase)}</td>
+  <td class="hf-col py-1 pr-2" data-hf-tramo></td>
   <td class="py-1"><button type="button" class="fr-quitar btn-quitar" data-edita aria-label="Quitar tramo">✕</button></td></tr>`;
 function htmlTramosFr() {
   const tramos = cfFr.tramosTiempo || [], base = indiceBaseFr(tramos.map(t => t.hastaG));
-  return `<div class="cfg-card fr-card fr-ancla min-w-0" data-guardable data-nombre="Ajuste por tramo de peso" id="frTramos"><div class="fr-cuerpo">
+  return `<div class="cfg-card fr-card fr-ancla min-w-0 hf-sin" data-guardable data-nombre="Ajuste por tramo de peso" id="frTramos"><div class="fr-cuerpo">
     <h3 class="cfg-h">Ajuste por tramo de peso</h3>
     <p class="cfg-ayuda">Minutos por kilo que se suman (o se restan, con signo −) al min/kg según el peso de la presentación: minutos por unidad = (min/kg + ajuste del tramo) × kg de la presentación.
       El ajuste es por kilo: con +3 en el tramo de 250 g, fraccionar 1 kg en bolsas de 250 g tarda +3 min en total. Se usa el primer tramo cuyo "hasta" alcanza al peso;
       más pesado que el último usa el último.</p>
     <p class="cfg-ayuda">El tramo que cubre 1 kg es la base: vale 0 y los demás se miden contra él. Sin tramos = sin ajuste.
       Cambiar la tabla cambia los minutos de todas las presentaciones: cargala antes que los subrubros.</p>
-    <table class="cfg-tabla fr-filas w-full"><thead><tr><th scope="col" class="text-left">Hasta</th><th scope="col" class="text-left">± min/kg</th><th scope="col"><span class="sr-only">Quitar</span></th></tr></thead>
+    <table class="cfg-tabla fr-filas w-full"><thead><tr><th scope="col" class="text-left">Hasta</th><th scope="col" class="text-left">± min/kg</th><th scope="col" class="hf-col text-left">Historial</th><th scope="col"><span class="sr-only">Quitar</span></th></tr></thead>
       <tbody>${tramos.map((t, i) => htmlFilaTramoFr(t, i === base)).join('')}</tbody></table>
     <p class="fr-vacio">Sin tramos: el tiempo no se ajusta por peso.</p>
     <button type="button" class="fr-agregar cfg-btn2 mt-2" data-edita>+ Agregar tramo</button></div>${pieFr('Guardar tramos')}</div>`;
@@ -245,7 +250,12 @@ function actualizarBaseFr(card) {
 function guardarTramosFr(card) {
   const tramos = leerTramosFr(card), error = errorTramosFr(tramos);
   if (error) return avisarErrorTramosFr(card, error);
-  return guardarFr(card, '/tramos-tiempo', { tramos }, () => repintarFr('frTramos', htmlTramosFr, conectarTramosFr));
+  return guardarFr(card, '/tramos-tiempo', { tramos }, () => {
+    invalidarHistorialHf(); // los sugeridos de producto y subrubro restan el ajuste de la tabla guardada: se piden de nuevo
+    const nuevo = repintarFr('frTramos', htmlTramosFr, conectarTramosFr);
+    cargarHistorialFr();
+    return nuevo;
+  });
 }
 // El error del cliente va al mensaje de la tarjeta y el foco al campo que hay que corregir.
 function avisarErrorTramosFr(card, { fila, campo, mensaje }) {
@@ -260,9 +270,10 @@ function conectarTramosFr(card) {
     tbody.insertAdjacentHTML('beforeend', htmlFilaTramoFr(conTramoFr(leerTramosFr(card).filter(t => t.hastaG > 0)).pop()));
     actualizarBaseFr(card);
   };
-  tbody.oninput = e => { if (e.target.matches('[data-k="hastaG"]')) actualizarBaseFr(card); };
+  tbody.oninput = e => { if (e.target.matches('[data-k="hastaG"]')) { actualizarBaseFr(card); pintarTramosHf(card); } };
   tbody.onclick = e => { quitarFilaFr(e, card); actualizarBaseFr(card); };
   card.querySelector('.fr-guardar').onclick = () => guardarTramosFr(card);
+  conectarTramosHf(card);
 }
 
 // ── Máquinas ──
@@ -318,7 +329,7 @@ function htmlProductoFr(g) {
   const pres = g.presentaciones.map(p => p.nombre).join(', ');
   const { maquinaId: propia, minKg } = cfFr.porGranel[g.plu] || {};
   const nombreMaq = propia && (cfFr.maquinas.find(m => m.id === propia) || {}).nombre;
-  return `<li data-q="${esc(`${g.nombre} ${pres}`)}"><span class="fr-prod-nom">${esc(g.nombre)}</span>${
+  return `<li data-plu="${esc(g.plu)}" data-q="${esc(`${g.nombre} ${pres}`)}"><span class="fr-prod-nom">${esc(g.nombre)}</span>${
     minKg != null ? `<span class="fp-chip ml-2 text-[11px]">propio: ${esc(String(minKg).replace('.', ','))} min/kg</span>` : ''}${
     nombreMaq ? `<span class="fr-propia" data-maq="${esc(propia)}">${esc(textoPropiaFr(nombreMaq))}</span>` : ''}${pres ? `<span class="fr-prod-pres">${esc(pres)}</span>` : ''}</li>`;
 }
@@ -337,12 +348,13 @@ function htmlSubrubroFr(s) {
   return `<tr data-falta="${tiene ? 0 : 1}"${soloFaltaFr && tiene ? ' class="hidden"' : ''}>
     <td class="font-semibold">${esc(s.nombre)}</td><td>${htmlListaProductosFr(s)}</td>
     <td>${campoU(`<input type="number" min="0" max="${MIN_KG_MAX_FR}" step="any" data-id="${esc(s.id)}" value="${esc(minKg ?? '')}" aria-label="Min por kg de ${esc(s.nombre)}">`, 'min/kg', { w: 'w-32' })}</td>
+    <td class="hf-col" data-hf-sub="${esc(s.id)}" data-hf-nombre="${esc(s.nombre)}"></td>
     <td class="whitespace-nowrap text-xs ${tiene ? 'text-ok' : 'text-warn font-semibold'}">${tiene ? '✔ con valor' : '⚠ sin valor'}</td></tr>`;
 }
 function htmlSubrubrosFr() {
   const lista = listaSubrubrosFr();
   const tabla = lista.length ? `<table class="cfg-tabla fr-filas w-full"><thead><tr><th scope="col" class="text-left">Subrubro</th><th scope="col" class="text-left">Productos</th>
-      <th scope="col" class="text-left">Min por kg</th><th scope="col" class="text-left">Estado</th></tr></thead><tbody>${lista.map(htmlSubrubroFr).join('')}</tbody></table>
+      <th scope="col" class="text-left">Min por kg</th><th scope="col" class="hf-col text-left">Historial (por 1 kg)</th><th scope="col" class="text-left">Estado</th></tr></thead><tbody>${lista.map(htmlSubrubroFr).join('')}</tbody></table>
     <p class="fr-sin-faltan hidden mt-2 text-sm font-semibold text-ok" role="status">Todos los subrubros tienen min/kg.</p>`
     : '<p class="text-sm text-gris mt-2">SIGA no devolvió subrubros para los graneles (rubro Pesables Deposito).</p>';
   const sin = cfFr.sinSubrubro.length ? `<details class="mt-3 text-sm"><summary class="cursor-pointer text-warn">⚠ ${cfFr.sinSubrubro.length} producto${cfFr.sinSubrubro.length === 1 ? '' : 's'} sin subrubro en SIGA: sólo suman mano de obra y máquina si tienen su propio min/kg</summary>
@@ -352,7 +364,7 @@ function htmlSubrubrosFr() {
 // Tarjeta: título, ayuda, filtro "solo los que faltan" y la tabla.
 function htmlSubrubrosCardFr() {
   const faltan = faltanSubrubrosFr();
-  return `<div class="cfg-card fr-card fr-ancla min-w-0 mt-4" data-guardable data-nombre="Subrubros" id="frSubrubrosCard"><div class="fr-cuerpo">
+  return `<div class="cfg-card fr-card fr-ancla min-w-0 mt-4 hf-sin" data-guardable data-nombre="Subrubros" id="frSubrubrosCard"><div class="fr-cuerpo">
     <div class="fr-card-cab"><div><h3 class="cfg-h">Subrubros</h3>
       <p class="cfg-ayuda">Minutos por kilo de cada subrubro de SIGA (rubro Pesables Deposito); a cada presentación se le suma el ajuste de su tramo de peso.
         Un subrubro sin valor no suma mano de obra ni máquina, salvo en los productos que tengan su propio min/kg (se pisa desde el listado).
@@ -367,6 +379,7 @@ function conectarSubrubrosFr(card) {
   solo.onchange = () => { soloFaltaFr = solo.checked; filtrarFaltanFr(card); };
   filtrarFaltanFr(card);
   card.querySelector('.fr-guardar').onclick = () => guardarSubrubrosFr(card);
+  conectarSubrubrosHf(card, { actual: id => minKgGuardadoFr(cfFr.subrubros, id), fijar: fijarProductoFr });
 }
 function conectarProductosFr(det) {
   const id = det.dataset.prods;
@@ -396,6 +409,24 @@ function filtrarProductosFr(det, texto) {
   const filas = [...det.querySelectorAll('li[data-q]')];
   filas.forEach(li => li.classList.toggle('hidden', !coincideFr(li.dataset.q, texto)));
   det.querySelector('.fr-nada').classList.toggle('hidden', !filas.length || filas.some(li => !li.classList.contains('hidden')));
+}
+
+// ── Sugerido del historial (precios_fraccionado_historial.js) ──
+// Se pide aparte de la configuración: si falla, la configuración sigue andando sin chips (el aviso queda en #frHistorial). Cada cambio de
+// estado (leyendo / listo / error) repinta sólo el aviso y los chips, sin tocar lo que se esté tipeando.
+const cargarHistorialFr = () => cargarHistorialHf(pintarHistorialFr);
+function pintarHistorialFr() {
+  pintarEstadoHf(document.getElementById('frHistorial'), () => { invalidarHistorialHf(); cargarHistorialFr(); });
+  pintarSubrubrosHf(document.getElementById('frSubrubrosCard'));
+  pintarTramosHf(document.getElementById('frTramos'));
+}
+// "Fijar" del histograma: pisa el min/kg propio del producto (PUT granel/:plu { minKg }, sin tocar su máquina) y lo refleja en su renglón.
+async function fijarProductoFr(plu, minKg) {
+  const { insumosPorPeso: _crudo, ...vista } = await pedirEsq('PUT', `${API_FR}/granel/${encodeURIComponent(plu)}`, { minKg });
+  cfFr = { ...cfFr, ...vista };
+  const g = cfFr.subrubrosSiga.flatMap(s => s.graneles).find(x => x.plu === plu);
+  const li = document.querySelector(`#frSubrubros li[data-plu="${CSS.escape(plu)}"]`);
+  if (g && li) li.outerHTML = htmlProductoFr(g);
 }
 
 // ── Insumos por peso ──

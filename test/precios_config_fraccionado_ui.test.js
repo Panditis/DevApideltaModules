@@ -198,8 +198,11 @@ const CFG = {
     { id: '2', nombre: 'Harinas', graneles: [] }],
   sinSubrubro: [{ plu: '950', nombre: 'Suelto', presentaciones: [] }], pesos: [], insumosPorPeso: {}, ajustesPeso: null };
 
-function cargar(cfg = CFG) {
-  const ctx = vm.createContext({ module: { exports: {} }, esc, campoU, numOrNull, fmtMoney: n => String(n), PreciosEsquema: { AJUSTES_PESO_MAX: 12 } });
+// Las funciones del historial (public/js/precios_fraccionado_historial.js, con su propio test) se reemplazan por espías: acá sólo se prueba cómo se las conecta.
+const espiasHf = eventos => Object.fromEntries(['conectarSubrubrosHf', 'conectarTramosHf', 'pintarSubrubrosHf', 'pintarTramosHf', 'pintarEstadoHf', 'cargarHistorialHf',
+  'invalidarHistorialHf'].map(n => [n, (...a) => { eventos.push(n); return a; }]));
+function cargar(cfg = CFG, extra = {}) {
+  const ctx = vm.createContext({ module: { exports: {} }, esc, campoU, numOrNull, fmtMoney: n => String(n), PreciosEsquema: { AJUSTES_PESO_MAX: 12 }, ...espiasHf([]), ...extra });
   vm.runInContext(fs.readFileSync(RUTA, 'utf8'), ctx);
   vm.runInContext(`cfFr = ${JSON.stringify(cfg)}`, ctx);
   return code => vm.runInContext(code, ctx);
@@ -306,4 +309,79 @@ test('ningún texto menciona facilidad, factor ni escalas: ni el script ni el HT
 test('la cabecera da el orden de uso: tramos, después subrubros, después pisar productos', () => {
   const t = tarjeta(cargar()('CABECERA_FR')).text();
   assert.match(t, /primero la tabla de tramos.*después.*subrubros.*producto/s);
+});
+
+// ── Sugerido del historial: cómo se conecta (la lógica está en precios_fraccionado_historial.js) ──
+test('tarjeta de subrubros: cada fila trae su celda "Historial" con el id y el nombre, la tarjeta arranca sin la columna y el input no cambia', () => {
+  const $ = tarjeta(cargar()('htmlSubrubrosCardFr()'));
+  assert.deepStrictEqual($.find('td[data-hf-sub]').toArray().map(td => [$.find(td).attr('data-hf-sub'), $.find(td).attr('data-hf-nombre')]),
+    [['1', 'Frutos secos'], ['2', 'Harinas'], ['9', 'Subrubro 9 (ya no tiene productos en SIGA)']]);
+  assert.ok($.find('#frSubrubrosCard').hasClass('hf-sin')); // hasta que llega el historial la columna no se muestra
+  assert.strictEqual($.find('th.hf-col').text(), 'Historial (por 1 kg)');
+  assert.strictEqual($.find('input[data-id]').length, 3);
+  assert.strictEqual($.find('.hf-usar,.hf-chip').length, 0); // los chips los pinta el módulo del historial al llegar los datos
+  assert.deepStrictEqual($.find('thead th').toArray().map(th => $.find(th).text().trim()), ['Subrubro', 'Productos', 'Min por kg', 'Historial (por 1 kg)', 'Estado']);
+});
+
+test('tarjeta de tramos: cada fila (también las agregadas) trae su celda del historial; la tarjeta arranca sin la columna', () => {
+  const run = cargar();
+  const $ = tarjeta(run('htmlTramosFr()'));
+  assert.strictEqual($.find('tbody tr').length, 4);
+  assert.strictEqual($.find('tbody td[data-hf-tramo]').length, 4);
+  assert.ok($.find('#frTramos').hasClass('hf-sin'));
+  assert.strictEqual($.find('thead th.hf-col').text(), 'Historial');
+  assert.strictEqual($.find('thead th').length, 4); // hasta, ± min/kg, historial, quitar
+  assert.strictEqual(tarjeta(`<table><tbody>${run('htmlFilaTramoFr({ hastaG: 4000, minKg: null })')}</tbody></table>`).find('td[data-hf-tramo]').length, 1);
+});
+
+test('la lista de productos de un subrubro marca cada renglón con su PLU (para reflejar lo que se fija)', () => {
+  const $ = tarjeta(cargar()('htmlSubrubrosCardFr()'));
+  assert.strictEqual($.find('li[data-plu="900"]').length, 1);
+});
+
+test('fijarProductoFr: PUT granel/:plu sólo con { minKg }, mezcla la config nueva sin pisar los insumos y reescribe el renglón del producto', async () => {
+  const llamadas = [];
+  let renglon = '';
+  const li = { set outerHTML(v) { renglon = v; } };
+  const run = cargar(CFG, {
+    CSS: { escape: s => s },
+    pedirEsq: async (m, u, b) => { llamadas.push([m, u, b]); return { migrado: true, porGranel: { 900: { minKg: 6.4, maquinaId: 'env' } }, insumosPorPeso: { 250: [{ plu: '1', cantidad: 1 }] } }; },
+    document: { querySelector: sel => (sel === '#frSubrubros li[data-plu="900"]' ? li : null) },
+  });
+  run('cfFr.insumosPorPeso = { 500: [{ plu: "7", cantidad: 2, nombre: "Bolsa", costo: 10 }] }');
+  await run('fijarProductoFr("900", 6.4)');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(llamadas)), [['PUT', '/api/precios/config/esquema/fraccionado/granel/900', { minKg: 6.4 }]]); // JSON: objetos de otro contexto
+  assert.match(renglon, /propio: 6,4 min\/kg/);
+  assert.match(renglon, /data-plu="900"/);
+  assert.strictEqual(run('cfFr.porGranel[900].minKg'), 6.4);
+  assert.strictEqual(run('cfFr.insumosPorPeso[500][0].nombre'), 'Bolsa'); // el insumosPorPeso crudo de la respuesta no pisa el del GET (con nombre y costo)
+  assert.strictEqual(run('cfFr.subrubrosSiga.length'), 2);
+  await assert.rejects(cargar(CFG, { CSS: { escape: s => s }, pedirEsq: async () => { throw new Error('minKg: número de 0 a 600 (min/kg)'); }, document: {} })('fijarProductoFr("900", 9999)'), /número de 0 a 600/);
+});
+
+test('conexión: al pintar la configuración se pide el historial; al guardar los tramos se invalida ANTES de repintar y se pide de nuevo', async () => {
+  const eventos = [];
+  const nodo = () => ({ classList: { toggle() {}, add() {}, remove() {} }, querySelector: () => nodo(), querySelectorAll: () => [], dataset: {} });
+  const panel = nodo();
+  const run = cargar(CFG, { ...espiasHf(eventos) });
+  run('pintarCosteoFracc')(panel);
+  assert.match(panel.innerHTML, /id="frHistorial"/);
+  assert.deepStrictEqual(eventos.filter(e => /Historial|Hf/.test(e)).sort(), ['cargarHistorialHf', 'conectarSubrubrosHf', 'conectarTramosHf']);
+  assert.ok(panel.innerHTML.indexOf('id="frHistorial"') < panel.innerHTML.indexOf('id="frEstado"') && panel.innerHTML.indexOf('id="frEstado"') < panel.innerHTML.indexOf('id="frTramos"'));
+
+  eventos.length = 0;
+  const filas = [['500', '2'], ['1000', '0']].map(([h, m]) => ({ querySelector: sel => ({ value: sel.includes('hastaG') ? h : m }) }));
+  const msg = {}, boton = { disabled: false }, nuevo = nodo();
+  const card = { querySelectorAll: () => filas, querySelector: sel => (sel === '.esq-msg' ? msg : sel === '.fr-guardar' ? boton : null) };
+  const run2 = cargar(CFG, {
+    ...espiasHf(eventos), msgEsq() {}, limpiarSucio() {}, esFraccCfg: () => true,
+    pedirEsq: async (m, u, b) => { eventos.push(`${m} ${u.split('/').pop()} ${JSON.stringify(b.tramos)}`); return { migrado: true, tramosTiempo: b.tramos, insumosPorPeso: {} }; },
+    document: { activeElement: null, getElementById: id => (id === 'frTramos' ? nuevo : id === 'cfgFraccAviso' ? nodo() : null) },
+  });
+  await run2('guardarTramosFr')(card);
+  assert.deepStrictEqual(eventos.filter(e => !/^conectarSub/.test(e)), ['PUT tramos-tiempo [{"hastaG":500,"minKg":2},{"hastaG":1000,"minKg":0}]', 'invalidarHistorialHf', 'conectarTramosHf', 'cargarHistorialHf']);
+});
+
+test('no hay diálogos nativos ni console en el script de la configuración', () => {
+  assert.doesNotMatch(fs.readFileSync(RUTA, 'utf8'), /(alert|confirm|prompt)\s*\(|console\./);
 });

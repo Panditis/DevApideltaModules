@@ -410,6 +410,50 @@
   .fr-peso span{font-size:12px;color:#5c5f52}
   .fr-peso-vacio b{color:#5c5f52}
   #frPesos .cfg-pie{margin-top:8px;padding-top:0;border-top:0;min-height:20px}
+  /* ── Sugerido del historial (public/js/precios_fraccionado_historial.js): chips "Historial" + "Usar", resumen de cargas y panel "Ver distribución" ── */
+  .hf-estado{margin-bottom:14px;font-size:12.5px;line-height:1.5;color:#5c5f52}
+  .hf-linea{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;color:#242423}
+  .hf-ayuda{margin-top:4px;max-width:80ch}
+  .hf-desc summary{display:inline;cursor:pointer;color:#5c5f52;text-decoration:underline dotted}
+  .hf-desc[open]{flex-basis:100%}
+  .hf-desc ul{margin-top:4px;padding-left:18px;list-style:disc;color:#5c5f52}
+  .hf-fila{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+  .hf-chip{display:inline-block;padding:2px 9px;border-radius:999px;border:1px solid rgba(26,28,24,.12);background:#eef1ea;font-size:12px;color:#3d4136;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .hf-poco{background:transparent;border-style:dashed;color:#5c5f52}
+  .hf-sin .hf-col{display:none} /* sin historial (leyendo o con error) la columna no se muestra */
+  .hf-modal{margin-top:8px}
+  .hf-modal:empty{display:none}
+  .hf-d-h{margin:18px 0 2px;font-size:13.5px;font-weight:700;color:#405936}
+  .hf-d-res{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:#5c5f52}
+  .hf-d-res b{color:#242423;font-variant-numeric:tabular-nums}
+  .hf-d-aviso{margin-top:6px;font-size:12.5px;color:#8a5d00}
+  .hf-fijar.hf-fijado:disabled{opacity:1;border-color:rgba(14,112,14,.35);background:rgba(14,112,14,.07);color:#0e700e;cursor:default}
+  .hf-vacio-d{margin:16px 0;font-size:13px;color:#5c5f52}
+  .hf-plu{display:block;font-size:11.5px;color:#5c5f52}
+  .hf-tabla{margin-top:8px}
+  .hf-alejados tbody tr+tr th,.hf-tabla tbody tr+tr th{border-top:1px solid rgba(26,28,24,.08)}
+  .hf-alejados tbody th,.hf-tabla tbody th{padding:7px 12px 7px 0;vertical-align:middle;font-size:13px;font-weight:400;color:#242423;text-transform:none;letter-spacing:0} /* el th de fila no va en mayúsculas del theme: son nombres de producto */
+  .hf-tabla summary{cursor:pointer;font-size:12.5px;color:#5c5f52}
+  /* Histograma: barras de ancho parejo; la mediana (línea llena) y el valor actual (línea punteada) se rotulan con texto, no sólo con color. */
+  .hf-pista{position:relative;margin-top:14px;padding-top:56px}
+  .hf-barras{position:relative;display:flex;align-items:stretch;gap:3px;height:140px;border-bottom:1px solid rgba(26,28,24,.32)}
+  .hf-barras.hf-uno{justify-content:center}
+  .hf-uno .hf-barra{flex:0 0 10%}
+  .hf-barra{position:relative;flex:1;min-width:0}
+  .hf-rect{position:absolute;left:0;right:0;bottom:0;height:var(--h);border-radius:3px 3px 0 0;background:rgba(64,89,54,.68);transition:background-color 140ms ease}
+  .hf-barra:hover .hf-rect{background:#405936}
+  .hf-uno .hf-n{padding-left:60%;text-align:left} /* una sola barra: su cantidad no queda tapada por las líneas del centro */
+  .hf-n{position:absolute;left:0;right:0;bottom:var(--h);padding-bottom:1px;text-align:center;font-size:11px;color:#3d4136;font-variant-numeric:tabular-nums}
+  .hf-marca{position:absolute;top:0;bottom:0;width:0;border-left:2px solid #242423;pointer-events:none;filter:drop-shadow(0 0 1.5px #fff)} /* el halo blanco la separa de la barra que cruza */
+  .hf-actual{top:28px;border-left:2px dashed #8a5d00} /* arranca en su rótulo: no cruza el de la mediana */
+  .hf-tag{position:absolute;top:0;left:0;transform:translateX(-50%);padding:1px 7px;border-radius:6px;background:#242423;color:#fff;font-size:11.5px;font-weight:600;white-space:nowrap}
+  .hf-actual .hf-tag{top:0;background:#fff4ce;color:#8a5d00;border:1px solid #8a5d00}
+  .hf-izq .hf-tag{transform:none}
+  .hf-der .hf-tag{transform:translateX(-100%)}
+  .hf-eje{display:flex;justify-content:space-between;margin-top:3px;font-size:11.5px;color:#5c5f52;font-variant-numeric:tabular-nums}
+  .hf-eje-uno{justify-content:center}
+  #dlgHist button:focus-visible,#dlgHist summary:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){.hf-rect{transition:none}}
   /* Input con unidad visible ($ antes, % / min / g después): el borde y el foco los lleva el contenedor. */
   .campo-u{display:inline-flex;align-items:center;border:1px solid rgba(26,28,24,.16);border-radius:8px;background:#fff;
            transition:border-color 140ms ease,box-shadow 140ms ease;vertical-align:middle}
@@ -829,6 +873,16 @@
     </div>
   </div>
 </dialog>
+<!-- Distribución de los min/kg por producto de un subrubro (Configuración › Costeo Fraccionado › Subrubros › "Ver distribución"): /js/precios_fraccionado_historial.js abrirDistribucionHf. -->
+<dialog id="dlgHist" class="rounded-xl border border-borde shadow-fluent p-0 w-[min(94vw,760px)] max-h-[90vh] bg-card text-ink backdrop:bg-ink/40" aria-labelledby="dlgHistTitulo">
+  <div class="p-5">
+    <div class="flex items-start gap-3">
+      <h3 id="dlgHistTitulo" class="hf-dlg-titulo font-disp text-base font-bold text-ink"></h3>
+      <button type="button" class="hf-dlg-cerrar ml-auto -mr-2 w-8 h-8 shrink-0 rounded-lg text-gris hover:bg-bg hover:text-ink" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="hf-dlg-cuerpo mt-2 text-sm"></div>
+  </div>
+</dialog>
 <script src="/js/precios_produccion.js"></script>
 <script src="/js/precios_produccion_detalle.js"></script>
 <script src="/js/precios_produccion_presentaciones.js"></script>
@@ -839,6 +893,7 @@
 <script src="/js/precios_esquema.js"></script>
 <script src="/js/precios_config_esquema.js"></script>
 <script src="/js/precios_simulador.js"></script>
+<script src="/js/precios_fraccionado_historial.js"></script>
 <script src="/js/precios_config_fraccionado.js"></script>
 <script src="/js/precios_listados.js"></script>
 <script src="/js/precios_modal_esquema.js"></script>
