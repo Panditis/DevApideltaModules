@@ -247,6 +247,8 @@ function carritoEnvioEntorno(lineas) {
   const posts = [];
   const src = [
     constDe('nombreLinea'),
+    constDe('NIVEL_PRIORIDAD'),
+    constDe('_nivelLinea'),
     constDe('_posLinea'),
     constDe('lineasOrdenadas'),
     fuenteDe('enviarCarrito'),
@@ -270,6 +272,47 @@ test('el carrito se ordena por rankingPos: sin rankingPos al final, empates en o
   ]);
 
   assert.deepStrictEqual(lineasOrdenadas().map(l => l._id), [3, 2, 5, 1, 4]);
+});
+
+test('el carrito ordena por nivel (urgente, alta, media, baja) y dentro del nivel por rankingPos; sin nivel = media', () => {
+  const { lineasOrdenadas } = carritoEnvioEntorno([
+    { _id: 1, nivelPrioridad: 'baja', rankingPos: 1 }, { _id: 2, rankingPos: 2 }, { _id: 3, nivelPrioridad: 'alta' },
+    { _id: 4, nivelPrioridad: 'media', rankingPos: 1 }, { _id: 5, nivelPrioridad: 'alta', rankingPos: 9 }, { _id: 6, nivelPrioridad: 'inválido' },
+    { _id: 7, nivelPrioridad: 'urgente', rankingPos: 5 }, { _id: 8, nivelPrioridad: 'urgente' },
+  ]);
+
+  // urgente: 7 (rankingPos 5) antes que 8 (sin rankingPos); alta: 5 antes que 3; media: 4, 2 y 6 (sin campo válido, al final); baja: 1.
+  assert.deepStrictEqual(lineasOrdenadas().map(l => l._id), [7, 8, 5, 3, 4, 2, 6, 1]);
+});
+
+test('el select de nivel lista urgente, alta, media y baja, marca el nivel de la línea (media si no tiene) y edita nivelPrioridad', () => {
+  const selectNivel = new Function([constDe('NIVEL_PRIORIDAD'), constDe('_nivelLinea'), fuenteDe('selectNivel'), 'return selectNivel;'].join('\n'))();
+
+  const sinCampo = selectNivel({ _id: 7 });
+  const opciones = [...sinCampo.matchAll(/<option value="(\w+)"[^>]*>(\w+)<\/option>/g)].map(m => [m[1], m[2]]);
+  assert.deepStrictEqual(opciones, [['urgente', 'Urgente'], ['alta', 'Alta'], ['media', 'Media'], ['baja', 'Baja']]);
+  assert.match(sinCampo, /<option value="media" selected>Media<\/option>/);
+  assert.strictEqual((sinCampo.match(/ selected>/g) || []).length, 1);
+  assert.match(sinCampo, /onclick="event\.stopPropagation\(\)"/);
+  assert.match(sinCampo, /editarLinea\(7,'nivelPrioridad',this\.value\)/);
+  assert.match(selectNivel({ _id: 7, nivelPrioridad: 'urgente' }), /<option value="urgente" selected>Urgente<\/option>/);
+  assert.match(selectNivel({ _id: 7, nivelPrioridad: 'baja' }), /<option value="baja" selected>Baja<\/option>/);
+});
+
+test('el envío no manda nivelPrioridad y la prioridad numérica sigue el nivel elegido', async () => {
+  const { enviarCarrito, posts } = carritoEnvioEntorno([
+    { _id: 21, _pkOk: true, rankingPos: 1, nivelPrioridad: 'alta', producto: 'Primero del Resumen', cantConfirmada: 1 },
+    { _id: 22, _pkOk: true, nivelPrioridad: 'urgente', producto: 'Manual urgente', cantConfirmada: 3 },
+    { _id: 23, _pkOk: true, rankingPos: 2, nivelPrioridad: 'baja', producto: 'Segundo del Resumen', cantConfirmada: 2 },
+  ]);
+
+  await enviarCarrito();
+
+  assert.deepStrictEqual(posts[0].body.items, [
+    { producto: 'Manual urgente', cantConfirmada: 3, prioridad: 1 },
+    { producto: 'Primero del Resumen', cantConfirmada: 1, prioridad: 2 },
+    { producto: 'Segundo del Resumen', cantConfirmada: 2, prioridad: 3 },
+  ]);
 });
 
 test('el envío manda las líneas en ese orden con prioridad = lugar + 1 y sin campos de UI', async () => {
