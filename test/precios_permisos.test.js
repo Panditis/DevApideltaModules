@@ -19,6 +19,7 @@ const RUTAS_CONFIG_ESPERADAS = [
   'put /api/precios/costos-extra/:plu',
   'get /api/precios/config/esquema/fraccionado',
   'get /api/precios/config/esquema/fraccionado/costeo',
+  'get /api/precios/config/esquema/fraccionado/historial',
   'put /api/precios/config/esquema/fraccionado/maquinas',
   'put /api/precios/config/esquema/fraccionado/tramos-tiempo',
   'put /api/precios/config/esquema/fraccionado/subrubros',

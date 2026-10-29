@@ -19,7 +19,8 @@
 // claseDelta (precios_comun.js), mdEsq, mdFuente, mdDetalle, guardarCostoEsq, htmlResumenMd, htmlAvisoMd, htmlOpcionesCosto,
 // opcionesCosto, manualEnTarjetaMd, htmlMargenProductoMd, htmlEdicionCostos, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd,
 // pasosMayoristaMd (precios_modal_esquema.js), API_FR
-// (precios_config_fraccionado.js), getJson (precios_produccion.js).
+// (precios_config_fraccionado.js), getJson (precios_produccion.js), conectarProductoHf (precios_fraccionado_historial.js: el chip del historial
+// de ESTE producto junto a su min/kg propio, sólo en el bloque de precios-config).
 // El bloque "Estado" del granel (activo / inactivo / automático, spec 2026-10-26 §4) lo ve cualquier usuario de Precios:
 // globales guardarActivoManual, conActivoManual, renderListado (precios_listados.js).
 const NODE_FR_MD = typeof module === 'object' && module.exports;
@@ -352,6 +353,7 @@ function htmlTiempoGranelMd(f) {
       <div><label for="mdFrMinKg" class="block text-sm mb-1">Min por kg</label>${campoU(entrada, 'min/kg', { w: 'w-36' })}</div>
       <div><label for="mdFrMaquina" class="block text-sm mb-1">Máquina</label><select id="mdFrMaquina" class="num-in text-left">${opcionesMaquinaMd(maquinas, g.maquinaId)}</select></div>
       <button type="button" id="mdFrGuardar" class="cfg-btn2">Guardar</button></div>
+    <div id="mdFrHist" class="hf-modal"></div>
     <p id="mdFrAyuda" class="md-sb-ayuda mt-2">${esc(t.usado)} ${esc(t.herencia)} La máquina es opcional: si elegís una, suma los mismos minutos × su costo hora.</p>
     <p id="mdFrMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
@@ -422,6 +424,7 @@ function conectarCosteoFraccMd() {
     guardarCostoEsq(`${API_FR}/granel/${encodeURIComponent(mdEsq.fila.plu)}`, r.body, 'PUT', 'mdFrMsg');
   };
   minKg.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); guardar.click(); } };
+  conectarProductoHf({ slot: document.getElementById('mdFrHist'), input: minKg, plu: mdEsq.fila.plu, msg: document.getElementById('mdFrMsg') }); // historial (una sola carga para todo el módulo)
 }
 function mostrarErrorFrMd(texto) {
   const m = document.getElementById('mdFrMsg');

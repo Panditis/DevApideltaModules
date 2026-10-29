@@ -9,10 +9,11 @@ const express = require('express');
 const crearRutas = require('../routes/rutas_precios_fraccionado');
 const { crearGuardPrecios } = require('../lib/precios_permisos');
 
-function appCon(costeo, { query = async () => [], guard = false, sinConfig = false } = {}) {
+function appCon(costeo, { query = async () => [], guard = false, sinConfig = false, archivos = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fracc-rutas-'));
   const archivo = path.join(dir, 'costeo.json');
   if (costeo) fs.writeFileSync(archivo, JSON.stringify(costeo));
+  for (const [nombre, contenido] of Object.entries(archivos)) fs.writeFileSync(path.join(dir, nombre), JSON.stringify(contenido));
   const leerJSON = (p, def) => { try { return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def; } catch { return def; } };
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
   const apiRoute = fn => async (req, res) => { try { res.json(await fn(req)); } catch (err) { res.status(500).json({ error: err.message }); } };
@@ -27,7 +28,7 @@ function appCon(costeo, { query = async () => [], guard = false, sinConfig = fal
       { method: metodo, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: res.status, ...(await res.json()) };
   };
-  return { pedir, leer: () => JSON.parse(fs.readFileSync(archivo, 'utf8')), cerrar: () => server && server.close() };
+  return { pedir, dir, leer: () => JSON.parse(fs.readFileSync(archivo, 'utf8')), cerrar: () => server && server.close() };
 }
 
 const BASE = '/api/precios/config/esquema/fraccionado';
@@ -194,8 +195,63 @@ test('sin permiso precios-config: 403 en la configuración', async () => {
   const a = appCon({ fraccionado: FRACC }, { guard: true, sinConfig: true });
   try {
     for (const [m, r] of [['GET', BASE], ['GET', `${BASE}/costeo`], ['PUT', `${BASE}/maquinas`], ['PUT', `${BASE}/tramos-tiempo`],
-      ['PUT', `${BASE}/subrubros`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/insumos-peso/500`], ['PUT', `${BASE}/ajustes-peso`]]) {
+      ['PUT', `${BASE}/subrubros`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/insumos-peso/500`], ['PUT', `${BASE}/ajustes-peso`], ['GET', `${BASE}/historial`]]) {
       assert.strictEqual((await a.pedir(m, r, m === 'PUT' ? {} : undefined)).status, 403, `${m} ${r}`);
     }
+  } finally { a.cerrar(); }
+});
+
+// ── GET historial (E2) ──
+const cargaHist = (i, x = {}) => ({ id: `h${i}`, fecha: `2026-09-${String(1 + (i % 28)).padStart(2, '0')}`, plu: '500', nombre: 'Almendra 1Kg',
+  granel: '100', granelConsumido: 2, empleado: `P${i % 40}`, desde: '08:00', hasta: '08:40', ...x });
+const filaGranel = { IdProducto: 100, NombreProducto: 'Almendra granel', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' };
+
+test('GET historial: estadística con la tabla guardada, sin escribir nada', async () => {
+  const cargas = Array.from({ length: 6 }, (_, i) => cargaHist(i));
+  const costeo = { fraccionado: { ...FRACC, tramosTiempo: [{ hastaG: 1000, minKg: 0 }] } };
+  const a = appCon(costeo, { query: async () => [filaGranel], archivos: { 'historial_distribucion.json': [{ fecha: '2026-09-01', produccion: [...cargas, cargas[0]] }, null] } });
+  try {
+    const antes = fs.readdirSync(a.dir).map(n => [n, fs.statSync(path.join(a.dir, n)).mtimeMs]);
+    const j = await a.pedir('GET', `${BASE}/historial`);
+    assert.strictEqual(j.status, 200);
+    assert.deepStrictEqual(j.cargas, { total: 6, usadas: 6, descartes: { act: 0, duracion: 0, sinKilos: 0, sinGranel: 0, sinPeso: 0 } });
+    assert.deepStrictEqual(j.productos['100'], { n: 6, mediana: 20, p25: 20, p75: 20, subrubroId: '7', pocosDatos: false });
+    assert.deepStrictEqual(j.subrubros['7'], { n: 6, productos: 1, mediana: 20, p25: 20, p75: 20, pocosDatos: false });
+    assert.deepStrictEqual(j.tramos, [{ hastaG: 1000, base: true, n: 1, mediana: 0, p25: 0, p75: 0, pocosDatos: false }]);
+    assert.deepStrictEqual(j.distribucion, { 7: [{ plu: '100', nombre: 'Almendra granel', n: 6, minKg: 20 }] });
+    assert.deepStrictEqual(fs.readdirSync(a.dir).map(n => [n, fs.statSync(path.join(a.dir, n)).mtimeMs]), antes);
+  } finally { a.cerrar(); }
+});
+
+test('GET historial: sin archivo → ceros; SIGA caído → 500 con mensaje claro', async () => {
+  const a = appCon({ fraccionado: FRACC });
+  try {
+    const j = await a.pedir('GET', `${BASE}/historial`);
+    assert.deepStrictEqual([j.cargas.total, j.productos, j.tramos], [0, {}, []]);
+  } finally { a.cerrar(); }
+  const b = appCon({ fraccionado: FRACC }, { query: async () => { throw new Error('ECONNRESET'); }, archivos: { 'historial_distribucion.json': [] } });
+  const errorOriginal = console.error;
+  console.error = () => {};
+  try {
+    const j = await b.pedir('GET', `${BASE}/historial`);
+    assert.deepStrictEqual([j.status, j.error], [500, 'No se pudieron leer los graneles de SIGA']);
+  } finally { console.error = errorOriginal; b.cerrar(); }
+  const c = appCon({ fraccionado: FRACC }, { archivos: { 'historial_distribucion.json': { no: 'lista' } } });
+  try { assert.strictEqual((await c.pedir('GET', `${BASE}/historial`)).status, 500); } finally { c.cerrar(); }
+});
+
+test('GET historial: 3.000 líneas sintéticas bajo 1 s', async () => {
+  const cargas = Array.from({ length: 3000 }, (_, i) => cargaHist(i, { granel: String(100 + (i % 300)), nombre: ['X 50G', 'X 250G', 'X 1Kg'][i % 3],
+    desde: `${String(7 + (i % 8)).padStart(2, '0')}:00`, hasta: `${String(7 + (i % 8)).padStart(2, '0')}:45` }));
+  const filas = Array.from({ length: 300 }, (_, i) => ({ ...filaGranel, IdProducto: 100 + i, IdSubRubro: i % 12 }));
+  const dias = Array.from({ length: 30 }, (_, d) => ({ fecha: 'x', produccion: cargas.slice(d * 100, d * 100 + 100) }));
+  const a = appCon({ fraccionado: { ...FRACC, tramosTiempo: [{ hastaG: 100, minKg: 3 }, { hastaG: 500, minKg: 1 }, { hastaG: 1000, minKg: 0 }] } },
+    { query: async () => filas, archivos: { 'historial_distribucion.json': dias } });
+  try {
+    await a.pedir('GET', BASE); // levanta el server fuera de la medición
+    const t0 = Date.now();
+    const j = await a.pedir('GET', `${BASE}/historial`);
+    assert.ok(Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
+    assert.strictEqual(j.cargas.total, 3000);
   } finally { a.cerrar(); }
 });

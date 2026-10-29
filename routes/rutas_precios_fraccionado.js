@@ -7,6 +7,7 @@ const { agruparPorGranel, crearCostoDe } = require('../lib/precios_listado_esque
 const { formulasPesables } = require('../lib/formulas_pesables');
 const FC = require('../lib/precios_fraccionado_costo');
 const CF = require('../lib/precios_config_fraccionado');
+const HIST = require('../lib/precios_fraccionado_historial');
 
 // ── Precios · costeo de Fraccionado (spec 2026-10-21-precios-fraccionado-costeo-design §9; 2026-10-23-…-peso-subrubro §4) ──
 // Todo bajo /api/precios/config/ (permiso precios-config por RUTAS_CONFIG): máquinas, ajuste ± min/kg por tramo de peso,
@@ -65,6 +66,21 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
     const grupos = agruparPorGranel({ graneles, presentaciones, formulas, costos });
     return { migrado: cfgEsq.fraccionadoMigrado(costeo), ...vista(costeo.fraccionado), ...CF.productosPorSubrubro(grupos),
       insumosPorPeso: CF.insumosConCosto(cf.insumosPorPeso, crearCostoDe(costos, costeo)) };
+  }));
+
+  // Sugerido de min/kg desde el historial (E2). Sólo lectura: no escribe nada ni cachea (ponytail: ≈2 MB + una consulta;
+  // cache por mtime del archivo + tabla guardada si pasa de 1 s).
+  router.get(`${BASE}/historial`, apiRoute(async () => {
+    const dias = leerJSON(path.join(DATA_DIR, 'historial_distribucion.json'), []);
+    if (!Array.isArray(dias)) throw new Error('historial_distribucion.json no es una lista de días');
+    let graneles;
+    try { graneles = await consultas.granelesConSubrubro(); } catch (err) {
+      console.error('[precios] historial fraccionado: graneles de SIGA', err);
+      throw new Error('No se pudieron leer los graneles de SIGA');
+    }
+    const formulas = (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas;
+    return HIST.estadisticasHistorial({ cargas: dias.flatMap(d => (d && d.produccion) || []), graneles, formulas,
+      tramos: FC.normalizarCosteoFraccionado(leerCosteo().fraccionado).tramosTiempo });
   }));
 
   router.put(`${BASE}/maquinas`, guardarFracc((req, cf) => CF.validarMaquinas(cuerpo(req), cf)));

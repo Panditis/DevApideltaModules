@@ -50,7 +50,7 @@ function crearContexto() {
     guardarTipoProveedor: () => Promise.resolve(), guardarActivoManual: () => Promise.resolve(null), conActivoManual: (f, a) => ({ ...f, activoManual: a }),
   });
   ctx.self = ctx; // lib/precios_esquema.js (UMD, /js/precios_esquema.js en la página) publica self.PreciosEsquema
-  for (const f of ['../../lib/precios_esquema.js', 'precios_comun.js', 'precios_modal_esquema.js', 'precios_modal_fraccionado.js']) {
+  for (const f of ['../../lib/precios_esquema.js', 'precios_comun.js', 'precios_modal_esquema.js', 'precios_fraccionado_historial.js', 'precios_modal_fraccionado.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/js', f), 'utf8'), ctx, { filename: path.basename(f) });
   }
   const correr = src => vm.runInContext(src, ctx);
@@ -424,4 +424,94 @@ test('Margen de este producto: campoU lleva "$" antes del campo (pre) sólo en m
     assert.deepStrictEqual(llamadas, Array(3).fill([unidad, pre]), `${tipo} ${modo}`);
     assert.strictEqual(dom.cuerpo().includes('aria-describedby="mdMpMargen-'), pre, `${tipo} ${modo}`);
   }
+});
+
+// ── Chip del historial del producto, junto a su min/kg propio (spec 2026-10-29 E2): sólo con precios-config, una carga para todo el módulo ──
+const historialDe = productos => ({ cargas: { total: 20, usadas: 12, descartes: {} }, minMuestras: 5, productos, subrubros: {}, tramos: [], distribucion: {} });
+const ESPERAR = () => new Promise(res => setImmediate(res));
+// getJson responde el historial en su URL (y lo de siempre en las demás); pedidos = las URLs que se pidieron.
+function conHistorial(dom, respuesta) {
+  const pedidos = [];
+  dom.ctx.getJson = url => { pedidos.push(url); return url.endsWith('/historial') ? respuesta() : Promise.resolve({ maquinas: [] }); };
+  dom.ctx.Event = Event;
+  return pedidos;
+}
+const pedidosHistorial = p => p.filter(u => u.endsWith('/fraccionado/historial'));
+
+test('Fraccionado con precios-config: junto al min/kg propio va el chip del historial de ESE producto, con su "Usar"', async () => {
+  const dom = crearContexto();
+  const pedidos = conHistorial(dom, () => Promise.resolve(historialDe({ 100: { n: 12, mediana: 6.4, p25: 5, p75: 8, subrubroId: '7', pocosDatos: false }, 999: { n: 30, mediana: 1, p25: 1, p75: 1, subrubroId: null, pocosDatos: false } })));
+  abrir(dom, 'fraccionado', granel({ conPermiso: true }));
+  assert.match(dom.cuerpo(), /<div id="mdFrHist" class="hf-modal"><\/div>/); // el lugar del chip, vacío hasta que llega
+  assert.deepStrictEqual(repetidos(dom.ids()), []);
+  await ESPERAR();
+  const slot = dom.el('mdFrHist').innerHTML;
+  assert.match(slot, /Historial: 6,4 por 1 kg · 12 cargas/);
+  assert.doesNotMatch(slot, /30 cargas/); // el de otro producto, no
+  assert.match(slot, /data-hf-valor="6\.4"/);
+  assert.match(slot, /aria-label="Usar 6,4 min\/kg como min\/kg propio de este producto"/);
+  assert.strictEqual(pedidosHistorial(pedidos).length, 1);
+  assert.strictEqual(typeof dom.el('mdFrHist').onclick, 'function');
+});
+
+test('Fraccionado con precios-config: "Usar" rellena el Min por kg y avisa que falta Guardar; no guarda nada', async () => {
+  const dom = crearContexto();
+  const pedidos = conHistorial(dom, () => Promise.resolve(historialDe({ 100: { n: 12, mediana: 6.4, p25: 5, p75: 8, subrubroId: '7', pocosDatos: false } })));
+  const eventos = [];
+  dom.ctx.fetch = (url, opts) => { eventos.push([url, opts && opts.method]); return Promise.resolve({ json: () => Promise.resolve({}) }); };
+  abrir(dom, 'fraccionado', granel({ conPermiso: true }));
+  await ESPERAR();
+  const input = dom.el('mdFrMinKg');
+  input.dispatchEvent = e => eventos.push(['evento', e.type]);
+  const usar = { dataset: { hfValor: '6.4' } };
+  dom.el('mdFrHist').onclick({ target: { closest: s => (s === '.hf-usar' ? usar : null) } });
+  assert.strictEqual(input.value, '6.4');
+  assert.match(dom.el('mdFrMsg').textContent, /falta Guardar/);
+  assert.deepStrictEqual(eventos, [['evento', 'input']]); // ni un solo pedido: se guarda con el Guardar del bloque
+  assert.deepStrictEqual(pedidos.filter(u => u.includes('/granel/')), []);
+});
+
+test('Fraccionado con precios-config: con pocos datos el chip dice "pocos datos" sin "Usar"; sin entrada del producto no muestra nada', async () => {
+  const poco = crearContexto();
+  conHistorial(poco, () => Promise.resolve(historialDe({ 100: { n: 2, mediana: null, p25: null, p75: null, subrubroId: '7', pocosDatos: true } })));
+  abrir(poco, 'fraccionado', granel({ conPermiso: true }));
+  await ESPERAR();
+  assert.match(poco.el('mdFrHist').innerHTML, />pocos datos</);
+  assert.doesNotMatch(poco.el('mdFrHist').innerHTML, /hf-usar/);
+  const sin = crearContexto();
+  conHistorial(sin, () => Promise.resolve(historialDe({ 555: { n: 9, mediana: 2, p25: 1, p75: 3, subrubroId: null, pocosDatos: false } })));
+  abrir(sin, 'fraccionado', granel({ conPermiso: true }));
+  await ESPERAR();
+  assert.strictEqual(sin.el('mdFrHist').innerHTML, '');
+});
+
+test('Fraccionado con precios-config: el historial se pide UNA vez para todo el módulo, aunque se abran varios modales', async () => {
+  const dom = crearContexto();
+  const pedidos = conHistorial(dom, () => Promise.resolve(historialDe({ 100: { n: 12, mediana: 6.4, p25: 5, p75: 8, subrubroId: '7', pocosDatos: false } })));
+  abrir(dom, 'fraccionado', granel({ conPermiso: true }));
+  abrir(dom, 'fraccionado', granel({ conPermiso: true })); // repintado con la primera carga todavía en vuelo
+  await ESPERAR();
+  abrir(dom, 'fraccionado', granel({ conPermiso: true })); // ya cargado: el chip sale en el mismo pintado, sin pedir
+  assert.match(dom.el('mdFrHist').innerHTML, /Historial: 6,4 por 1 kg/);
+  assert.strictEqual(pedidosHistorial(pedidos).length, 1);
+});
+
+test('Fraccionado con precios-config: si el historial falla el modal sigue andando, sin chip', async () => {
+  const dom = crearContexto();
+  conHistorial(dom, () => Promise.reject(new Error('Sin permiso para la configuración de precios')));
+  abrir(dom, 'fraccionado', granel({ conPermiso: true }));
+  await ESPERAR();
+  assert.strictEqual(dom.el('mdFrHist').innerHTML, '');
+  assert.match(dom.cuerpo(), /id="mdFrGuardar"/);
+  assert.strictEqual(typeof dom.el('mdFrGuardar').onclick, 'function');
+});
+
+test('Fraccionado sin precios-config: ni chip ni botones ni pedido del historial', async () => {
+  const dom = crearContexto();
+  const pedidos = conHistorial(dom, () => Promise.resolve(historialDe({ 100: { n: 12, mediana: 6.4, p25: 5, p75: 8, subrubroId: '7', pocosDatos: false } })));
+  abrir(dom, 'fraccionado', granel({ conPermiso: false }), { sinConfig: true });
+  await ESPERAR();
+  assert.doesNotMatch(dom.cuerpo() + dom.cuerpoDer(), /hf-|Historial|mdFrHist|Usar/);
+  assert.strictEqual(pedidosHistorial(pedidos).length, 0);
+  assert.strictEqual(pedidos.length, 0);
 });
