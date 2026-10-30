@@ -433,15 +433,16 @@
   .ev-paso-ayuda{margin:4px 0 12px 28px;max-width:90ch;font-size:12.5px;line-height:1.5;color:#5c5f52}
   .ev-bobina{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px}
   .ev-hint{font-size:12.5px;line-height:1.45;color:#5c5f52;max-width:60ch}
-  .ev-tabla{table-layout:fixed;max-width:68rem} /* anchos fijos: las filas no se corren al aparecer un aviso */
-  .ev-tabla th:nth-child(1){width:8.5rem}
+  .ev-tabla{table-layout:fixed;max-width:64rem} /* anchos fijos: las filas no se corren al aparecer un aviso */
+  .ev-tabla th:nth-child(1){width:9.5rem}
   .ev-tabla th:nth-child(2){width:23rem}
+  .ev-tabla th:nth-child(4){width:5.5rem}
   .ev-tabla th{text-align:left;text-transform:none;letter-spacing:0;vertical-align:bottom}
   .ev-tabla th.ev-grupo{padding-bottom:8px;font-size:12.5px;font-weight:700;color:#242423}
   .ev-tabla th.ev-grupo span{display:block;font-size:11.5px;font-weight:400;color:#5c5f52}
   .ev-tabla td{vertical-align:top;padding-top:10px;padding-bottom:10px}
   .ev-tabla .ev-col-bobina{padding-left:24px;border-left:1px solid rgba(26,28,24,.1)}
-  .ev-plu-fila,.ev-bob-fila{display:flex;align-items:center;gap:8px;min-height:30px}
+  .ev-plu-fila,.ev-bob-fila,.ev-peso-fila{display:flex;align-items:center;gap:8px;min-height:30px}
   .ev-bob-fila{gap:14px}
   .ev-plu{width:9rem;flex:none}
   .ev-nota{display:block;min-height:16px;margin-top:4px;max-width:26rem;font-size:12px;line-height:1.35;color:#5c5f52}
@@ -449,6 +450,16 @@
   .ev-err{display:block;margin-top:4px;font-size:12px;font-weight:600;color:#a4262c}
   .ev-err[hidden]{display:none}
   .ev-vacio{margin:6px 0 0 28px;font-size:13px;color:#5c5f52;max-width:80ch}
+  /* Agregar / quitar pesos: fila nueva destacada con su chip, "Vaciar" (peso con productos) y ✕ (peso sin productos) discretos, aviso de lo quitado */
+  .fr-filas tbody tr.ev-nueva,.fr-filas tbody tr.ev-nueva:hover{background:rgba(64,89,54,.07)}
+  .ev-chip-nuevo{margin-top:4px;background:#dff6dd;color:#0e700e;font-size:11px;font-weight:600}
+  .ev-tabla td.ev-acc{padding-right:0;text-align:right;white-space:nowrap}
+  .ev-vaciar{height:28px;padding:0 10px;border-radius:8px;font-size:12px;font-weight:600;color:#5c5f52}
+  .ev-vaciar:hover:not(:disabled){color:#a4262c;background:rgba(164,38,44,.08)}
+  .ev-vaciar:disabled{opacity:.4;cursor:not-allowed}
+  .ev-quitados{margin-top:10px;font-size:12.5px;font-weight:600;color:#8a5d00}
+  .ev-quitados:empty{margin:0} /* región viva: vacía no ocupa lugar pero sigue en el árbol (con display:none el lector no anuncia lo que aparece) */
+  .ev-agregar-fila{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:10px}
   #frPesos .num-in[aria-invalid=true],#frPesos .campo-u:has(input[aria-invalid=true]){border-color:#a4262c;box-shadow:0 0 0 3px rgba(164,38,44,.14)}
   #frPesos input::placeholder{color:#6b6e62;opacity:1}
   /* Buscador de bolsas (#dlgFP): sólo elige un producto de SIGA */

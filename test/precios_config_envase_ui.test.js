@@ -109,6 +109,8 @@ test('htmlPesosFr: todos los pesos (también configurados sin productos), dos co
   assert.strictEqual($.find('img').length, 0); // nombre de bolsa de SIGA escapado
   assert.match(f250.find('.ev-nota').text(), /<img src=x onerror=alert\(1\)> · \$ 20/);
   assert.match($.find('tr[data-peso="500"] .ev-nota').text(), /no está en SIGA/);
+  assert.strictEqual($.find('#evTabla thead th').length, 4); // columna de acción: Vaciar / ✕
+  assert.deepStrictEqual($.find('#evTabla tbody tr').toArray().map(tr => $.find(tr).find('.ev-acc button').length), [1, 1, 1, 1]);
 });
 
 test('costo de bobina por unidad: gramos × $/kg en la fila; sin costo "falta el costo de bobina"; sin gramos "—"', () => {
@@ -119,7 +121,8 @@ test('costo de bobina por unidad: gramos × $/kg en la fila; sin costo "falta el
   const sin = $de(cargar({}, { ...CFG, costoBobinaKg: null }).run('htmlTablaPesosFr()'));
   assert.match(sin.find('tr[data-peso="250"] .ev-bob').text(), /falta el costo de bobina/);
   const vacio = $de(cargar({}, { ...CFG, pesos: [], envasePorPeso: {} }).run('htmlTablaPesosFr()'));
-  assert.match(vacio.text(), /Todavía no hay pesos/);
+  assert.strictEqual(vacio.find('#evTabla tbody').html(), ''); // la tabla va igual (la fila nueva necesita dónde ir), tbody sin espacios
+  assert.match(vacio.find('p.fr-vacio').text(), /Todavía no hay pesos/);
 });
 
 test('refrescarFilaFr: al tipear recalcula en vivo el costo por unidad (con el $/kg tipeado arriba) y la nota de la bolsa', () => {
