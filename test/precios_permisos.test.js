@@ -24,8 +24,7 @@ const RUTAS_CONFIG_ESPERADAS = [
   'put /api/precios/config/esquema/fraccionado/tramos-tiempo',
   'put /api/precios/config/esquema/fraccionado/subrubros',
   'put /api/precios/config/esquema/fraccionado/granel/:plu',
-  'put /api/precios/config/esquema/fraccionado/envase-peso/:pesoG',
-  'put /api/precios/config/esquema/fraccionado/costo-bobina',
+  'put /api/precios/config/esquema/fraccionado/envase',
   'put /api/precios/config/esquema/fraccionado/ajustes-peso',
 ];
 

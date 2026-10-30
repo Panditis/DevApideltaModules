@@ -33,10 +33,12 @@ function sinInyeccion(htmlStr, contexto) {
 
 for (const malo of MALOS) {
   test(`XSS: chip y "Ver distribución" del subrubro escapan el nombre en texto y atributos (${malo})`, () => {
-    const $ = sinInyeccion(H.htmlSubrubroHf(historialCon(malo), '7', malo), 'subrubro');
+    const $ = sinInyeccion(H.htmlSubrubroHf(historialCon(malo), '7', malo, 3), 'subrubro');
     assert.strictEqual($('.hf-ver').attr('data-hf-nombre'), malo);
     assert.strictEqual($('.hf-ver').attr('aria-label'), `Ver distribución de ${malo}`);
-    assert.strictEqual($('.hf-usar').attr('aria-label'), `Usar 5 min/kg en ${malo}`);
+    assert.strictEqual($('.hf-usar-todos').attr('aria-label'), `Usar 5 min/kg en los 3 productos de ${malo}`);
+    assert.strictEqual($('.hf-usar-todos').attr('data-hf-nombre'), malo);
+    assert.strictEqual(sinInyeccion(H.htmlSubrubroHf(historialCon(malo), '7', malo), 'sin productos')('.hf-usar-todos').attr('aria-label'), `Usar 5 min/kg en ${malo}`);
   });
 
   test(`XSS: panel de distribución (histograma, tabla alternativa y más alejados con "Fijar") escapa el nombre (${malo})`, () => {

@@ -26,7 +26,8 @@ function appCon(costeo, { query = async () => [], guard = false, sinConfig = fal
     if (!server) server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
     const res = await fetch(`http://127.0.0.1:${server.address().port}${ruta}`,
       { method: metodo, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-    return { status: res.status, ...(await res.json()) };
+    const txt = await res.text();
+    try { return { status: res.status, ...JSON.parse(txt) }; } catch { return { status: res.status, html: txt }; }
   };
   return { pedir, dir, leer: () => JSON.parse(fs.readFileSync(archivo, 'utf8')), cerrar: () => server && server.close() };
 }
@@ -40,8 +41,8 @@ test('sin migrar: GET da migrado false con defaults y los PUT no escriben', asyn
     const j = await a.pedir('GET', BASE);
     assert.deepStrictEqual([j.migrado, j.maquinas, j.tramosTiempo, j.subrubros, j.porGranel, j.envasePorPeso, j.costoBobinaKg, 'insumosPorPeso' in j, 'escalas' in j], [false, [], [], {}, {}, {}, null, false, false]);
     assert.match((await a.pedir('PUT', `${BASE}/tramos-tiempo`, { tramos: [] })).error, /migrar_config_fraccionado/);
-    assert.match((await a.pedir('PUT', `${BASE}/envase-peso/500`, { bolsaPlu: '900' })).error, /migrar_config_fraccionado/);
-    assert.match((await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: 6000 })).error, /migrar_config_fraccionado/);
+    assert.match((await a.pedir('PUT', `${BASE}/envase`, { pesos: { 500: { bolsaPlu: '900' } }, costoBobinaKg: 6000 })).error, /migrar_config_fraccionado/);
+    assert.match((await a.pedir('PUT', `${BASE}/subrubros`, { graneles: { 100: 2 } })).error, /migrar_config_fraccionado/);
     assert.strictEqual(a.leer().fraccionado, undefined);
   } finally { a.cerrar(); }
 });
@@ -115,35 +116,51 @@ test('PUT escalas y PUT subrubros/:id ya no existen', () => {
   assert.ok(!paths.includes(`${BASE}/escalas`) && !paths.includes(`${BASE}/subrubros/:id`));
 });
 
-test('envase-peso: guarda bolsaPlu/bobinaG del peso y responde la vista; inválido no escribe; los dos null borran; insumosPorPeso viejo se borra', async () => {
+test('PUT envase: pesos y costo de bobina atómicos; responde la vista cruda; inválido no escribe nada; los dos null borran; insumosPorPeso viejo se borra', async () => {
   const viejo = { ...FRACC, facilidades: { facil: 1 }, insumosPresentacion: { 102: [{ plu: '900', cantidad: 1 }] }, insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] } };
   const a = appCon({ fraccionado: viejo });
   try {
-    const r = await a.pedir('PUT', `${BASE}/envase-peso/500`, { bolsaPlu: ' 900 ', bobinaG: 8 });
-    assert.deepStrictEqual([r.status, r.migrado, r.envasePorPeso, 'insumosPorPeso' in r], [200, true, { 500: { bolsaPlu: '900', bobinaG: 8 } }, false]);
+    const r = await a.pedir('PUT', `${BASE}/envase`, { costoBobinaKg: 6000, pesos: { 500: { bolsaPlu: ' 900 ', bobinaG: 8 }, 250: { bolsaPlu: 901 } } });
+    assert.deepStrictEqual([r.status, r.migrado, r.envasePorPeso, r.costoBobinaKg, 'insumosPorPeso' in r],
+      [200, true, { 500: { bolsaPlu: '900', bobinaG: 8 }, 250: { bolsaPlu: '901' } }, 6000, false]);
     const f = a.leer().fraccionado;
-    assert.deepStrictEqual(f.envasePorPeso, { 500: { bolsaPlu: '900', bobinaG: 8 } });
+    assert.deepStrictEqual([f.envasePorPeso[500], f.costoBobinaKg], [{ bolsaPlu: '900', bobinaG: 8 }, 6000]);
     assert.deepStrictEqual(['insumosPorPeso' in f, 'facilidades' in f, 'insumosPresentacion' in f], [false, false, false]);
-    for (const [ruta, body, re] of [['0', {}, /peso/], ['201x', {}, /peso/], ['500', { bolsaPlu: 'abc' }, /bolsaPlu/], ['500', { bobinaG: 0 }, /bobinaG/],
-      ['500', { bobinaG: -1 }, /bobinaG/], ['500', { bobinaG: 'x' }, /bobinaG/], ['500', { bobinaG: 1001 }, /bobinaG/]]) {
-      const x = await a.pedir('PUT', `${BASE}/envase-peso/${ruta}`, body);
+    for (const [body, re] of [[{ pesos: { 0: {} } }, /peso/], [{ pesos: { 201: { bolsaPlu: '1' }, 500: { bolsaPlu: 'abc' } } }, /peso 500: bolsaPlu/],
+      [{ pesos: { 500: { bobinaG: 0 } } }, /peso 500: bobinaG/], [{ pesos: { 500: { bobinaG: 1001 } } }, /bobinaG/],
+      [{ costoBobinaKg: 0 }, /costoBobinaKg/], [{ costoBobinaKg: 1, pesos: { 500: { bobinaG: 'x' } } }, /bobinaG/], [{ pesos: [] }, /pesos/]]) {
+      const x = await a.pedir('PUT', `${BASE}/envase`, body);
       assert.match(x.error || '', re, JSON.stringify(body));
     }
-    assert.deepStrictEqual(a.leer().fraccionado.envasePorPeso, { 500: { bolsaPlu: '900', bobinaG: 8 } }); // no escribió
-    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/envase-peso/500`, { bolsaPlu: null, bobinaG: null })).envasePorPeso, {});
-    assert.deepStrictEqual((await a.pedir('GET', BASE)).envasePorPeso, {});
+    assert.deepStrictEqual([a.leer().fraccionado.envasePorPeso, a.leer().fraccionado.costoBobinaKg], [r.envasePorPeso, 6000]); // no escribió
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/envase`, {})).status, 200); // sin cambios: no es error
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/envase`, { pesos: { 500: { bolsaPlu: null, bobinaG: '' } } })).envasePorPeso, { 250: { bolsaPlu: '901' } });
+    const c = await a.pedir('PUT', `${BASE}/envase`, { costoBobinaKg: '' });
+    assert.deepStrictEqual([c.costoBobinaKg, c.envasePorPeso], [null, { 250: { bolsaPlu: '901' } }]);
   } finally { a.cerrar(); }
 });
 
-test('costo-bobina: guarda el $/kg; 0 se rechaza sin escribir; null lo saca', async () => {
+test('PUT subrubros con graneles: guarda minKg propio sin tocar máquina/envase; atómico; tope 1000; body vacío da error', async () => {
+  const a = appCon({ fraccionado: { ...FRACC, maquinas: [{ id: 'env', nombre: 'E', costoHora: 1 }], porGranel: { 100: { maquinaId: 'env', minKg: 1 }, 200: { envase: 'bobina' } } } });
+  try {
+    const r = await a.pedir('PUT', `${BASE}/subrubros`, { subrubros: { 7: 3 }, graneles: { 100: null, 200: 0, 300: 4.5 } });
+    const esperado = { 100: { maquinaId: 'env' }, 200: { envase: 'bobina', minKg: 0 }, 300: { minKg: 4.5 } };
+    assert.deepStrictEqual([r.status, r.subrubros, r.porGranel], [200, { 7: { minKg: 3 } }, esperado]);
+    assert.match((await a.pedir('PUT', `${BASE}/subrubros`, { subrubros: { 7: 9 }, graneles: { 300: 601 } })).error, /graneles\.300: minKg: número de 0 a 600/);
+    assert.match((await a.pedir('PUT', `${BASE}/subrubros`, { graneles: { abc: 1 } })).error, /graneles\.abc: PLU inválido/);
+    const mil = Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [String(i + 1), 1]));
+    assert.match((await a.pedir('PUT', `${BASE}/subrubros`, { graneles: mil })).error, /graneles: máximo 1000/);
+    assert.match((await a.pedir('PUT', `${BASE}/subrubros`, {})).error, /mandá al menos un cambio/);
+    assert.deepStrictEqual([a.leer().fraccionado.subrubros, a.leer().fraccionado.porGranel], [{ 7: { minKg: 3 } }, esperado]); // no escribió
+  } finally { a.cerrar(); }
+});
+
+test('PUT envase-peso/:pesoG y PUT costo-bobina ya no existen (404)', async () => {
   const a = appCon({ fraccionado: FRACC });
   try {
-    const r = await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: 6000 });
-    assert.deepStrictEqual([r.status, r.costoBobinaKg, a.leer().fraccionado.costoBobinaKg], [200, 6000, 6000]);
-    assert.match((await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: 0 })).error, /costoBobinaKg/);
-    assert.strictEqual(a.leer().fraccionado.costoBobinaKg, 6000);
-    assert.strictEqual((await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: null })).costoBobinaKg, null);
-    assert.strictEqual((await a.pedir('GET', BASE)).costoBobinaKg, null);
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/envase-peso/500`, { bolsaPlu: '900' })).status, 404);
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/costo-bobina`, { costoBobinaKg: 1 })).status, 404);
+    assert.deepStrictEqual(a.leer().fraccionado, FRACC);
   } finally { a.cerrar(); }
 });
 
@@ -237,7 +254,7 @@ test('sin permiso precios-config: 403 en la configuración', async () => {
   const a = appCon({ fraccionado: FRACC }, { guard: true, sinConfig: true });
   try {
     for (const [m, r] of [['GET', BASE], ['GET', `${BASE}/costeo`], ['PUT', `${BASE}/maquinas`], ['PUT', `${BASE}/tramos-tiempo`],
-      ['PUT', `${BASE}/subrubros`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/envase-peso/500`], ['PUT', `${BASE}/costo-bobina`], ['PUT', `${BASE}/ajustes-peso`], ['GET', `${BASE}/historial`]]) {
+      ['PUT', `${BASE}/subrubros`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/envase`], ['PUT', `${BASE}/ajustes-peso`], ['GET', `${BASE}/historial`]]) {
       assert.strictEqual((await a.pedir(m, r, m === 'PUT' ? {} : undefined)).status, 403, `${m} ${r}`);
     }
   } finally { a.cerrar(); }

@@ -2,7 +2,8 @@
 // Script clásico, antes de precios_config_fraccionado.js y precios_modal_fraccionado.js, que sólo lo llaman. Pide GET
 // /api/precios/config/esquema/fraccionado/historial UNA vez para todo el módulo (cache en memoria; se invalida al guardar la tabla de
 // tramos, que cambia los valores de producto y subrubro) y arma: los chips grises "Historial: …" con su "Usar" (rellena el campo, NO
-// guarda) en la tabla de subrubros, la de tramos y el modal del granel; el resumen de cargas usadas y descartadas; y el panel "Ver
+// guarda) en la tabla de tramos y el modal del granel, y con su "Usar en todos" en la de subrubros (rellena el campo de cada producto de
+// la lista y el del subrubro, NO guarda); el texto gris "hist. X · N cargas" de cada producto de esa lista; el resumen de cargas usadas y descartadas; y el panel "Ver
 // distribución" de un subrubro (histograma de los min/kg por producto con su mediana y su valor actual, y los productos que más se
 // alejan, cada uno con "Fijar"). Todo es min/kg a 1 kg, SIN el ajuste del tramo de peso (la fórmula lo suma por presentación).
 // Globales: esc, numOrNull (precios_comun.js), getJson (precios_produccion.js), msgEsq (precios_config_esquema.js).
@@ -18,7 +19,8 @@ const MIN_MUESTRAS_HF = 5;  // sólo si la respuesta no trae minMuestras
 const MOTIVOS_HF = [['act', 'marcadas ACT'], ['duracion', 'sin horario, de 0 minutos o de más de 180'], ['sinKilos', 'sin kilos'],
   ['sinGranel', 'sin un granel único'], ['sinPeso', 'sin peso en el nombre (los pedidos)']];
 const AYUDA_HF = 'El chip gris "Historial" es la mediana del tiempo por 1 kg de las cargas de fraccionado, ya descontado el ajuste de la tabla de tramos guardada. '
-  + '"Usar" completa el campo sin guardar: el valor se aplica con el Guardar de la tarjeta. Orden de uso: tramos, subrubros y, al final, pisar productos; '
+  + '"Usar" completa el campo sin guardar: el valor se aplica con el Guardar de la tarjeta; en un subrubro, "Usar en todos" completa el de cada producto y el del subrubro. '
+  + 'Orden de uso: tramos, subrubros y, al final, pisar productos; '
   + 'si cambiás la tabla de tramos y la guardás, los sugeridos se recalculan. Los pedidos no entran en el cálculo: sin peso en el nombre no se puede ubicar el tramo.';
 const AYUDA_DIST_HF = 'Cada barra agrupa los productos según su tiempo mediano por 1 kg. Los valores son por 1 kg y no incluyen el ajuste del tramo de peso, que se suma por presentación.';
 const AYUDA_FIJAR_HF = 'Fijar pone ese valor como min/kg propio del producto: pisa al del subrubro (el ajuste del tramo se suma igual, por presentación) y se guarda en el momento.';
@@ -76,6 +78,13 @@ function chipProductoHf(h, plu) {
   if (sinValorHf(p)) return chipPocosHf(h);
   return { texto: `Historial: ${fmtMinHf(p.mediana)} por 1 kg · ${textoCargasHf(p.n)}`, usar: p.mediana,
     titulo: `${TITULO_VALOR_HF} ${rangoHf(p)}` };
+}
+// Texto gris corto del producto en la lista de su subrubro (sin "Usar"): { texto, titulo } o null (sin entrada: nada que mostrar).
+function histProductoHf(h, plu) {
+  const p = h && entradaHf(h.productos, String(plu));
+  if (!p) return null;
+  if (sinValorHf(p)) return { texto: 'pocos datos', titulo: chipPocosHf(h).titulo };
+  return { texto: `hist. ${fmtMinHf(p.mediana)} · ${textoCargasHf(p.n)}`, titulo: `${TITULO_VALOR_HF} ${rangoHf(p)}` };
 }
 
 // ── Histograma: bordes redondos, atípicos agrupados, escala de productos ──
@@ -172,15 +181,27 @@ function modeloDistribucionHf(h, id, actual) {
 
 // ── HTML (puro) ──
 const botonUsarHf = (valor, paraQue) => `<button type="button" class="hf-usar cfg-btn2" data-hf-valor="${esc(valor)}" aria-label="${esc(`Usar ${fmtMinHf(valor)} min/kg ${paraQue}`)}">Usar</button>`;
-const htmlChipHf = (c, paraQue) => (!c ? '' : `<span class="hf-chip${c.usar == null ? ' hf-poco' : ''}" title="${esc(c.titulo)}">${esc(c.texto)}</span>${c.usar == null ? '' : botonUsarHf(c.usar, paraQue)}`);
+const htmlChipHf = (c, paraQue, boton = botonUsarHf) => (!c ? '' : `<span class="hf-chip${c.usar == null ? ' hf-poco' : ''}" title="${esc(c.titulo)}">${esc(c.texto)}</span>${c.usar == null ? '' : boton(c.usar, paraQue)}`);
 const htmlFilaHf = html => (html ? `<div class="hf-fila">${html}</div>` : '');
-function htmlSubrubroHf(h, id, nombre) {
+// "Usar en todos" del subrubro: completa el valor de CADA producto de la lista y el del subrubro (sin guardar). n = productos del subrubro;
+// sin productos (SIGA ya no los trae) sólo completa el del subrubro y el botón dice "Usar".
+function botonUsarTodosHf(valor, id, nombre, n) {
+  const dest = n ? `${n === 1 ? 'en el producto' : `en los ${n} productos`} de ${nombre}` : `en ${nombre}`;
+  return `<button type="button" class="hf-usar-todos cfg-btn2" data-hf-id="${esc(id)}" data-hf-nombre="${esc(nombre)}" data-hf-valor="${esc(valor)}"
+    aria-label="${esc(`Usar ${fmtMinHf(valor)} min/kg ${dest}`)}">${n ? 'Usar en todos' : 'Usar'}</button>`;
+}
+function htmlSubrubroHf(h, id, nombre, n = 0) {
   const lista = h && entradaHf(h.distribucion, id);
   const ver = lista && lista.length ? `<button type="button" class="hf-ver cfg-btn2" data-hf-ver="${esc(id)}" data-hf-nombre="${esc(nombre)}" aria-haspopup="dialog" aria-label="${esc(`Ver distribución de ${nombre}`)}">Ver distribución</button>` : '';
-  return htmlFilaHf(htmlChipHf(chipSubrubroHf(h, id), `en ${nombre}`) + ver);
+  return htmlFilaHf(htmlChipHf(chipSubrubroHf(h, id), `en ${nombre}`, valor => botonUsarTodosHf(valor, id, nombre, n)) + ver);
 }
 const htmlTramoHf = (h, hastaG, guardadoG) => htmlFilaHf(htmlChipHf(chipTramoHf(h, hastaG, guardadoG), `en el ajuste del tramo hasta ${hastaG} g`));
 const htmlProductoHf = (h, plu) => htmlFilaHf(htmlChipHf(chipProductoHf(h, plu), 'como min/kg propio de este producto'));
+// Historial gris del producto en la lista del subrubro: un <span> siempre (vacío sin datos) que pintarSubrubrosHf completa al llegar el historial.
+function htmlHistProductoHf(h, plu) {
+  const c = histProductoHf(h, plu);
+  return `<span class="fr-prod-hist" data-hf-prod="${esc(plu)}"${c ? ` title="${esc(c.titulo)}"` : ''}>${c ? esc(c.texto) : ''}</span>`;
+}
 
 // El rango de una barra, igual en el texto de la barra y en la tabla: "1,5 a 2", "11 o más" (la agrupada) o el valor solo (una barra única).
 const rotuloRangoHf = (b, uno) => (uno ? fmtMinHf(b.desde) : b.mas ? `${fmtMinHf(b.desde)} o más` : `${fmtMinHf(b.desde)} a ${fmtMinHf(b.hasta)}`);
@@ -295,15 +316,22 @@ function usarEnInputHf(input, valor) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.focus();
 }
+// "Usar" de la tabla de tramos: rellena el campo de su fila (los subrubros usan "Usar en todos", ver conectarSubrubrosHf).
 function usarHf(boton, card) {
-  usarEnInputHf(boton.closest('tr').querySelector('input[data-id],input[data-k="minKg"]'), Number(boton.dataset.hfValor));
+  usarEnInputHf(boton.closest('tr').querySelector('input[data-k="minKg"]'), Number(boton.dataset.hfValor));
   msgEsq(card.querySelector('.esq-msg'), 'Valor del historial puesto en el campo: falta guardar la tarjeta para aplicarlo.', 'text-warn');
 }
+// Subrubros: la columna del historial de cada fila (td[data-hf-n] = cuántos productos tiene) y el texto gris de cada producto de su lista.
 function pintarSubrubrosHf(card) {
   if (!card) return;
   const h = historialHf();
   card.classList.toggle('hf-sin', !h); // sin historial la columna entera no se muestra
-  card.querySelectorAll('td[data-hf-sub]').forEach(td => { td.innerHTML = htmlSubrubroHf(h, td.dataset.hfSub, td.dataset.hfNombre); });
+  card.querySelectorAll('td[data-hf-sub]').forEach(td => { td.innerHTML = htmlSubrubroHf(h, td.dataset.hfSub, td.dataset.hfNombre, Number(td.dataset.hfN) || 0); });
+  card.querySelectorAll('.fr-prod-hist[data-hf-prod]').forEach(el => {
+    const c = histProductoHf(h, el.dataset.hfProd);
+    el.textContent = c ? c.texto : '';
+    if (c) el.title = c.titulo; else el.removeAttribute('title');
+  });
 }
 function pintarTramosHf(card) {
   if (!card) return;
@@ -315,12 +343,13 @@ function pintarTramosHf(card) {
     if (slot) slot.innerHTML = htmlTramoHf(h, hasta, guardado);
   });
 }
-// acciones = { actual: id → min/kg guardado del subrubro | null, fijar: (plu, minKg) → Promise } (las pone precios_config_fraccionado.js).
+// acciones = { actual: id → min/kg guardado del subrubro | null, fijar: (plu, minKg) → Promise, usarEnTodos: (id, minKg, nombre) → Promise }
+// (las pone precios_config_fraccionado.js, que es dueño de los inputs de la lista de productos).
 function conectarSubrubrosHf(card, acciones) {
   pintarSubrubrosHf(card);
   card.onclick = e => {
-    const usar = e.target.closest('.hf-usar'), ver = e.target.closest('.hf-ver');
-    if (usar) usarHf(usar, card);
+    const todos = e.target.closest('.hf-usar-todos'), ver = e.target.closest('.hf-ver');
+    if (todos) acciones.usarEnTodos(todos.dataset.hfId, Number(todos.dataset.hfValor), todos.dataset.hfNombre);
     else if (ver) abrirDistribucionHf({ id: ver.dataset.hfVer, nombre: ver.dataset.hfNombre, ...acciones });
   };
 }
@@ -377,6 +406,6 @@ async function fijarDesdeHf(boton, fijar) {
 }
 
 if (typeof module === 'object' && module.exports) module.exports = { normalizarHistorialHf, mensajeErrorHf, fmtMinHf, fmtSignoHf, textoCargasHf, textoProductosHf,
-  chipSubrubroHf, chipTramoHf, chipProductoHf, histogramaHf, topeAtipicosHf, posicionHf, marcasEjeHf, ejeYHf, medianaHf, masAlejadosHf, modeloDistribucionHf, htmlSubrubroHf, htmlTramoHf, htmlProductoHf,
+  chipSubrubroHf, chipTramoHf, chipProductoHf, histProductoHf, htmlHistProductoHf, histogramaHf, topeAtipicosHf, posicionHf, marcasEjeHf, ejeYHf, medianaHf, masAlejadosHf, modeloDistribucionHf, htmlSubrubroHf, htmlTramoHf, htmlProductoHf,
   htmlDistribucionHf, htmlEstadoHf, invalidarHistorialHf, cargarHistorialHf, historialHf, estadoHistorialHf, usarEnInputHf, pintarSubrubrosHf, pintarTramosHf,
   conectarSubrubrosHf, conectarTramosHf, conectarProductoHf, fijarDesdeHf };

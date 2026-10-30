@@ -81,15 +81,19 @@ test('chipProductoHf: valor por 1 kg y cargas; con pocos datos sin valor; sin en
 });
 
 test('HTML de los chips: "Usar" lleva el valor y un nombre accesible; pocos datos no tiene botón; todo texto del servidor va escapado', () => {
-  const sub = html(H.htmlSubrubroHf(HIST, '7', 'Frutos <secos>'));
+  const sub = html(H.htmlSubrubroHf(HIST, '7', 'Frutos <secos>', 12));
   assert.strictEqual(sub.find('.hf-chip').text(), 'Historial: 8,2 · 31 cargas · 4 productos');
-  assert.strictEqual(sub.find('.hf-usar').attr('data-hf-valor'), '8.2');
-  assert.strictEqual(sub.find('.hf-usar').attr('aria-label'), 'Usar 8,2 min/kg en Frutos <secos>');
-  assert.strictEqual(sub.find('.hf-usar').attr('type'), 'button');
+  const todos = sub.find('.hf-usar-todos');
+  assert.deepStrictEqual([todos.attr('data-hf-valor'), todos.attr('data-hf-id'), todos.attr('data-hf-nombre'), todos.attr('type'), todos.text(), sub.find('.hf-usar').length],
+    ['8.2', '7', 'Frutos <secos>', 'button', 'Usar en todos', 0]);
+  assert.strictEqual(todos.attr('aria-label'), 'Usar 8,2 min/kg en los 12 productos de Frutos <secos>');
+  assert.strictEqual(html(H.htmlSubrubroHf(HIST, '7', 'Frutos', 1)).find('.hf-usar-todos').attr('aria-label'), 'Usar 8,2 min/kg en el producto de Frutos');
+  const sinProd = html(H.htmlSubrubroHf(HIST, '7', 'Frutos')).find('.hf-usar-todos'); // n = 0: SIGA ya no trae productos
+  assert.deepStrictEqual([sinProd.text(), sinProd.attr('aria-label')], ['Usar', 'Usar 8,2 min/kg en Frutos']);
   assert.strictEqual(sub.find('.hf-ver').attr('data-hf-nombre'), 'Frutos <secos>');
   assert.strictEqual(sub.find('script,secos').length, 0);
-  const poco = html(H.htmlSubrubroHf(HIST, '9', 'Harinas'));
-  assert.deepStrictEqual([poco.find('.hf-poco').text(), poco.find('.hf-usar').length, poco.find('.hf-ver').length], ['pocos datos', 0, 0]); // n 0: tampoco hay qué distribuir
+  const poco = html(H.htmlSubrubroHf(HIST, '9', 'Harinas', 3));
+  assert.deepStrictEqual([poco.find('.hf-poco').text(), poco.find('.hf-usar-todos').length, poco.find('.hf-ver').length], ['pocos datos', 0, 0]); // n 0: tampoco hay qué distribuir
   assert.strictEqual(H.htmlSubrubroHf(HIST, '99', 'Otro'), '');
   assert.strictEqual(html(H.htmlSubrubroHf(HIST, '8', 'Maní')).find('.hf-ver').length, 1); // pocos datos pero con productos: se puede mirar
   const tramo = html(H.htmlTramoHf(HIST, 100, 100));
@@ -521,18 +525,26 @@ test('usarEnInputHf: rellena el campo y avisa como si se hubiera tipeado; no pid
 // ── DOM de las tarjetas (con elementos de mentira) ──
 const clases = () => { const s = new Set(); return { toggle: (c, on) => (on ? s.add(c) : s.delete(c)), contains: c => s.has(c) }; };
 const celda = (dataset, extra = {}) => ({ dataset, innerHTML: '', ...extra });
+const textoProd = plu => ({ dataset: { hfProd: plu }, textContent: 'viejo', title: 'viejo', removeAttribute(a) { delete this[a]; } });
 
 test('pintarSubrubrosHf: sin historial la columna queda oculta y vacía; con historial cada fila trae su chip', async () => {
   respuesta({ subrubros: { 7: { n: 31, productos: 4, mediana: 8.2, p25: 7, p75: 9.5, pocosDatos: false } } });
-  const celdas = [celda({ hfSub: '7', hfNombre: 'Frutos' }), celda({ hfSub: '8', hfNombre: 'Harinas' })];
-  const card = { classList: clases(), querySelectorAll: () => celdas };
+  const celdas = [celda({ hfSub: '7', hfNombre: 'Frutos', hfN: '4' }), celda({ hfSub: '8', hfNombre: 'Harinas' })];
+  const prods = [textoProd('100'), textoProd('101'), textoProd('999')];
+  const card = { classList: clases(), querySelectorAll: sel => (sel.startsWith('td') ? celdas : prods) };
   H.pintarSubrubrosHf(card);
   assert.strictEqual(card.classList.contains('hf-sin'), true);
   assert.deepStrictEqual(celdas.map(c => c.innerHTML), ['', '']);
+  assert.deepStrictEqual(prods.map(p => [p.textContent, p.title]), [['', undefined], ['', undefined], ['', undefined]]);
+  respuesta({ subrubros: { 7: { n: 31, productos: 4, mediana: 8.2, p25: 7, p75: 9.5, pocosDatos: false } },
+    productos: { 100: { n: 14, mediana: 6.2, p25: 5, p75: 7, subrubroId: '7', pocosDatos: false }, 101: { n: 2, mediana: null, p25: null, p75: null, subrubroId: '7', pocosDatos: true } } });
   await H.cargarHistorialHf();
   H.pintarSubrubrosHf(card);
   assert.strictEqual(card.classList.contains('hf-sin'), false);
   assert.match(celdas[0].innerHTML, /Historial: 8,2 · 31 cargas · 4 productos/);
+  assert.match(celdas[0].innerHTML, /en los 4 productos de Frutos/); // lee td[data-hf-n]
+  assert.deepStrictEqual(prods.map(p => p.textContent), ['hist. 6,2 · 14 cargas', 'pocos datos', '']);
+  assert.ok(prods[0].title && prods[2].title === undefined);
   assert.strictEqual(celdas[1].innerHTML, ''); // sin entrada: sin chip
   H.pintarSubrubrosHf(null); // el panel se recargó mientras tanto
 });
@@ -548,21 +560,28 @@ test('pintarTramosHf: cada fila usa su "hasta" actual contra el guardado; el edi
   assert.deepStrictEqual(filas.slice(1).map(f => f.slot.innerHTML), ['', '', '']); // editado, nueva y base
 });
 
-test('conectarSubrubrosHf: "Usar" rellena el input de su fila y avisa que falta guardar; nunca hace una petición', async () => {
+test('conectarSubrubrosHf: "Usar en todos" despacha a acciones.usarEnTodos(id, valor, nombre); un .hf-usar suelto ya no hace nada; nunca pide', async () => {
   respuesta({ subrubros: { 7: { n: 31, productos: 4, mediana: 8.2, p25: 7, p75: 9.5, pocosDatos: false } } });
   await H.cargarHistorialHf();
-  const input = { value: '3', focus() {}, dispatchEvent() { input.disparado = true; } };
-  const fila = { querySelector: sel => (sel.includes('input[data-id]') ? input : null) };
-  const msg = {};
-  const card = { classList: clases(), querySelectorAll: () => [], querySelector: sel => (sel === '.esq-msg' ? msg : null) };
-  H.conectarSubrubrosHf(card, {});
-  const usar = { dataset: { hfValor: '8.2' }, closest: s => (s === '.hf-usar' ? usar : s === 'tr' ? fila : null) };
+  const card = { classList: clases(), querySelectorAll: () => [], querySelector: () => null };
+  const usos = [];
+  H.conectarSubrubrosHf(card, { usarEnTodos: (...a) => usos.push(a) });
+  const todos = { dataset: { hfId: '7', hfValor: '8.2', hfNombre: 'Frutos' } };
   llamadas.length = 0;
-  card.onclick({ target: { closest: s => (s === '.hf-usar' ? usar : null) } });
-  assert.strictEqual(input.value, '8.2');
-  assert.strictEqual(input.disparado, true);
-  assert.match(msg.textContent, /falta guardar/);
+  card.onclick({ target: { closest: s => (s === '.hf-usar-todos' ? todos : null) } });
+  card.onclick({ target: { closest: s => (s === '.hf-usar' ? {} : null) } });
+  assert.deepStrictEqual(usos, [['7', 8.2, 'Frutos']]);
   assert.deepStrictEqual(llamadas, []);
+});
+
+test('histProductoHf / htmlHistProductoHf: "hist. X · N cargas", "pocos datos" o nada; el span siempre está y escapa el PLU', () => {
+  assert.strictEqual(H.histProductoHf(HIST, 100).texto, 'hist. 6,4 · 12 cargas');
+  assert.strictEqual(H.histProductoHf(HIST, '101').texto, 'pocos datos');
+  assert.deepStrictEqual([H.histProductoHf(HIST, '999'), H.histProductoHf(null, '100')], [null, null]);
+  const s = html(H.htmlHistProductoHf(HIST, '100')).find('.fr-prod-hist');
+  assert.deepStrictEqual([s.attr('data-hf-prod'), s.text(), !!s.attr('title')], ['100', 'hist. 6,4 · 12 cargas', true]);
+  const v = html(H.htmlHistProductoHf(null, '"><b>'));
+  assert.deepStrictEqual([v.find('.fr-prod-hist').attr('data-hf-prod'), v.find('.fr-prod-hist').text(), v.find('.fr-prod-hist').attr('title'), v.find('b').length], ['"><b>', '', undefined, 0]);
 });
 
 test('Fijar: guarda con lo que pasó el panel, deja el botón en "Fijado" y avisa; si falla avisa y deja reintentar', async () => {

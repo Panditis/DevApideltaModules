@@ -25,7 +25,6 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
     respaldo: (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas });
   const cuerpo = req => (req.body && typeof req.body === 'object' ? req.body : {});
   const pluDe = req => String(req.params.plu || '').trim();
-  const pesoDe = req => String(req.params.pesoG || '').trim();
 
   // Lo que pinta Configuración (sin SIGA): máquinas con cuántos graneles las usan, tramos de tiempo, min/kg por subrubro, min/kg
   // y máquina (y envase) por granel, envase por peso (crudo: { [pesoG]: { bolsaPlu?, bobinaG? } }), $/kg de bobina y el ajuste por peso del margen.
@@ -86,12 +85,11 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
 
   router.put(`${BASE}/maquinas`, guardarFracc((req, cf) => CF.validarMaquinas(cuerpo(req), cf)));
   router.put(`${BASE}/tramos-tiempo`, guardarFracc(req => CF.validarTramosTiempo(cuerpo(req))));
-  router.put(`${BASE}/subrubros`, guardarFracc((req, cf) => ({ subrubros: CF.aplicarSubrubros(cf.subrubros, cuerpo(req)) })));
   // ponytail: no se valida que el PLU sea un granel del listado (sería pedir SIGA); una entrada de un PLU que no está no costea nada.
+  router.put(`${BASE}/subrubros`, guardarFracc((req, cf) => CF.aplicarTiempos(cf, cuerpo(req))));
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: tampoco se valida que el peso tenga presentaciones (sería pedir SIGA); Configuración lo marca "sin presentaciones".
-  router.put(`${BASE}/envase-peso/:pesoG`, guardarFracc((req, cf) => ({ envasePorPeso: CF.aplicarEnvasePeso(cf.envasePorPeso, pesoDe(req), cuerpo(req)) })));
-  router.put(`${BASE}/costo-bobina`, guardarFracc(req => CF.validarCostoBobina(cuerpo(req))));
+  router.put(`${BASE}/envase`, guardarFracc((req, cf) => CF.aplicarEnvase(cf, cuerpo(req))));
   // Ajuste por peso del margen (antes en Márgenes): body { ajustesPeso: { tramosG, puntos } | null }. Va en margenes.ajustesPeso
   // del bloque, donde lo lee el motor; las tablas por canal no se tocan.
   router.put(`${BASE}/ajustes-peso`, guardarFracc((req, _cf, f) => ({ margenes: cfgEsq.margenesConAjustePeso(f.margenes, cuerpo(req)) })));
