@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst } = require('../public/js/precios_listados.js');
+  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -371,16 +371,6 @@ test('contarOcultables: cuántos REEFER y cuántos inactivos (no REEFER) hay en 
   const filas = [granel('1'), granel('2', { reefer: true }), inactivo('3'), inactivo('4', ['sinMovGranel'], { reefer: true }), inactivo('5')];
   assert.deepStrictEqual(contarOcultables(filas), { reefer: 2, inactivos: 2 });
   assert.deepStrictEqual(contarOcultables([]), { reefer: 0, inactivos: 0 });
-});
-
-test('conActivoManual: devuelve una fila nueva con activoManual y activo = manual ?? automático (sin datos de actividad → activo)', () => {
-  const ina = inactivo('3', ['sinMovGranel', 'sinMovPresentaciones']);
-  const fijoActivo = conActivoManual(ina, true);
-  assert.deepStrictEqual([fijoActivo.activoManual, fijoActivo.activo, ina.activoManual, ina.activo], [true, true, null, false]); // no muta
-  assert.deepStrictEqual([conActivoManual(granel('1'), false).activo, conActivoManual(granel('1'), false).activoManual], [false, false]);
-  assert.strictEqual(conActivoManual({ ...ina, activoManual: false }, null).activo, false);       // vuelve al automático: inactivo
-  assert.strictEqual(conActivoManual(granel('1', { activoManual: false, activo: false }), null).activo, true);
-  assert.strictEqual(conActivoManual(granel('1', { actividad: null }), null).activo, true);       // consulta caída: nadie se oculta
 });
 
 test('textoMotivosActividad / textoInactivoLst: motivos legibles; fijado a mano gana sobre el automático', () => {

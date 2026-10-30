@@ -28,31 +28,35 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
 
   // Lo que pinta Configuración (sin SIGA): máquinas con cuántos graneles las usan, tramos de tiempo, min/kg por subrubro, min/kg
   // y máquina (y envase) por granel, envase por peso (crudo: { [pesoG]: { bolsaPlu?, bobinaG? } }), $/kg de bobina y el ajuste por peso del margen.
-  function vista(f) {
+  // activoGranel: estado en el listado fijado a mano (costeo.activoGranel, top-level; ausente = automático).
+  function vista(f, activoGranel) {
     const cf = FC.normalizarCosteoFraccionado(f);
     const usos = CF.usosMaquinas(cf);
     const margenes = (f && f.margenes) || {};
     return { costoHora: cf.costoHora, tramosTiempo: cf.tramosTiempo, subrubros: cf.subrubros, porGranel: cf.porGranel, envasePorPeso: cf.envasePorPeso,
-      costoBobinaKg: cf.costoBobinaKg,
+      costoBobinaKg: cf.costoBobinaKg, activoGranel: activoGranel || {},
       maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0 } })), ajustesPeso: margenes.ajustesPeso || null };
   }
 
   // calcular(req, cf, f) → cambios para costeo.fraccionado (o tira); f = el bloque tal cual. Sin await entre leer y escribir.
-  // Responde la vista.
-  const guardarFracc = calcular => apiRoute(async (req) => {
+  // activos(req, costeo) opcional → costeo.activoGranel nuevo (o tira): misma escritura, todo o nada. Responde la vista.
+  const guardarFracc = (calcular, activos) => apiRoute(async (req) => {
     const costeo = leerCosteo();
     if (!cfgEsq.fraccionadoMigrado(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
-    let cambios;
-    try { cambios = calcular(req, FC.normalizarCosteoFraccionado(costeo.fraccionado), costeo.fraccionado); } catch (err) { return { error: err.message }; }
+    let cambios, activoGranel = costeo.activoGranel;
+    try {
+      cambios = calcular(req, FC.normalizarCosteoFraccionado(costeo.fraccionado), costeo.fraccionado);
+      if (activos) activoGranel = activos(req, costeo);
+    } catch (err) { return { error: err.message }; }
     const fraccionado = CF.fraccionadoConCambios(costeo.fraccionado, cambios);
-    guardarJSON(COSTEO_PATH, { ...costeo, fraccionado });
-    return { migrado: true, ...vista(fraccionado) };
+    guardarJSON(COSTEO_PATH, { ...costeo, fraccionado, ...(activoGranel === undefined ? {} : { activoGranel }) });
+    return { migrado: true, ...vista(fraccionado, activoGranel) };
   });
 
   // Liviano (sin SIGA): el modal del granel lo usa para el select de máquinas.
   router.get(BASE, apiRoute(async () => {
     const costeo = leerCosteo();
-    return { migrado: cfgEsq.fraccionadoMigrado(costeo), ...vista(costeo.fraccionado) };
+    return { migrado: cfgEsq.fraccionadoMigrado(costeo), ...vista(costeo.fraccionado, costeo.activoGranel) };
   }));
 
   // Panel completo: lo de arriba + los productos (graneles con sus presentaciones y su peso) de cada subrubro de SIGA, los pesos
@@ -64,7 +68,7 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
     const formulas = await formulasVigentes();
     const { graneles, presentaciones, costos } = await consultas.universoFraccionado(formulas, FC.plusInsumos(cf));
     const grupos = agruparPorGranel({ graneles, presentaciones, formulas, costos });
-    return { migrado: cfgEsq.fraccionadoMigrado(costeo), ...vista(costeo.fraccionado), ...CF.productosPorSubrubro(grupos),
+    return { migrado: cfgEsq.fraccionadoMigrado(costeo), ...vista(costeo.fraccionado, costeo.activoGranel), ...CF.productosPorSubrubro(grupos),
       envasePorPeso: CF.envaseConCosto(cf.envasePorPeso, crearCostoDe(costos, costeo)) };
   }));
 
@@ -86,7 +90,9 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   router.put(`${BASE}/maquinas`, guardarFracc((req, cf) => CF.validarMaquinas(cuerpo(req), cf)));
   router.put(`${BASE}/tramos-tiempo`, guardarFracc(req => CF.validarTramosTiempo(cuerpo(req))));
   // ponytail: no se valida que el PLU sea un granel del listado (sería pedir SIGA); una entrada de un PLU que no está no costea nada.
-  router.put(`${BASE}/subrubros`, guardarFracc((req, cf) => CF.aplicarTiempos(cf, cuerpo(req))));
+  // body { subrubros?, graneles?, activos? }: activos es el estado en el listado (costeo.activoGranel).
+  router.put(`${BASE}/subrubros`, guardarFracc((req, cf) => CF.aplicarTiempos(cf, cuerpo(req)),
+    (req, costeo) => CF.aplicarActivos(costeo.activoGranel, cuerpo(req))));
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: tampoco se valida que el peso tenga presentaciones (sería pedir SIGA); Configuración lo marca "sin presentaciones".
   router.put(`${BASE}/envase`, guardarFracc((req, cf) => CF.aplicarEnvase(cf, cuerpo(req))));

@@ -232,20 +232,6 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { plu, precioFijo: precios };
   }));
 
-  // Activo de un granel de Fraccionado: body { activo: true | false | null } (null = automático por movimientos). Cualquier
-  // usuario del módulo, como la decisión; activoGranel no va en CLAVES_OCULTAS (lo ve el operario).
-  // ponytail: no verifica que el PLU sea un granel del listado (armarlo pide SIGA); la UI sólo manda graneles.
-  router.put('/api/precios/fraccionado/activo/:plu', apiRoute(async (req) => {
-    const plu = String(req.params.plu || '').trim();
-    const body = cuerpo(req);
-    if (!('activo' in body)) return { error: 'falta activo (true, false o null)' };
-    const error = L.validarActivoGranel(plu, body.activo);
-    if (error) return { error };
-    const costeo = leerCosteo();
-    guardarJSON(COSTEO_PATH, { ...costeo, activoGranel: L.aplicarPorPlu(costeo.activoGranel, plu, body.activo) });
-    return { ok: true, activoManual: body.activo };
-  }));
-
   router.delete('/api/precios/decisiones', apiRoute(async () => {
     guardarJSON(COSTEO_PATH, { ...leerCosteo(), decisiones: {} });
     return { decisiones: {} };

@@ -143,11 +143,8 @@
   .md-bloque{margin-top:10px}
   .md-edicion{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
   #mDet fieldset.md-dec{border:0;margin:0;padding:0;min-width:0}
-  /* Bloque "Estado" del granel (activo / inactivo / automático): visible para cualquier usuario, fuera de "Ver detalle". */
-  .md-activo{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
-  .md-act-mov{margin:6px 0 0;padding:0;list-style:none;font-size:12.5px;line-height:1.5;color:#5c5f52}
   /* ── Modal de Fraccionado en dos tarjetas (pintarModalFraccionadoMd, precios_modal_fraccionado.js): #mDetCaja (izquierda, 7 de cada 10 partes del
-     ancho libre ≈ 70 % de la pantalla) = configuración del granel (costo, estado, márgenes); #mDetDer (derecha, 3 de 10 ≈ 30 %) = precios de las
+     ancho libre ≈ 70 % de la pantalla) = configuración del granel (costo, márgenes); #mDetDer (derecha, 3 de 10 ≈ 30 %) = precios de las
      presentaciones y su variación, en lista y sin columnas porque es angosta. Cada una con su header y su scroll; #mDetCaja estira a la altura de
      #mDetPar (tope 90vh) y #mDetDer toma el alto de su contenido (alineada arriba, tope 90vh y scroll propio sólo si lo supera); el overlay se ve
      en el gap. #mDetCaja.md-doble lo pone abrirModal(…, 'doble') y le gana al max-w-* de Tailwind. Sólo escritorio. */
@@ -183,7 +180,6 @@
   .md-sb-t .md-sub{margin-left:2px}
   .md-sb-ayuda{margin:1px 0 8px;font-size:12.5px;line-height:1.4;color:#5c5f52}
   .md-doble .md-ayuda{font-size:12.5px}
-  .md-doble .md-act-mov{font-size:12.5px}
   .md-doble .md-nd,#mDetDer .md-nd{color:#6f7264}
   .md-doble .md-mp-in::placeholder{color:#6b6e62;opacity:1}
   /* Tarjetas de decisión del costo */
@@ -408,6 +404,12 @@
   .fr-prod .campo-u input::placeholder{color:#6b6e62;opacity:1} /* 5:1 sobre blanco: lo heredado se lee, pero no parece un valor propio */
   .fr-prod .campo-u:has(input:not(:placeholder-shown)){border-color:#405936;background:rgba(64,89,54,.08)} /* con valor propio: resaltado */
   .fr-prod .campo-u input:not(:placeholder-shown){font-weight:600;color:#242423}
+  /* Estado del producto en el listado de Fraccionado (select de cada fila): lo fijado a mano se resalta (Activo en verde como el valor propio,
+     Inactivo en gris con el nombre atenuado); Automático queda liso. data-act lo mantiene el listener de la tarjeta (conectarSubrubrosFr). */
+  .fr-act{flex:none;width:7.5rem;font-size:13px}
+  .fr-prod li[data-act="activo"] .fr-act{border-color:#405936;background-color:rgba(64,89,54,.08);font-weight:600;color:#242423}
+  .fr-prod li[data-act="inactivo"] .fr-act{border-color:rgba(26,28,24,.4);background-color:#e8ebe7;font-weight:600;color:#242423}
+  .fr-prod li[data-act="inactivo"] .fr-prod-nom{color:#5c5f52}
   .fr-prod-hist{flex:none;width:9.5rem;font-size:12px;color:#5c5f52;font-variant-numeric:tabular-nums;white-space:nowrap}
   .hf-sin .fr-prod-hist{display:none} /* sin historial (leyendo o con error) la columna gris tampoco se reserva */
   .fr-aviso{margin-top:6px;font-size:12px;font-weight:600;color:#8a5d00}

@@ -314,3 +314,68 @@ test('GET historial: 3.000 líneas sintéticas bajo 1 s', async () => {
     assert.strictEqual(j.cargas.total, 3000);
   } finally { a.cerrar(); }
 });
+
+// ── Estado en el listado (costeo.activoGranel) en el PUT subrubros: se movió del endpoint PUT /api/precios/fraccionado/activo/:plu ──
+test('PUT subrubros con activos: true/false/null en la misma escritura; sólo activos no toca porGranel ni subrubros; la respuesta trae activoGranel', async () => {
+  // Arrange
+  const a = appCon({ ivaVentaPct: 21, activoGranel: { 7: true, 8: false }, fraccionado: { ...FRACC, subrubros: { 3: { minKg: 2 } }, porGranel: { 100: { minKg: 4 } } } });
+  try {
+    // Act
+    const j = await a.pedir('PUT', `${BASE}/subrubros`, { activos: { 8: null, 100: false } });
+    // Assert
+    assert.deepStrictEqual(j.activoGranel, { 7: true, 100: false });
+    const c = a.leer();
+    assert.deepStrictEqual([c.activoGranel, c.fraccionado.porGranel, c.fraccionado.subrubros, c.ivaVentaPct], [{ 7: true, 100: false }, { 100: { minKg: 4 } }, { 3: { minKg: 2 } }, 21]);
+    const mezcla = await a.pedir('PUT', `${BASE}/subrubros`, { subrubros: { 3: 5 }, graneles: { 100: null }, activos: { 7: null } });
+    assert.deepStrictEqual([mezcla.subrubros, mezcla.porGranel, mezcla.activoGranel], [{ 3: { minKg: 5 } }, {}, { 100: false }]);
+    assert.deepStrictEqual(a.leer().activoGranel, { 100: false });
+  } finally { a.cerrar(); }
+});
+
+test('PUT subrubros sin activos conserva activoGranel; si costeo.json no lo tiene no se crea; los otros PUT también responden activoGranel', async () => {
+  const a = appCon({ activoGranel: { 9: true }, fraccionado: FRACC });
+  const b = appCon({ fraccionado: FRACC });
+  try {
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/subrubros`, { graneles: { 100: 3 } })).activoGranel, { 9: true });
+    assert.deepStrictEqual(a.leer().activoGranel, { 9: true });
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/granel/100`, { minKg: 1 })).activoGranel, { 9: true });
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/tramos-tiempo`, { tramos: [] })).activoGranel, { 9: true });
+    const sinClave = await b.pedir('PUT', `${BASE}/subrubros`, { subrubros: { 3: 1 } });
+    assert.deepStrictEqual(sinClave.activoGranel, {});
+    assert.strictEqual('activoGranel' in b.leer(), false);
+  } finally { a.cerrar(); b.cerrar(); }
+});
+
+test('PUT subrubros: un error en cualquier mapa (subrubros, graneles o activos) no escribe nada; body vacío da el mensaje nuevo', async () => {
+  const inicial = { activoGranel: { 9: true }, fraccionado: { ...FRACC, subrubros: { 3: { minKg: 2 } } } };
+  const a = appCon(inicial);
+  try {
+    for (const [body, error] of [
+      [{ subrubros: { 3: 5 }, activos: { 100: 'true' } }, /activos\.100: activo inválido/],
+      [{ graneles: { 100: 1 }, activos: { '1x': true } }, /activos\.1x: PLU inválido/],
+      [{ subrubros: { 3: 601 }, activos: { 100: true } }, /subrubros\.3/],
+      [{ graneles: { 100: -1 }, activos: { 100: true } }, /graneles\.100/],
+      [{ activos: [] }, /activos: debe ser un objeto/],
+      [{}, /subrubros, graneles o activos: mandá al menos un cambio/]]) {
+      assert.match((await a.pedir('PUT', `${BASE}/subrubros`, body)).error, error, JSON.stringify(body));
+    }
+    assert.deepStrictEqual(a.leer(), inicial);
+  } finally { a.cerrar(); }
+});
+
+test('GET / y GET /costeo traen activoGranel (lo fijado a mano; {} sin ninguno)', async () => {
+  const a = appCon({ activoGranel: { 100: false }, fraccionado: FRACC });
+  const b = appCon({ fraccionado: FRACC });
+  try {
+    assert.deepStrictEqual([(await a.pedir('GET', BASE)).activoGranel, (await a.pedir('GET', `${BASE}/costeo`)).activoGranel], [{ 100: false }, { 100: false }]);
+    assert.deepStrictEqual([(await b.pedir('GET', BASE)).activoGranel, (await b.pedir('GET', `${BASE}/costeo`)).activoGranel], [{}, {}]);
+  } finally { a.cerrar(); b.cerrar(); }
+});
+
+test('sin precios-config: PUT subrubros con activos da 403 y no escribe', async () => {
+  const a = appCon({ activoGranel: { 9: true }, fraccionado: FRACC }, { guard: true, sinConfig: true });
+  try {
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/subrubros`, { activos: { 9: false } })).status, 403);
+    assert.deepStrictEqual(a.leer().activoGranel, { 9: true });
+  } finally { a.cerrar(); }
+});

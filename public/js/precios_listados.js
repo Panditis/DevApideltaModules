@@ -3,7 +3,7 @@
 // presentación) con costo sistema, última compra, vigente, sugerido por fuente y un <select> con la DECISIÓN (qué costo usar
 // para el precio nuevo; marca el producto para exportar). Se decide acá, sin abrir el modal, o en el modal (clic en el nombre);
 // las dos vías guardan igual (guardarDecision). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
-// Fraccionado además oculta los graneles REEFER e inactivos (toggles) y el estado manual se fija desde el modal (guardarActivoManual).
+// Fraccionado además oculta los graneles REEFER e inactivos (toggles); el estado manual (activo / inactivo / automático) se fija en Configuración › Costeo Fraccionado › Subrubros.
 // Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS, fmtFechaPrecio,
 // montarOrden, ordenarCon (precios_comun.js), avisar, confirmar (precios_config.js), abrirModalEsquema, opcionesSelect
 // (precios_modal_esquema.js), textoRevisar (precios_produccion.js), XLSX (CDN).
@@ -28,8 +28,6 @@ function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara 
 
 // Actividad de los graneles de Fraccionado. Cuántos hay de cada tipo oculto-able (los números de los toggles; inactivos = no REEFER).
 const contarOcultables = filas => ({ reefer: filas.filter(f => f.reefer === true).length, inactivos: filas.filter(f => f.reefer !== true && f.activo === false).length });
-// Fila con el estado manual nuevo (true | false | null = automático), sin mutar: activo = manual ?? automático (sin datos de actividad → activo).
-const conActivoManual = (f, activoManual) => ({ ...f, activoManual, activo: activoManual ?? (f.actividad ? f.actividad.auto === 'activo' : true) });
 const TXT_MOTIVO_ACTIVIDAD = { sinMovGranel: 'el granel no tuvo movimientos en 6 meses', sinPresentaciones: 'no tiene presentaciones en el listado',
   sinMovPresentaciones: 'ninguna presentación tuvo movimientos en 6 meses' };
 const textoMotivosActividad = motivos => (motivos || []).map(m => TXT_MOTIVO_ACTIVIDAD[m] || m).join('; ');
@@ -197,7 +195,7 @@ const textoPrecioFijoLst = pf => CANALES_PF_LST.filter(([c]) => pf && pf[c] > 0)
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst };
+  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -436,13 +434,6 @@ async function guardarTipoProveedor(plu, tipo) {
   const j = await pedirJson('PUT', `/api/precios/tipo-proveedor/${encodeURIComponent(plu)}`, { tipo }); // precios_comun.js
   lstDatos = { ...lstDatos, almacen: (lstDatos.almacen || []).map(f => (f.plu === plu ? { ...f, tipoProveedor: j.tipoProveedor } : f)) };
   return j.tipoProveedor;
-}
-// PUT del estado manual de un granel de Fraccionado (true | false | null = automático) y actualización local de la fila
-// (activoManual y activo); el que llama repinta el listado. Tira con el error del server.
-async function guardarActivoManual(plu, activo) {
-  const j = await pedirJson('PUT', `/api/precios/fraccionado/activo/${encodeURIComponent(plu)}`, { activo }); // precios_comun.js
-  lstDatos = { ...lstDatos, fraccionado: (lstDatos.fraccionado || []).map(f => (f.plu === plu ? conActivoManual(f, j.activoManual) : f)) };
-  return j.activoManual;
 }
 // Cambio de decisión desde un select (listado o tabla de códigos de Envasado): guarda igual que el modal, repinta el listado
 // (fila resaltada, contadores, celdas de Envasado) y devuelve el foco al select nuevo. Mientras guarda se bloquean todos los

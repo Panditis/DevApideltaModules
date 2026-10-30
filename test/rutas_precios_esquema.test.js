@@ -26,11 +26,11 @@ function appCon(costeo, { query = async () => [], sinConfig = false, archivos = 
   if (guard) app.use(crearGuardPrecios({ tienePermiso: () => !sinConfig }));
   app.use(crearRutas({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR: dir, LISTA_PRECIOS_VENTA: 0, FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1' }));
   let server;
-  const pedir = async (metodo, ruta, body) => {
+  const pedir = async (metodo, ruta, body, crudo = false) => {
     if (!server) server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
     const res = await fetch(`http://127.0.0.1:${server.address().port}${ruta}`,
       { method: metodo, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-    return res.json();
+    return crudo ? res : res.json();
   };
   return { pedir, leer: () => JSON.parse(fs.readFileSync(archivo, 'utf8')), cerrar: () => server && server.close(), escrituras: () => escrituras };
 }
@@ -636,22 +636,16 @@ test('listado Fraccionado: si la consulta de movimientos falla, avisoActividad y
   } finally { console.error = error; a.cerrar(); }
 });
 
-test('activo del granel: PUT guarda true/false, null vuelve a automático; inválido no escribe; sin precios-config también puede', async () => {
-  const a = appCon({ ...MIGRADO, activoGranel: { 7: true } }, { query: conMovimientos([]), archivos: ARCHIVOS_FALSOS, sinConfig: true, guard: true });
-  const fijar = (plu, body) => a.pedir('PUT', `/api/precios/fraccionado/activo/${plu}`, body);
+test('PUT /api/precios/fraccionado/activo/:plu ya no existe (404, no escribe): el estado se guarda con PUT …/config/esquema/fraccionado/subrubros { activos }', async () => {
+  // Arrange
+  const a = appCon({ ...MIGRADO, activoGranel: { 7: true } }, { query: conMovimientos([]), archivos: ARCHIVOS_FALSOS });
   try {
-    assert.deepStrictEqual(await fijar('50', { activo: true }), { ok: true, activoManual: true });
-    assert.deepStrictEqual(a.leer().activoGranel, { 7: true, 50: true });
-    const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
-    assert.deepStrictEqual([g.actividad.auto, g.activoManual, g.activo], ['inactivo', true, true]); // sin movimientos, fijado a mano
-    assert.deepStrictEqual(await fijar('50', { activo: false }), { ok: true, activoManual: false });
-    assert.deepStrictEqual(a.leer().activoGranel, { 7: true, 50: false });
-    const escrituras = a.escrituras();
-    assert.match((await fijar('50', {})).error, /activo/);
-    assert.match((await fijar('50', { activo: 'no' })).error, /activo inválido/);
-    assert.match((await fijar('5x', { activo: true })).error, /PLU inválido/);
-    assert.strictEqual(a.escrituras(), escrituras);
-    assert.deepStrictEqual(await fijar('50', { activo: null }), { ok: true, activoManual: null });
+    const antes = a.escrituras();
+    // Act
+    const res = await a.pedir('PUT', '/api/precios/fraccionado/activo/50', { activo: true }, true);
+    // Assert
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(a.escrituras(), antes);
     assert.deepStrictEqual(a.leer().activoGranel, { 7: true });
   } finally { a.cerrar(); }
 });

@@ -213,7 +213,8 @@ test('tarjeta de subrubros: una fila por subrubro (también el que SIGA ya no tr
   const entradas = $.find('input[data-id]');
   assert.deepStrictEqual(entradas.toArray().map(i => [$.find(i).attr('data-id'), $.find(i).attr('value') || '']), [['1', '8.5'], ['2', ''], ['9', '2']]);
   assert.strictEqual($.find('tbody tr').length, 3);
-  assert.strictEqual($.find('select').length, 0);
+  assert.strictEqual($.find('select').length, $.find('li[data-q]').length); // el único select es el Estado de cada producto
+  assert.strictEqual($.find('select:not(.fr-act)').length, 0);
   assert.strictEqual($.find('[data-k="hastaG"],[data-k="minutos"]').length, 0);
   assert.strictEqual($.find('.fr-guardar').length, 1);
   assert.ok($.find('#frSubrubrosCard[data-guardable]').length);

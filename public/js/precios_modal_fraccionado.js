@@ -3,31 +3,29 @@
 // (pintarModalFraccionadoMd) y conectarModalEsquema lo conecta (conectarModalFraccionadoMd). Dos tarjetas (#mDetCaja, ~70 % del ancho, y
 // #mDetDer, ~30 %):
 //  · izquierda = configuración del granel, en pasos numerados (cada uno es un panel .md-paso con su encabezado: título + para qué sirve; el
-//    número lo pone un contador CSS en precios.html, así que sin precios-config el estado es el paso 2): 1 costo elegido (tarjetas, una fila de
+//    número lo pone un contador CSS en precios.html, así que sin precios-config el margen es el paso 2): 1 costo elegido (tarjetas, una fila de
 //    cuatro, cada una con su acento, su "cuándo conviene" y, la elegida, "Elegida"; la de costo manual trae el campo para cargarlo), debajo en dos
-//    columnas 2 el costo del granel (min/kg y máquina, costos extra, venta de pack/bulto) y 3 el margen del producto con 4 el estado, y al final, sólo para
+//    columnas 2 el costo del granel (min/kg y máquina, costos extra, venta de pack/bulto) y 3 el margen del producto, y al final, sólo para
 //    revisar, el acordeón "Cómo se conforma el costo y el precio": un panel con el mismo lenguaje que los pasos (sin número: lleva la marca
 //    "Detalle") y dos apartados, A costo real y B precio, con una mini-tarjeta por presentación; cada una es una cuenta alineada (operador |
-//    concepto con su detalle | importe, subtotales con línea, total destacado). Todo salvo las tarjetas y el estado va sólo con precios-config (sin él
+//    concepto con su detalle | importe, subtotales con línea, total destacado). Todo salvo las tarjetas y el margen va sólo con precios-config (sin él
 //    el server no manda el desglose ni los extras, y el costo manual no se carga acá).
 //  · derecha = precios de las presentaciones (htmlPreciosFraccMd, bajo el título "Precios de las presentaciones" y el subtítulo "por kg · con <fuente>"):
 //    angosta, así que sin columnas: una tarjeta por presentación con vigente → sugerido con la fuente elegida, Δ % como chip, Δ $ y margen en
 //    segunda línea y, adentro, el sub-bloque "Códigos mayoristas" con sus pack/bulto; al final, la tarjeta de los pack/bulto del granel.
 // Elegir un costo o guardar un margen repinta el modal entero (guardarOpcionMd / guardarCostoEsq): la tarjeta derecha siempre
 // refleja lo elegido a la izquierda. El min/kg es el propio del granel (se carga acá, vacío = el del subrubro) o el del subrubro; el ajuste
-// del tramo de peso y el envase del peso de la presentación (bolsa o bobina) vienen de Configuración › Costeo Fraccionado (precios_config_fraccionado.js): acá se ven, y acá se elige bolsa o bobina por producto. Globales: esc, fmtMoney, fmtFechaPrecio,
+// del tramo de peso y el envase del peso de la presentación (bolsa o bobina) vienen de Configuración › Costeo Fraccionado (precios_config_fraccionado.js): acá se ven, y acá se elige bolsa o bobina por producto. Globales: esc, fmtMoney,
 // claseDelta (precios_comun.js), mdEsq, mdFuente, mdDetalle, guardarCostoEsq, htmlResumenMd, htmlAvisoMd, htmlOpcionesCosto,
 // opcionesCosto, manualEnTarjetaMd, htmlMargenProductoMd, htmlEdicionCostos, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd,
 // pasosMayoristaMd (precios_modal_esquema.js), API_FR
 // (precios_config_fraccionado.js), getJson (precios_produccion.js), conectarProductoHf (precios_fraccionado_historial.js: el chip del historial
 // de ESTE producto junto a su min/kg propio, sólo en el bloque de precios-config).
-// El bloque "Estado" del granel (activo / inactivo / automático, spec 2026-10-26 §4) lo ve cualquier usuario de Precios:
-// globales guardarActivoManual, conActivoManual, renderListado (precios_listados.js).
+// El estado del granel en el listado (automático / activo / inactivo) ya no se elige acá: está en Configuración › Costeo Fraccionado › Subrubros.
 const NODE_FR_MD = typeof module === 'object' && module.exports;
-const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { esc, fmtMoney, fmtFechaPrecio, claseDelta };
-const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD, fmtFechaPrecio: FECHA_FR_MD } = FMT_FR_MD;
+const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { esc, fmtMoney, claseDelta };
+const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD } = FMT_FR_MD;
 const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
-const ACT_FR_MD = NODE_FR_MD ? require('./precios_listados.js') : { textoMotivosActividad };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
 // componentesCosto de una presentación (lib/precios_fraccionado_costo) por concepto. fuente = la elegida en el modal;
@@ -96,45 +94,6 @@ function bodyGranelMd(minKgTxt, maquinaId, envase) {
   const minKg = t === '' ? null : Number(t);
   if (minKg != null && !(Number.isFinite(minKg) && minKg >= 0 && minKg <= MAX_MIN_KG_MD)) return { error: ERROR_MIN_KG_MD };
   return { body: { minKg, maquinaId: maquinaId || null, envase: envase === 'bobina' ? 'bobina' : 'bolsa' } };
-}
-
-// ── Estado del granel en el listado: activo / inactivo fijado a mano, o automático (movimientos de los últimos 6 meses) ──
-// Valor del <select> y activoManual del server (null = automático).
-const valorSelectActivoMd = f => (f.activoManual === true ? 'activo' : f.activoManual === false ? 'inactivo' : 'auto');
-const activoManualDeValorMd = v => (v === 'activo' ? true : v === 'inactivo' ? false : null);
-// Opción "Automático": lo que decidiría el automático hoy (los motivos van aparte, en lineasEstadoMd: así el select no se ensancha).
-const textoAutomaticoMd = f => (f.actividad ? `Automático (hoy: ${f.actividad.auto === 'inactivo' ? 'inactivo' : 'activo'})` : 'Automático (sin datos de actividad)');
-const htmlOpcionesActivoMd = f => [['auto', textoAutomaticoMd(f)], ['activo', 'Activo'], ['inactivo', 'Inactivo']]
-  .map(([v, t]) => `<option value="${v}"${v === valorSelectActivoMd(f) ? ' selected' : ''}>${ESC_FR_MD(t)}</option>`).join('');
-// Renglones informativos: por qué el automático lo deja inactivo, último movimiento del granel y presentaciones con movimiento
-// (movReciente true; null = sin datos y no cuenta).
-function lineasEstadoMd(f) {
-  const a = f.actividad;
-  if (!a) return ['Sin datos de movimientos: no se pudo consultar SIGA, no se oculta por inactivo.'];
-  const pres = f.presentaciones || [], con = pres.filter(p => p.movReciente === true);
-  const motivos = a.auto === 'inactivo' ? ACT_FR_MD.textoMotivosActividad(a.motivos) : '';
-  return [
-    ...(motivos ? [`Inactivo en automático: ${motivos}.`] : []),
-    `Último movimiento del granel: ${a.ultimoMovGranel ? FECHA_FR_MD(a.ultimoMovGranel) : 'ninguno en los últimos 6 meses'}.`,
-    pres.length ? `Presentaciones con movimiento en los últimos 6 meses: ${con.length} de ${pres.length}${con.length ? ` (${con.map(p => p.nombre).join(', ')})` : ''}.`
-      : 'Sin presentaciones en el listado.',
-  ];
-}
-// Mensaje tras guardar (fila ya actualizada): cómo quedó y, si quedó inactivo, que el listado lo oculta.
-const textoGuardadoActivoMd = f => `Guardado · ${f.activoManual == null ? 'automático' : 'fijado a mano'}: ${f.activo ? 'activo' : 'inactivo, el listado lo oculta salvo con "Ver inactivos"'}.`;
-// Sin PLU (el grupo "sin granel") no hay estado que fijar. msg = HTML ya armado del estado (guardado / error).
-function htmlEstadoActivoMd(f, msg = '') {
-  if (f.plu == null) return '';
-  const reefer = f.reefer === true ? ' <span class="md-sub">· REEFER: el listado lo oculta salvo con "Ver REEFER", sea cual sea su estado</span>' : '';
-  return `<section id="mdAct" class="md-activo md-paso" aria-labelledby="mdActH">
-    <div class="md-paso-cab"><h4 id="mdActH" class="md-h">Estado en el listado${reefer}</h4>
-      <p class="md-paso-para">No cambia ningún precio: sólo define si el granel aparece en el listado.</p></div>
-    <div class="md-paso-cuerpo"><p class="md-ayuda">Los graneles inactivos no se muestran en el listado salvo con "Ver inactivos". Automático decide por los movimientos de stock de los últimos 6 meses.</p>
-    <div class="flex flex-wrap items-center gap-2"><label for="mdActSel" class="text-sm">Mostrar como</label>
-      <select id="mdActSel" class="num-in text-left">${htmlOpcionesActivoMd(f)}</select>
-      <button type="button" id="mdActGuardar" class="cfg-btn2">Guardar</button></div>
-    <ul class="md-act-mov">${lineasEstadoMd(f).map(l => `<li>${ESC_FR_MD(l)}</li>`).join('')}</ul>
-    <p id="mdActMsg" class="md-msg" role="status" aria-live="polite">${msg}</p></div></section>`;
 }
 
 // ── Columna derecha: precios de las presentaciones y su variación contra el vigente ──
@@ -234,7 +193,7 @@ function htmlPreciosFraccMd(f, fuente) {
   const { granel, presentaciones } = agruparPreciosFraccMd(filas);
   return `${cab}<ul class="md-fr-lista">${presentaciones.map(htmlTarjetaPresentacionFraccMd).join('')}${htmlTarjetaGranelFraccMd(granel)}</ul>`;
 }
-// Debajo de las tarjetas de costo: un bloque por columna cuando hay dos; con uno solo (sin configuración sólo queda el estado) a ancho completo.
+// Debajo de las tarjetas de costo: un bloque por columna cuando hay dos; con uno solo (sin configuración sólo queda el margen) a ancho completo.
 function htmlColumnasFraccMd(...bloques) {
   const hay = bloques.filter(Boolean);
   return hay.length > 1 ? `<div class="md-fr-cols">${hay.map(b => `<div class="md-fr-col">${b}</div>`).join('')}</div>` : hay.join('');
@@ -346,7 +305,6 @@ function htmlCuerpoDetalleFraccMd(f, fuente) {
 }
 
 if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, opcionesEnvaseMd, formulaMinutosMd, textoElegidoMd, textosMinKgMd, bodyGranelMd,
-  textoAutomaticoMd, valorSelectActivoMd, activoManualDeValorMd, htmlOpcionesActivoMd, lineasEstadoMd, textoGuardadoActivoMd, htmlEstadoActivoMd,
   deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, agruparPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd,
   motivoSinMinutosMd, filasCostoPresFraccMd, cuentasPrecioFraccMd, htmlCuentaFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd, htmlCuerpoDetalleFraccMd };
 
@@ -396,12 +354,12 @@ function htmlDetalleFraccMd(f) {
 }
 
 // Dos tarjetas con su propio scroll (precios.html: #mDetCaja y #mDetDer). Izquierda (#mDetBody): decisión del costo (con precios-config la
-// tarjeta de costo manual siempre está, para cargarlo desde ahí), en dos columnas el costo del granel y el margen del producto con el estado,
+// tarjeta de costo manual siempre está, para cargarlo desde ahí), en dos columnas el costo del granel y el margen del producto,
 // y cómo se conforma el costo y el precio. Derecha (#mDetDerBody): precios de las presentaciones con la fuente elegida (mdFuente).
 function pintarModalFraccionadoMd() {
   const { tipo, fila: f } = mdEsq;
   const ops = opcionesCosto(f, tipo, { manualSiempre: manualEnTarjetaMd(tipo) }); // precios_modal_esquema.js
-  const abajo = htmlColumnasFraccMd(htmlCostoGranelMd(f), `${htmlMargenProductoMd(f)}${htmlEstadoActivoMd(f)}`);
+  const abajo = htmlColumnasFraccMd(htmlCostoGranelMd(f), htmlMargenProductoMd(f));
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${abajo}${htmlDetalleFraccMd(f)}`;
   document.getElementById('mDetDerSub').textContent = subtituloPreciosFraccMd(f, mdFuente);
   document.getElementById('mDetDerBody').innerHTML = htmlPreciosFraccMd(f, mdFuente);
@@ -421,7 +379,7 @@ function conectarDetalleFraccMd() {
     delUsuario = false;
   };
 }
-function conectarModalFraccionadoMd() { conectarCosteoFraccMd(); conectarEstadoActivoMd(); conectarDetalleFraccMd(); }
+function conectarModalFraccionadoMd() { conectarCosteoFraccMd(); conectarDetalleFraccMd(); }
 
 function conectarCosteoFraccMd() {
   if (!document.getElementById('mdFr')) return;
@@ -448,34 +406,4 @@ function conectarCosteoFraccMd() {
 function mostrarErrorFrMd(texto) {
   const m = document.getElementById('mdFrMsg');
   if (m) { m.className = 'text-sm mt-1 text-crit'; m.textContent = texto; }
-}
-
-// ── Estado del granel: Guardar -> PUT (guardarActivoManual) -> fila local actualizada -> listado y bloque repintados, sin recargar SIGA ──
-function pintarEstadoActivoMd(msg) {
-  const el = document.getElementById('mdAct');
-  if (!el) return;
-  el.outerHTML = htmlEstadoActivoMd(mdEsq.fila, msg);
-  conectarEstadoActivoMd();
-}
-function conectarEstadoActivoMd() {
-  const guardar = document.getElementById('mdActGuardar');
-  if (!guardar) return;
-  guardar.onclick = async () => {
-    const sel = document.getElementById('mdActSel'), msg = document.getElementById('mdActMsg');
-    const { tipo, fila } = mdEsq;
-    guardar.disabled = true; sel.disabled = true;
-    msg.className = 'md-msg'; msg.innerHTML = '<span class="spin"></span> Guardando…';
-    try {
-      const activoManual = await guardarActivoManual(fila.plu, activoManualDeValorMd(sel.value)); // precios_listados.js
-      mdEsq = { tipo, fila: conActivoManual(fila, activoManual) };
-      renderListado(tipo); // el granel puede salir del listado (inactivo / REEFER): sin recargar SIGA
-      pintarEstadoActivoMd(`<span class="text-ok">✓ ${ESC_FR_MD(textoGuardadoActivoMd(mdEsq.fila))}</span>`);
-    } catch (e) {
-      guardar.disabled = false; sel.disabled = false; // queda lo elegido para reintentar
-      msg.className = 'md-msg text-crit'; msg.textContent = `No se pudo guardar: ${e.message}`;
-      sel.focus();
-      return;
-    }
-    document.getElementById('mdActSel').focus(); // el repintado reemplazó el select: sin foco el teclado quedaría en el <body>
-  };
 }

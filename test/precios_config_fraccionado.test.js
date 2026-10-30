@@ -166,3 +166,39 @@ test('productosPorSubrubro: graneles con sus presentaciones (y su peso) por subr
     pesos: [{ pesoG: 500, presentaciones: 2 }, { pesoG: 1000, presentaciones: 1 }],
   });
 });
+
+// ── activos (estado en el listado de Fraccionado, costeo.activoGranel) en el PUT subrubros ──
+test('aplicarActivos: true/false se guardan, null saca la clave; sin activos devuelve el mismo mapa; no muta', () => {
+  // Arrange
+  const ag = { 7: true, 8: false };
+  // Act
+  const nuevo = CF.aplicarActivos(ag, { activos: { 8: null, 9: true, 10: false } });
+  // Assert
+  assert.deepStrictEqual(nuevo, { 7: true, 9: true, 10: false });
+  assert.deepStrictEqual(ag, { 7: true, 8: false });
+  assert.strictEqual(CF.aplicarActivos(ag, { subrubros: { 1: 2 } }), ag);
+  assert.strictEqual(CF.aplicarActivos(undefined, {}), undefined); // sin la clave y sin activos: no se crea
+  assert.deepStrictEqual(CF.aplicarActivos(undefined, { activos: { 5: true } }), { 5: true });
+});
+
+test('aplicarActivos: PLU inválido, valor no booleano (incl. "true" y 1), no objeto y más de 1000 → error, todo o nada', () => {
+  assert.throws(() => CF.aplicarActivos({}, { activos: { '5x': true } }), /^Error: activos\.5x: PLU inválido$/);
+  for (const v of ['true', 1, 0, {}, []]) {
+    assert.throws(() => CF.aplicarActivos({}, { activos: { 5: v } }), /activos\.5: activo inválido: true, false o null \(automático\)/, JSON.stringify(v));
+  }
+  for (const v of [[], 'x', 3]) assert.throws(() => CF.aplicarActivos({}, { activos: v }), /activos: debe ser un objeto/, JSON.stringify(v));
+  const mil = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [String(i + 1), true]));
+  assert.strictEqual(Object.keys(CF.aplicarActivos({}, { activos: mil })).length, 1000);
+  assert.throws(() => CF.aplicarActivos({}, { activos: { ...mil, 1001: true } }), /activos: máximo 1000/);
+});
+
+test('aplicarTiempos con activos: solos cuentan como cambio (no tocan fraccionado); con los tres mapas; no objeto da error; vacío da el mensaje nuevo', () => {
+  const cf = { subrubros: { 7: { minKg: 8 } }, porGranel: { 100: { minKg: 4 } } };
+  assert.deepStrictEqual(CF.aplicarTiempos(cf, { activos: { 100: false } }), {});
+  assert.deepStrictEqual(CF.aplicarTiempos(cf, { subrubros: { 7: 2 }, graneles: { 100: null }, activos: { 100: true } }),
+    { subrubros: { 7: { minKg: 2 } }, porGranel: {} });
+  assert.throws(() => CF.aplicarTiempos(cf, { activos: [] }), /activos: debe ser un objeto/);
+  for (const vacio of [{}, { activos: {} }, { subrubros: {}, graneles: {}, activos: {} }]) {
+    assert.throws(() => CF.aplicarTiempos(cf, vacio), /^Error: subrubros, graneles o activos: mandá al menos un cambio$/, JSON.stringify(vacio));
+  }
+});

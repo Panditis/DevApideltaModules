@@ -7,8 +7,8 @@ const assert = require('node:assert');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const L = require('../lib/precios_listado_esquema');
 const { CFG } = require('./precios_esquema_fixture');
-const { filtrarFilas, contarOcultables, conActivoManual, htmlBadgesActividadLst, filasExportListado } = require('../public/js/precios_listados.js');
-const { lineasEstadoMd, htmlEstadoActivoMd, valorSelectActivoMd, textoAutomaticoMd } = require('../public/js/precios_modal_fraccionado.js');
+const { filtrarFilas, contarOcultables, htmlBadgesActividadLst, filasExportListado } = require('../public/js/precios_listados.js');
+const { activoGuardadoFr, estadoDeActivoFr } = require('../public/js/precios_config_fraccionado.js');
 
 const deps = { LISTA_PRECIOS_VENTA: 0, FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1' };
 const plusDelIn = sql => ((sql.match(/d\.IdProducto IN \(([^)]*)\)/) || [])[1] || '').match(/\d+/g) || [];
@@ -76,27 +76,22 @@ test('contrato back → front: filtros, conteos y badges del listado leen reefer
   assert.deepStrictEqual(exp.filter(c => typeof c === 'number'), [101, 104], JSON.stringify(exp));
 });
 
-test('contrato back → front: el modal y la respuesta del PUT ({ activoManual }) sobre la fila del server', () => {
+test('contrato back → front: el select de Configuración lee el mismo activoGranel que usa el listado', () => {
+  // Arrange: Pasas (400) fijado a mano inactivo con automático activo
   const pasas = alNavegador(MOV).find(f => f.plu === '400');
-  assert.strictEqual(valorSelectActivoMd(pasas), 'inactivo');
-  assert.strictEqual(textoAutomaticoMd(pasas), 'Automático (hoy: activo)');
-  assert.deepStrictEqual(lineasEstadoMd(pasas), ['Último movimiento del granel: 01/10/2026.',
-    'Presentaciones con movimiento en los últimos 6 meses: 1 de 1 (Pasas 500G).']);
-  const automatico = conActivoManual(pasas, null); // PUT { activo: null } → { ok, activoManual: null }
-  assert.deepStrictEqual([automatico.activoManual, automatico.activo], [null, true]);
-  // el front recalcula igual que el server: misma fila sin el manual
+  // Act + Assert: el listado lo trae inactivo a mano y la fila de Configuración muestra "inactivo"
+  assert.deepStrictEqual([pasas.activoManual, pasas.activo, pasas.actividad.auto], [false, false, 'activo']);
+  assert.strictEqual(estadoDeActivoFr(activoGuardadoFr({ 400: pasas.activoManual }, '400')), 'inactivo');
+  // sin el manual (Automático = null en el PUT, la clave sale) el server lo devuelve activo por movimientos
   const delServer = alNavegador(MOV, {}).find(f => f.plu === '400');
-  assert.deepStrictEqual([automatico.activo, automatico.activoManual], [delServer.activo, delServer.activoManual]);
-  assert.match(htmlEstadoActivoMd(alNavegador(MOV).find(f => f.plu === '200')), /REEFER/);
-  assert.strictEqual(htmlEstadoActivoMd(alNavegador(MOV).find(f => f.plu === null)), '');
+  assert.deepStrictEqual([delServer.activoManual, delServer.activo], [null, true]);
+  assert.strictEqual(estadoDeActivoFr(activoGuardadoFr({}, '400')), 'auto');
 });
 
-test('contrato back → front: consulta de movimientos caída (null) → nadie oculto salvo a mano y REEFER; el modal lo dice', () => {
+test('contrato back → front: consulta de movimientos caída (null) → nadie oculto salvo a mano y REEFER', () => {
   const filas = alNavegador(null);
   assert.deepStrictEqual(filtrarFilas(filas, {}).map(f => f.plu), ['100', '300', null]);
   assert.deepStrictEqual(contarOcultables(filas), { reefer: 1, inactivos: 1 }); // sólo el fijado a mano
   const mani = filas.find(f => f.plu === '300');
   assert.deepStrictEqual([mani.actividad, mani.presentaciones[0].movReciente], [null, null]);
-  assert.strictEqual(textoAutomaticoMd(mani), 'Automático (sin datos de actividad)');
-  assert.match(lineasEstadoMd(mani)[0], /Sin datos de movimientos/);
 });

@@ -1,8 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoElegidoMd, textosMinKgMd, bodyGranelMd,
-  textoAutomaticoMd, valorSelectActivoMd, activoManualDeValorMd, htmlOpcionesActivoMd, lineasEstadoMd, textoGuardadoActivoMd, htmlEstadoActivoMd } = require('../public/js/precios_modal_fraccionado.js');
+const { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoElegidoMd, textosMinKgMd, bodyGranelMd } = require('../public/js/precios_modal_fraccionado.js');
 
 test('resumenCosteoFraccMd: insumos, MO y máquina por unidad, extra $/kg, mercadería y costo real de la fuente elegida', () => {
   const p = { costos: { sistema: 1415, ultimaCompra: 1615 }, costeoPresentacion: { porUnidad: 207.5, extraKg: 415 },
@@ -81,69 +80,6 @@ test('bodyGranelMd: min/kg vacío → null (hereda), número 0 a 600 (coma o pun
   assert.deepStrictEqual(bodyGranelMd('600', ''), { body: { minKg: 600, maquinaId: null, envase: 'bolsa' } });
   for (const otro of [undefined, null, '', 'bolsa', 'Bobina', 'otra']) assert.strictEqual(bodyGranelMd('', '', otro).body.envase, 'bolsa', String(otro)); // todo lo que no es 'bobina' = bolsa
   for (const mal of ['-1', '600,01', 'abc', '1e999']) assert.deepStrictEqual(bodyGranelMd(mal, ''), { error: 'Min por kg: un número de 0 a 600 (vacío = hereda el del subrubro)' }, mal);
-});
-
-// ── Bloque "Estado" del granel (spec 2026-10-26 §4) ──
-const granelAct = (extra = {}) => ({ plu: '50', nombre: 'Almendra <A>', reefer: false, activo: true, activoManual: null,
-  actividad: { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-12', presentacionesActivas: 2 },
-  presentaciones: [{ plu: '51', nombre: 'Almendra 500G', movReciente: true }, { plu: '52', nombre: 'Almendra 1Kg', movReciente: true }, { plu: '53', nombre: 'Almendra 250G', movReciente: false }], ...extra });
-const granelInactivo = (extra = {}) => granelAct({ activo: false, actividad: { auto: 'inactivo', motivos: ['sinMovGranel', 'sinMovPresentaciones'], ultimoMovGranel: null, presentacionesActivas: 0 },
-  presentaciones: [{ plu: '51', nombre: 'Almendra 500G', movReciente: false }], ...extra });
-
-test('valorSelectActivoMd / activoManualDeValorMd: null/true/false ⇄ auto/activo/inactivo', () => {
-  assert.deepStrictEqual([null, true, false, undefined].map(m => valorSelectActivoMd({ activoManual: m })), ['auto', 'activo', 'inactivo', 'auto']);
-  assert.deepStrictEqual(['auto', 'activo', 'inactivo'].map(activoManualDeValorMd), [null, true, false]);
-});
-
-test('textoAutomaticoMd: "Automático (hoy: activo|inactivo)"; sin datos de actividad lo dice', () => {
-  assert.strictEqual(textoAutomaticoMd(granelAct()), 'Automático (hoy: activo)');
-  assert.strictEqual(textoAutomaticoMd(granelInactivo()), 'Automático (hoy: inactivo)');
-  assert.strictEqual(textoAutomaticoMd(granelAct({ actividad: null })), 'Automático (sin datos de actividad)');
-});
-
-test('htmlOpcionesActivoMd: Automático / Activo / Inactivo con la elección guardada seleccionada', () => {
-  const v = (f, valor) => new RegExp(`<option value="${valor}" selected>`).test(htmlOpcionesActivoMd(f));
-  assert.ok(v(granelAct(), 'auto') && !v(granelAct(), 'activo'));
-  assert.ok(v(granelAct({ activoManual: true }), 'activo'));
-  assert.ok(v(granelInactivo({ activoManual: false }), 'inactivo'));
-  const html = htmlOpcionesActivoMd(granelInactivo());
-  assert.match(html, /<option value="auto" selected>Automático \(hoy: inactivo\)<\/option><option value="activo">Activo<\/option><option value="inactivo">Inactivo<\/option>/);
-});
-
-test('lineasEstadoMd: motivos del automático, último movimiento del granel y presentaciones con movimiento', () => {
-  assert.deepStrictEqual(lineasEstadoMd(granelAct()), [
-    'Último movimiento del granel: 12/10/2026.',
-    'Presentaciones con movimiento en los últimos 6 meses: 2 de 3 (Almendra 500G, Almendra 1Kg).']);
-  const ina = lineasEstadoMd(granelInactivo());
-  assert.strictEqual(ina[0], 'Inactivo en automático: el granel no tuvo movimientos en 6 meses; ninguna presentación tuvo movimientos en 6 meses.');
-  assert.strictEqual(ina[1], 'Último movimiento del granel: ninguno en los últimos 6 meses.');
-  assert.strictEqual(ina[2], 'Presentaciones con movimiento en los últimos 6 meses: 0 de 1.');
-  assert.strictEqual(lineasEstadoMd(granelAct({ presentaciones: [] }))[1], 'Sin presentaciones en el listado.');
-  assert.deepStrictEqual(lineasEstadoMd(granelAct({ actividad: null })), ['Sin datos de movimientos: no se pudo consultar SIGA, no se oculta por inactivo.']);
-  // movReciente null (sin datos) no cuenta como movimiento
-  assert.match(lineasEstadoMd(granelAct({ presentaciones: [{ plu: '51', nombre: 'X', movReciente: null }] }))[1], /: 0 de 1\.$/);
-});
-
-test('htmlEstadoActivoMd: bloque con label, select, Guardar y estado; escapa; sin PLU (sin granel) → nada; REEFER lo aclara', () => {
-  const html = htmlEstadoActivoMd(granelAct({ nombre: 'Almendra <A>', presentaciones: [{ plu: '51', nombre: 'Pres <b>', movReciente: true }] }));
-  assert.match(html, /<section id="mdAct" class="md-activo md-paso"/);
-  assert.match(html, /<p class="md-paso-para">No cambia ningún precio: sólo define si el granel aparece en el listado\.<\/p>/); // para qué sirve el paso
-  assert.match(html, /<label for="mdActSel"[^>]*>/);
-  assert.match(html, /<select id="mdActSel"[^>]*>.*<\/select>/);
-  assert.match(html, /<button type="button" id="mdActGuardar"/);
-  assert.match(html, /id="mdActMsg"[^>]*role="status"[^>]*aria-live="polite"/);
-  assert.match(html, /Pres &lt;b&gt;/);
-  assert.doesNotMatch(html, /Pres <b>/);
-  assert.doesNotMatch(html, /REEFER/);
-  assert.match(htmlEstadoActivoMd(granelAct({ reefer: true })), /REEFER/);
-  assert.strictEqual(htmlEstadoActivoMd({ plu: null, nombre: 'Sin granel asignado', presentaciones: [] }), '');
-  assert.match(htmlEstadoActivoMd(granelAct(), '<span class="text-ok">✓ Guardado</span>'), /id="mdActMsg"[^>]*><span class="text-ok">✓ Guardado<\/span>/);
-});
-
-test('textoGuardadoActivoMd: cómo quedó el granel; inactivo avisa que el listado lo oculta', () => {
-  assert.strictEqual(textoGuardadoActivoMd({ activoManual: null, activo: true }), 'Guardado · automático: activo.');
-  assert.strictEqual(textoGuardadoActivoMd({ activoManual: true, activo: true }), 'Guardado · fijado a mano: activo.');
-  assert.match(textoGuardadoActivoMd({ activoManual: false, activo: false }), /^Guardado · fijado a mano: inactivo, el listado lo oculta salvo con "Ver inactivos"\.$/);
 });
 
 // ── Columna derecha del modal de Fraccionado: precios de las presentaciones y su variación ──

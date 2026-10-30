@@ -47,7 +47,7 @@ function crearContexto() {
     campoU: input => input, textoMotivosActividad: m => (m || []).join('; '),
     guardarDecision: (...a) => { llamadas.push(['guardarDecision', ...a]); return Promise.resolve(null); },
     renderListado() {}, cargarListado() {}, refrescarAlertasProduccion() {}, salirDeProduccion() {}, activarTab() {},
-    guardarTipoProveedor: () => Promise.resolve(), guardarActivoManual: () => Promise.resolve(null), conActivoManual: (f, a) => ({ ...f, activoManual: a }),
+    guardarTipoProveedor: () => Promise.resolve(),
   });
   ctx.self = ctx; // lib/precios_esquema.js (UMD, /js/precios_esquema.js en la página) publica self.PreciosEsquema
   for (const f of ['../../lib/precios_esquema.js', 'precios_comun.js', 'precios_modal_esquema.js', 'precios_fraccionado_historial.js', 'precios_modal_fraccionado.js']) {
@@ -95,8 +95,8 @@ test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids ú
   abrir(dom, 'fraccionado', granel({ conPermiso: true }));
   const html = dom.cuerpo(), der = dom.cuerpoDer();
   assert.deepStrictEqual(repetidos(dom.ids()), []); // el costo manual está una sola vez (en su tarjeta), no también en "Costo del granel"
-  // Izquierda (#mDetBody) en orden: resumen → tarjetas (con el costo manual adentro) → costo del granel (min/kg y máquina + costos) → margen → estado → cómo se conforma.
-  const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdManual"', 'id="mdFr"', 'id="mdExtras"', 'id="mdVentas"', 'class="md-margen-prod md-paso"', 'id="mdAct"', 'id="mdDetCuerpo"']
+  // Izquierda (#mDetBody) en orden: resumen → tarjetas (con el costo manual adentro) → costo del granel (min/kg y máquina + costos) → margen → cómo se conforma (el estado en el listado se fija en Configuración › Subrubros).
+  const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdManual"', 'id="mdFr"', 'id="mdExtras"', 'id="mdVentas"', 'class="md-margen-prod md-paso"', 'id="mdDetCuerpo"']
     .map(t => { const i = html.indexOf(t); assert.ok(i >= 0, `falta ${t}`); return i; });
   assert.deepStrictEqual(pos, [...pos].sort((a, b) => a - b));
   assert.match(html, /<div class="md-fr-cols"><div class="md-fr-col"><section class="md-fr-sec md-paso"/); // debajo de las tarjetas: dos columnas
@@ -105,26 +105,26 @@ test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids ú
   assert.match(der, /^<div class="md-fr-chips">/);
   assert.match(der, /<ul class="md-fr-lista">/);
   assert.match(der, /Almendras 1Kg/);
-  assert.doesNotMatch(der, /id="mdCostos"|id="mdAct"|<h3|<table/); // (h4 sí: la tarjeta de los mayoristas del granel lleva su título)
+  assert.doesNotMatch(html + der, /id="mdAct|md-activo|Estado en el listado/); // el estado se movió a Configuración › Subrubros
+  assert.doesNotMatch(der, /id="mdCostos"|<h3|<table/); // (h4 sí: la tarjeta de los mayoristas del granel lleva su título)
   assert.strictEqual(dom.el('mDetDerSub').textContent, 'por kg · con costo sistema, para comparar');
   const fn = (id, prop = 'onclick') => typeof dom.el(id)[prop];
   assert.deepStrictEqual([fn('mdCostos', 'onchange'), fn('mdFrGuardar'), fn('mdManualGuardar'), fn('mdManualQuitar'), fn('mdExtrasGuardar'),
-    fn('mdExtraAgregar'), fn('mdVentas'), fn('mdVentas', 'onchange'), fn('mdMargenGuardar'), fn('mdMargenIgualar'), fn('mdActGuardar'), fn('mdDetCuerpo', 'ontoggle')],
-  Array(12).fill('function'));
+    fn('mdExtraAgregar'), fn('mdVentas'), fn('mdVentas', 'onchange'), fn('mdMargenGuardar'), fn('mdMargenIgualar'), fn('mdDetCuerpo', 'ontoggle')],
+  Array(11).fill('function'));
 });
 
 // Modal didáctico (spec 2026-10-26): cada bloque es un paso con su título y una línea de para qué sirve; los números los pone un contador CSS
-// (sin precios-config el estado pasa a ser el paso 2), así que acá se prueba el orden y que cada encabezado traiga su propósito.
+// (sin precios-config queda sólo el paso del costo), así que acá se prueba el orden y que cada encabezado traiga su propósito.
 const pasos = html => [...html.matchAll(/<div class="md-paso-cab[^"]*">.*?<h4[^>]*>(.*?)<\/h4>.*?<p class="md-paso-para">(.*?)<\/p>/gs)].map(m => [m[1].replace(/<[^>]+>/g, '').trim(), m[2]]);
 
-test('Fraccionado con precios-config: 4 pasos en orden, cada uno con título y para qué sirve; la tarjeta derecha es el resultado', () => {
+test('Fraccionado con precios-config: 3 pasos en orden, cada uno con título y para qué sirve; la tarjeta derecha es el resultado', () => {
   const dom = crearContexto();
   abrir(dom, 'fraccionado', granel({ conPermiso: true }));
   const p = pasos(dom.cuerpo());
-  assert.deepStrictEqual(p.map(([t]) => t), ['¿Con qué costo calculo el precio nuevo?', 'Costo del granel · $/kg', 'Margen de este producto', 'Estado en el listado']);
+  assert.deepStrictEqual(p.map(([t]) => t), ['¿Con qué costo calculo el precio nuevo?', 'Costo del granel · $/kg', 'Margen de este producto']);
   assert.ok(p.every(([, para]) => para.length > 20 && para.length < 140), 'una línea corta de para qué sirve en cada paso');
   assert.match(p[1][1], /costo elegido en el paso 1/);
-  assert.match(p[3][1], /No cambia ningún precio/);
   assert.match(dom.cuerpo(), /<fieldset class="md-dec md-paso"><legend class="sr-only">¿Con qué costo calculo el precio nuevo\?<\/legend>/); // el grupo de radios sigue con su leyenda
   assert.match(dom.cuerpo(), /<p class="md-guia">Seguí los pasos en orden\./);
   // Costo del granel: cada bloque con su subtítulo y su ayuda
@@ -197,10 +197,11 @@ test('Fraccionado con precios-config: un min/kg inválido no se envía; el error
   assert.strictEqual(foco, true);
 });
 
-test('Fraccionado sin precios-config: sólo dos pasos (costo y estado) y el estado es el segundo', () => {
+test('Fraccionado sin precios-config: un solo paso (el costo), sin estado en el listado', () => {
   const dom = crearContexto();
   abrir(dom, 'fraccionado', granel({ conPermiso: false }), { sinConfig: true });
-  assert.deepStrictEqual(pasos(dom.cuerpo()).map(([t]) => t), ['¿Con qué costo calculo el precio nuevo?', 'Estado en el listado']);
+  assert.deepStrictEqual(pasos(dom.cuerpo()).map(([t]) => t), ['¿Con qué costo calculo el precio nuevo?']);
+  assert.doesNotMatch(dom.cuerpo(), /id="mdAct|Estado en el listado/);
   assert.doesNotMatch(dom.cuerpo(), /md-fr-cols|md-margen-prod/);
 });
 
@@ -269,16 +270,16 @@ test('Fraccionado: el acordeón respeta mdDetalle al repintar y lo actualiza al 
   assert.strictEqual(dom.correr('mdDetalle'), true);
 });
 
-test('Fraccionado sin precios-config: tarjetas, estado y precios; sin bloques de configuración ni claves ocultas', () => {
+test('Fraccionado sin precios-config: tarjetas y precios; sin bloques de configuración ni claves ocultas', () => {
   const dom = crearContexto();
   const fila = granel({ conPermiso: false });
   assert.ok(!('costeoGranel' in fila) && !('costosExtra' in fila));
   abrir(dom, 'fraccionado', fila, { sinConfig: true });
   const html = dom.cuerpo();
-  for (const t of ['id="mdCostos"', 'id="mdAct"', 'id="mdActGuardar"']) assert.ok(html.includes(t), `falta ${t}`);
+  for (const t of ['id="mdCostos"']) assert.ok(html.includes(t), `falta ${t}`);
   assert.ok(dom.cuerpoDer().includes('Almendras 1Kg'), 'faltan los precios en la tarjeta derecha');
-  for (const t of ['id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdDetCuerpo"', 'md-margen-prod', 'Costo del granel', 'md-fr-cols']) assert.ok(!html.includes(t), `sobra ${t}`);
-  assert.deepStrictEqual([typeof dom.el('mdCostos').onchange, typeof dom.el('mdActGuardar').onclick], ['function', 'function']);
+  for (const t of ['id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdDetCuerpo"', 'md-margen-prod', 'Costo del granel', 'md-fr-cols', 'id="mdAct', 'Estado en el listado']) assert.ok(!html.includes(t), `sobra ${t}`);
+  assert.strictEqual(typeof dom.el('mdCostos').onchange, 'function');
 });
 
 test('Fraccionado: elegir un costo en las tarjetas guarda la decisión del granel', async () => {

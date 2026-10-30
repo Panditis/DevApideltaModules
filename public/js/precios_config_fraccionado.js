@@ -4,8 +4,8 @@
 // Fraccionado (mostrarCosteoFracc). Minutos por unidad = (min/kg + ajuste del tramo) × kg de la presentación. Arriba una barra de
 // estado (qué falta) que lleva a cada tarjeta; después "Ajuste por tramo de peso" (± min/kg global según el peso; el tramo que
 // cubre 1 kg es la base y queda fija en 0), Máquinas (costo hora; cada producto elige la suya en su modal), los subrubros de SIGA
-// (una fila por subrubro con su valor y, en su lista, un input de min/kg por producto; un solo Guardar atómico para toda la tarjeta,
-// que sólo manda lo que cambió), el envase por
+// (una fila por subrubro con su valor y, en su lista, un input de min/kg y un select de estado en el listado por producto; un solo Guardar
+// atómico para toda la tarjeta, que sólo manda lo que cambió), el envase por
 // peso de presentación (bolsa = PLU de SIGA, o bobina = peso de la bolsa × $/kg de bobina; global: vale para toda presentación de
 // ese peso, y cada granel elige su modo en su modal) y el ajuste de margen por peso (puntos de margen de los tres canales según el
 // peso de la presentación; se editaba en Márgenes). Cada tarjeta guarda con su botón (PUT /api/precios/config/esquema/fraccionado/…)
@@ -25,6 +25,7 @@ const BASE_G_FR = 1000; // el tramo que cubre 1 kg es la base de la tabla y vale
 const TRAMO_INICIAL_G = 250;
 const PRODUCTOS_PARA_BUSCAR = 8; // desde acá la lista de productos de un subrubro trae buscador
 const MAX_GRANELES_FR = 1000;    // productos por PUT subrubros (espejo de MAX_GRANELES de lib/precios_config_fraccionado.js)
+const MAX_ACTIVOS_FR = 1000;     // estados por PUT subrubros (mismo tope en el servidor)
 
 // ── Puros (test/precios_config_fraccionado_ui.test.js) ──
 // Tramo nuevo al final: el doble del último (o 250 g), sin ajuste cargado.
@@ -67,8 +68,17 @@ function errorGranelesFr(cambios, nombres = {}) {
   const mal = plus.find(p => cambios[p] != null && !(cambios[p] >= 0 && cambios[p] <= MIN_KG_MAX_FR));
   return mal ? `${nombres[mal] || `Producto ${mal}`}: el min por kg es un número de 0 a ${MIN_KG_MAX_FR}` : null;
 }
+// Estado de un producto en el listado de Fraccionado: activoGranel = { [plu]: true | false } (sólo los fijados a mano; ausente = automático).
+const activoGuardadoFr = (activoGranel, plu) => { const a = (activoGranel || {})[plu]; return typeof a === 'boolean' ? a : null; };
+const estadoDeActivoFr = a => (a === true ? 'activo' : a === false ? 'inactivo' : 'auto'); // valor del <select> de la fila
+const activoDeEstadoFr = v => (v === 'activo' ? true : v === 'inactivo' ? false : null);
+// Filas leídas [{ plu, valor: true | false | null (automático) }] contra lo guardado → sólo lo que cambió, { [plu]: true | false | null }.
+const cambiosActivosFr = (filas, activoGranel) => Object.fromEntries(filas.filter(f => f.valor !== activoGuardadoFr(activoGranel, f.plu)).map(f => [f.plu, f.valor]));
+// Espejo del tope del servidor: null si son hasta MAX_ACTIVOS_FR; si no, el mensaje.
+const errorActivosFr = cambios => (Object.keys(cambios).length > MAX_ACTIVOS_FR ? `Se guardan hasta ${MAX_ACTIVOS_FR} estados por vez: guardá en dos tandas` : null);
 // Body del PUT subrubros: sólo las partes con cambios (el servidor pide al menos una).
-const cuerpoSubrubrosFr = (subrubros, graneles) => ({ ...(Object.keys(subrubros).length && { subrubros }), ...(Object.keys(graneles).length && { graneles }) });
+const cuerpoSubrubrosFr = (subrubros, graneles, activos = {}) => ({ ...(Object.keys(subrubros).length && { subrubros }),
+  ...(Object.keys(graneles).length && { graneles }), ...(Object.keys(activos).length && { activos }) });
 // Placeholder del input de un producto: lo que hereda si lo deja vacío ("8 · del subrubro"; el subrubro sin valor: "sin valor").
 const textoHeredadoFr = minKgSubrubro => (minKgSubrubro == null ? 'sin valor' : `${String(minKgSubrubro).replace('.', ',')} · del subrubro`);
 // "Usar en todos": cuántos productos tienen un valor propio GUARDADO distinto del que se va a poner (esos se pisan), y los textos del aviso.
@@ -321,21 +331,28 @@ function actualizarMaquinasPropiasFr() {
 
 // ── Subrubros ──
 // Una fila por subrubro de SIGA con su "Valor del subrubro" (min por kg; lo usan los productos sin valor propio) y la lista de sus
-// productos, cada uno con su input "min/kg" (vacío = hereda el del subrubro, que el placeholder muestra; con valor se ve resaltado).
-// Un Guardar para toda la tarjeta: UN PUT /subrubros { subrubros: { [id]: número | null }, graneles: { [plu]: número | null } } sólo con
-// lo que cambió (vaciar un campo con valor guardado manda null). "Usar en todos" (historial) completa los inputs sin guardar.
-// Repintar la tarjeta conserva el filtro y las listas abiertas.
+// productos, cada uno con su input "min/kg" (vacío = hereda el del subrubro, que el placeholder muestra; con valor se ve resaltado) y su
+// select "Estado" en el listado de Fraccionado (Automático | Activo | Inactivo; los fijados a mano se ven resaltados).
+// Un Guardar para toda la tarjeta: UN PUT /subrubros { subrubros: { [id]: número | null }, graneles: { [plu]: número | null },
+// activos: { [plu]: true | false | null } } sólo con lo que cambió (vaciar un campo con valor guardado manda null; Automático = null).
+// "Usar en todos" (historial) completa los inputs sin guardar y no toca el estado. Repintar la tarjeta conserva el filtro y las listas abiertas.
+const OPCIONES_ESTADO_FR = [['auto', 'Automático'], ['activo', 'Activo'], ['inactivo', 'Inactivo']];
+const TITULO_ESTADO_FR = 'Automático: lo decide el sistema por los movimientos de stock de los últimos 6 meses. Activo e Inactivo lo fijan a mano.';
+// Select del estado de un producto en el listado (estado = 'auto' | 'activo' | 'inactivo'); data-plu lo lee guardarSubrubrosFr.
+const htmlSelectEstadoFr = (plu, nombre, estado) => `<select class="fr-act num-in text-left" data-plu="${esc(plu)}" aria-label="${esc(`Estado de ${nombre} en el listado`)}" title="${esc(TITULO_ESTADO_FR)}">${
+  OPCIONES_ESTADO_FR.map(([v, t]) => `<option value="${v}"${v === estado ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
 // Granel con sus presentaciones, su input de min/kg propio (heredado = el min/kg que tiene el subrubro ahora), la máquina propia si su
-// modal le puso y su historial gris. data-q = el texto que busca el buscador.
-function htmlProductoFr(g, s, heredado) {
+// modal le puso, su historial gris y el estado en el listado (el guardado, o el que se le pase: fijarProductoFr conserva el sin guardar).
+// data-q = el texto que busca el buscador; data-act = el estado, para resaltar la fila.
+function htmlProductoFr(g, s, heredado, estado = estadoDeActivoFr(activoGuardadoFr(cfFr.activoGranel, g.plu))) {
   const pres = g.presentaciones.map(p => p.nombre).join(', ');
   const { maquinaId: propia, minKg } = cfFr.porGranel[g.plu] || {};
   const nombreMaq = propia && (cfFr.maquinas.find(m => m.id === propia) || {}).nombre;
   const input = `<input type="number" min="0" max="${MIN_KG_MAX_FR}" step="any" data-plu="${esc(g.plu)}" value="${esc(minKg ?? '')}" placeholder="${esc(textoHeredadoFr(heredado))}"
     aria-label="${esc(`Min por kg de ${g.nombre} (subrubro ${s.nombre}); vacío usa el del subrubro`)}">`;
-  return `<li data-plu="${esc(g.plu)}" data-q="${esc(`${g.nombre} ${pres}`)}"><div class="fr-prod-info"><span class="fr-prod-nom">${esc(g.nombre)}</span>${
+  return `<li data-plu="${esc(g.plu)}" data-act="${esc(estado)}" data-q="${esc(`${g.nombre} ${pres}`)}"><div class="fr-prod-info"><span class="fr-prod-nom">${esc(g.nombre)}</span>${
     nombreMaq ? `<span class="fr-propia" data-maq="${esc(propia)}">${esc(textoPropiaFr(nombreMaq))}</span>` : ''}${pres ? `<span class="fr-prod-pres">${esc(pres)}</span>` : ''}</div>${
-    campoU(input, 'min/kg', { w: 'w-40' })}${htmlHistProductoHf(historialHf(), g.plu)}</li>`;
+    campoU(input, 'min/kg', { w: 'w-40' })}${htmlHistProductoHf(historialHf(), g.plu)}${htmlSelectEstadoFr(g.plu, g.nombre, estado)}</li>`;
 }
 function htmlProductosFr(s) {
   const heredado = minKgGuardadoFr(cfFr.subrubros, s.id);
@@ -345,7 +362,7 @@ function htmlProductosFr(s) {
     <p class="fr-nada hidden text-sm text-gris mt-1">Ningún producto coincide.</p>`;
 }
 const htmlListaProductosFr = s => (s.graneles.length
-  ? `<details class="max-w-[46rem]" data-prods="${esc(s.id)}"${abiertosFr.has(s.id) ? ' open' : ''}><summary class="cursor-pointer text-gris">${esc(cuentaProductosFr(s))}</summary>
+  ? `<details class="max-w-[54rem]" data-prods="${esc(s.id)}"${abiertosFr.has(s.id) ? ' open' : ''}><summary class="cursor-pointer text-gris">${esc(cuentaProductosFr(s))}</summary>
       <div class="mt-2">${htmlProductosFr(s)}</div></details>`
   : `<span class="text-gris">${esc(cuentaProductosFr(s))}</span>`);
 function htmlSubrubroFr(s) {
@@ -374,7 +391,10 @@ function htmlSubrubrosCardFr() {
       <p class="cfg-ayuda">Minutos por kilo de cada producto de SIGA (rubro Pesables Deposito); a cada presentación se le suma el ajuste de su tramo de peso.
         Cada producto usa su propio valor y, si lo dejás vacío, el del subrubro (que también usan los productos nuevos de SIGA). Un producto sin valor propio
         en un subrubro sin valor no suma mano de obra ni máquina. "Usar en todos" copia el valor del historial a todos los productos del subrubro.
-        Se guarda todo junto con un solo botón: sólo viaja lo que cambiaste, y vaciar un campo le saca el valor.</p></div>
+        Se guarda todo junto con un solo botón: sólo viaja lo que cambiaste, y vaciar un campo le saca el valor.</p>
+      <p class="cfg-ayuda"><b>Estado</b> de cada producto en el listado de Fraccionado: <b>Automático</b> lo decide el sistema según los movimientos de stock de los últimos
+        6 meses; <b>Activo</b> lo muestra siempre; <b>Inactivo</b> lo oculta. No cambia ningún precio: sólo define si el producto aparece en el listado. Los inactivos se ven
+        con "Ver inactivos"; los que tienen REEFER en el nombre se ocultan del listado salvo con "Ver REEFER", sea cual sea su estado.</p></div>
       <label class="fr-filtro"><input type="checkbox" id="frSoloFalta"${soloFaltaFr ? ' checked' : ''}> Solo los que faltan <span id="frFaltan" class="fr-faltan" data-n="${faltan}">${faltan}</span></label></div>
     <div id="frSubrubros">${htmlSubrubrosFr()}</div></div>${pieFr('Guardar subrubros')}</div>`;
 }
@@ -385,7 +405,10 @@ function conectarSubrubrosFr(card) {
   solo.onchange = () => { soloFaltaFr = solo.checked; filtrarFaltanFr(card); };
   filtrarFaltanFr(card);
   card.querySelector('.fr-guardar').onclick = () => guardarSubrubrosFr(card);
-  card.oninput = e => { if (e.target.matches('input[data-id]')) actualizarHeredadoFr(e.target); };
+  card.oninput = e => {
+    if (e.target.matches('input[data-id]')) actualizarHeredadoFr(e.target);
+    else if (e.target.matches('select.fr-act')) e.target.closest('li').dataset.act = e.target.value; // resalta la fila con el estado elegido
+  };
   conectarSubrubrosHf(card, { actual: id => minKgGuardadoFr(cfFr.subrubros, id), fijar: fijarProductoFr, usarEnTodos: (id, valor, nombre) => usarEnTodosFr(card, id, valor, nombre) });
 }
 // Escribir el valor del subrubro cambia lo que heredan sus productos sin valor propio: sólo se reescribe su placeholder (nada se repinta).
@@ -423,18 +446,21 @@ function filtrarFaltanFr(card) {
   const aviso = card.querySelector('.fr-sin-faltan');
   if (aviso) aviso.classList.toggle('hidden', !todos);
 }
-// Un solo PUT atómico con lo que cambió del subrubro y de sus productos. Validado acá con los mismos límites que el servidor.
+// Un solo PUT atómico con lo que cambió del subrubro, de sus productos y de su estado en el listado. Validado acá con los mismos límites
+// que el servidor. La respuesta trae activoGranel (lo guardado): guardarFr lo mezcla en cfFr y la tarjeta se repinta con eso.
 function guardarSubrubrosFr(card) {
   const msg = card.querySelector('.esq-msg');
   const leer = (selector, clave) => [...card.querySelectorAll(selector)].map(i => ({ [clave]: i.dataset[clave], valor: valorInputFr(i) }));
   const subrubros = cambiosSubrubrosFr(leer('input[data-id]', 'id'), cfFr.subrubros);
   const graneles = cambiosGranelesFr(leer('input[data-plu]', 'plu'), cfFr.porGranel);
+  const activos = cambiosActivosFr([...card.querySelectorAll('select[data-plu]')].map(s => ({ plu: s.dataset.plu, valor: activoDeEstadoFr(s.value) })), cfFr.activoGranel);
   const nombresSub = Object.fromEntries(listaSubrubrosFr().map(s => [s.id, s.nombre]));
   const nombresProd = Object.fromEntries(cfFr.subrubrosSiga.flatMap(s => s.graneles.map(g => [g.plu, `${g.nombre} (${s.nombre})`])));
-  const error = errorSubrubrosFr(subrubros, nombresSub) || errorGranelesFr(graneles, nombresProd);
+  const error = errorSubrubrosFr(subrubros, nombresSub) || errorGranelesFr(graneles, nombresProd) || errorActivosFr(activos);
   if (error) return msgEsq(msg, error, 'text-crit');
-  if (!Object.keys(subrubros).length && !Object.keys(graneles).length) { limpiarSucio(card); return msgEsq(msg, 'No hay cambios para guardar'); }
-  return guardarFr(card, '/subrubros', cuerpoSubrubrosFr(subrubros, graneles), () => repintarFr('frSubrubrosCard', htmlSubrubrosCardFr, conectarSubrubrosFr));
+  const cuerpo = cuerpoSubrubrosFr(subrubros, graneles, activos);
+  if (!Object.keys(cuerpo).length) { limpiarSucio(card); return msgEsq(msg, 'No hay cambios para guardar'); }
+  return guardarFr(card, '/subrubros', cuerpo, () => repintarFr('frSubrubrosCard', htmlSubrubrosCardFr, conectarSubrubrosFr));
 }
 function filtrarProductosFr(det, texto) {
   const filas = [...det.querySelectorAll('li[data-q]')];
@@ -444,7 +470,7 @@ function filtrarProductosFr(det, texto) {
 
 // Helpers puros de Subrubros para test: aparte del module.exports de arriba (otra tarjeta lo edita al mismo tiempo).
 if (typeof module === 'object' && module.exports) Object.assign(module.exports, { minKgGranelFr, cambiosGranelesFr, errorGranelesFr, cuerpoSubrubrosFr,
-  textoHeredadoFr, pisadosFr, textoPisarFr, textoCompletadosFr });
+  textoHeredadoFr, pisadosFr, textoPisarFr, textoCompletadosFr, activoGuardadoFr, estadoDeActivoFr, activoDeEstadoFr, cambiosActivosFr, errorActivosFr });
 
 // ── Sugerido del historial (precios_fraccionado_historial.js) ──
 // Se pide aparte de la configuración: si falla, la configuración sigue andando sin chips (el aviso queda en #frHistorial). Cada cambio de
@@ -456,12 +482,14 @@ function pintarHistorialFr() {
   pintarTramosHf(document.getElementById('frTramos'));
 }
 // "Fijar" del histograma: pisa el min/kg propio del producto (PUT granel/:plu { minKg }, sin tocar su máquina) y lo refleja en su renglón.
+// El estado del renglón queda como estaba (con lo tipeado y sin guardar): el renglón se pinta de nuevo y fijar no lo toca.
 async function fijarProductoFr(plu, minKg) {
   const { envasePorPeso: _crudo, ...vista } = await pedirEsq('PUT', `${API_FR}/granel/${encodeURIComponent(plu)}`, { minKg });
   cfFr = { ...cfFr, ...vista };
   const s = cfFr.subrubrosSiga.find(x => x.graneles.some(g => g.plu === plu));
   const li = document.querySelector(`#frSubrubros li[data-plu="${CSS.escape(plu)}"]`);
-  if (s && li) li.outerHTML = htmlProductoFr(s.graneles.find(g => g.plu === plu), s, numOrNull(li.closest('tr').querySelector('input[data-id]').value));
+  const estado = document.querySelector(`#frSubrubros select[data-plu="${CSS.escape(plu)}"]`);
+  if (s && li) li.outerHTML = htmlProductoFr(s.graneles.find(g => g.plu === plu), s, numOrNull(li.closest('tr').querySelector('input[data-id]').value), estado ? estado.value : undefined);
 }
 
 // ── Ajuste de margen por peso ──

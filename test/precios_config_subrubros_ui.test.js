@@ -1,6 +1,6 @@
 'use strict';
 // Configuración › Costeo Fraccionado › tarjeta Subrubros (public/js/precios_config_fraccionado.js): min/kg por producto dentro de cada
-// subrubro, "Usar en todos" del historial y el Guardar único (PUT /subrubros { subrubros?, graneles? }). Puros con require; el DOM con el
+// subrubro, "Usar en todos" del historial y el Guardar único (PUT /subrubros { subrubros?, graneles?, activos? }) y el Estado en el listado. Puros con require; el DOM con el
 // script cargado en un vm (clásico, comparte globales) y elementos de mentira.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -200,4 +200,136 @@ test('conectarSubrubrosFr: el "Usar en todos" del historial llega a usarEnTodosF
   const sub = { value: '2,5'.replace(',', '.'), matches: s => s === 'input[data-id]', closest: () => ({ querySelectorAll: () => f.prods }) };
   f.card.oninput({ target: sub });
   assert.deepStrictEqual(f.prods.map(p => p.placeholder), ['2,5 · del subrubro', '2,5 · del subrubro']);
+});
+
+// ── Estado en el listado (Automático / Activo / Inactivo) por producto: se movió del modal del granel a esta tarjeta ──
+const { activoGuardadoFr, estadoDeActivoFr, activoDeEstadoFr, cambiosActivosFr, errorActivosFr } = require(RUTA);
+
+test('activoGuardadoFr: sólo true/false fijados a mano; ausente, null, mapa ausente o valor no booleano → null (automático)', () => {
+  const ag = { 1: true, 2: false, 3: null, 4: 'true' };
+  assert.deepStrictEqual(['1', '2', '3', '4', '9'].map(p => activoGuardadoFr(ag, p)), [true, false, null, null, null]);
+  assert.strictEqual(activoGuardadoFr(undefined, '1'), null);
+});
+
+test('estadoDeActivoFr / activoDeEstadoFr: true/false/null ⇄ activo/inactivo/auto (ida y vuelta); lo desconocido es automático', () => {
+  assert.deepStrictEqual([true, false, null, undefined].map(estadoDeActivoFr), ['activo', 'inactivo', 'auto', 'auto']);
+  assert.deepStrictEqual(['activo', 'inactivo', 'auto', 'otro'].map(activoDeEstadoFr), [true, false, null, null]);
+  for (const a of [true, false, null]) assert.strictEqual(activoDeEstadoFr(estadoDeActivoFr(a)), a);
+});
+
+test('cambiosActivosFr: sólo lo cambiado; volver a Automático lo guardado manda null; automático sin guardado no viaja', () => {
+  const ag = { 1: true, 2: false };
+  const filas = [{ plu: '1', valor: true }, { plu: '2', valor: null }, { plu: '3', valor: null }, { plu: '4', valor: false }, { plu: '5', valor: true }];
+  assert.deepStrictEqual(cambiosActivosFr(filas, ag), { 2: null, 4: false, 5: true });
+  assert.deepStrictEqual(cambiosActivosFr([{ plu: '1', valor: false }], ag), { 1: false });
+  assert.deepStrictEqual(cambiosActivosFr([], undefined), {});
+  assert.deepStrictEqual(cambiosActivosFr([{ plu: '1', valor: null }], undefined), {});
+});
+
+test('errorActivosFr: hasta 1000 estados vale; 1001 pide dos tandas', () => {
+  const mil = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [String(i + 1), true]));
+  assert.strictEqual(errorActivosFr({}), null);
+  assert.strictEqual(errorActivosFr(mil), null);
+  assert.match(errorActivosFr({ ...mil, 1001: null }), /hasta 1000 estados por vez/);
+});
+
+test('cuerpoSubrubrosFr: con activos los suma; sin activos (o vacío) no hay clave activos', () => {
+  assert.deepStrictEqual(cuerpoSubrubrosFr({}, {}, { 100: null }), { activos: { 100: null } });
+  assert.deepStrictEqual(cuerpoSubrubrosFr({ 7: 2 }, { 100: 0 }, { 101: false }), { subrubros: { 7: 2 }, graneles: { 100: 0 }, activos: { 101: false } });
+  assert.deepStrictEqual(cuerpoSubrubrosFr({ 7: 2 }, {}, {}), { subrubros: { 7: 2 } });
+  assert.deepStrictEqual(cuerpoSubrubrosFr({}, {}), {});
+});
+
+test('htmlProductoFr: select de estado con 3 opciones y la guardada elegida, data-act en la fila, aria-label escapado; los sin subrubro no tienen select', () => {
+  // Arrange
+  const { run } = cargar();
+  // Act
+  const $ = $de(run('cfFr.activoGranel = { 100: false }; htmlSubrubrosCardFr()'));
+  // Assert
+  const sel = plu => $.find(`select.fr-act[data-plu="${plu}"]`);
+  assert.deepStrictEqual(sel('100').find('option').toArray().map(o => [$.find(o).attr('value'), $.find(o).text()]),
+    [['auto', 'Automático'], ['activo', 'Activo'], ['inactivo', 'Inactivo']]);
+  assert.deepStrictEqual([sel('100').find('option[selected]').attr('value'), sel('101').find('option[selected]').attr('value')], ['inactivo', 'auto']);
+  assert.deepStrictEqual([$.find('li[data-plu="100"]').attr('data-act'), $.find('li[data-plu="101"]').attr('data-act')], ['inactivo', 'auto']);
+  assert.strictEqual(sel('100').attr('aria-label'), 'Estado de Almendra en el listado');
+  assert.strictEqual(sel('101').attr('aria-label'), 'Estado de Nuez "<img src=x onerror=alert(1)>" en el listado');
+  assert.strictEqual($.find('img').length, 0);
+  assert.strictEqual($.find('select[data-plu="200"]').length, 0); // riesgo conocido: sin subrubro no hay estado editable
+  assert.match($.text(), /Estado de cada producto en el listado de Fraccionado/);
+});
+
+test('htmlProductoFr: el 4º parámetro (estado sin guardar) gana sobre el guardado', () => {
+  const { run } = cargar();
+  const $ = $de(run('cfFr.activoGranel = { 100: false }; htmlProductoFr(cfFr.subrubrosSiga[0].graneles[0], cfFr.subrubrosSiga[0], 8, "activo")'));
+  assert.deepStrictEqual([$.find('li').attr('data-act'), $.find('option[selected]').attr('value')], ['activo', 'activo']);
+});
+
+// filaSub con un select de estado por producto: [[plu, 'auto' | 'activo' | 'inactivo']].
+function filaConEstados(estados, opciones) {
+  const f = filaSub(opciones);
+  const selects = estados.map(([plu, value]) => ({ dataset: { plu }, value }));
+  const orig = f.card.querySelectorAll;
+  f.card.querySelectorAll = s => (s === 'select[data-plu]' ? selects : orig(s));
+  return { ...f, selects };
+}
+function cargarGuardar(respuesta) {
+  const pedidos = [];
+  const r = cargar({ pedirEsq: async (m, u, b) => { pedidos.push(JSON.parse(JSON.stringify([m, u.split('/').pop(), b]))); return respuesta(); },
+    document: { activeElement: null, querySelector: () => null, getElementById: id => (id === 'cfgFraccAviso' ? { classList: { toggle() {} } } : null) } });
+  r.run('cfFr.activoGranel = { 101: true }');
+  return { ...r, pedidos };
+}
+
+test('guardarSubrubrosFr: UN PUT con subrubros, graneles y activos mezclados (Automático sobre fijado → null); la respuesta actualiza cfFr.activoGranel', async () => {
+  // Arrange
+  const { run, pedidos } = cargarGuardar(() => ({ migrado: true, activoGranel: { 100: false } }));
+  const f = filaConEstados([['100', 'inactivo'], ['101', 'auto']], { guardado: '', productos: [['100', ''], ['101', '']] });
+  // Act
+  await run('guardarSubrubrosFr')(f.card);
+  // Assert
+  assert.deepStrictEqual(pedidos, [['PUT', 'subrubros', { subrubros: { 7: null }, graneles: { 100: null }, activos: { 100: false, 101: null } }]]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(run('cfFr.activoGranel'))), { 100: false });
+});
+
+test('guardarSubrubrosFr: sólo cambió un estado → PUT sólo con activos; estados iguales a lo guardado → sin PUT', async () => {
+  const { run, pedidos, ev } = cargarGuardar(() => ({ migrado: true, activoGranel: { 100: true, 101: true } }));
+  await run('guardarSubrubrosFr')(filaConEstados([['100', 'activo'], ['101', 'activo']]).card);
+  assert.deepStrictEqual(pedidos, [['PUT', 'subrubros', { activos: { 100: true } }]]);
+  run('cfFr.activoGranel = { 101: true }');
+  await run('guardarSubrubrosFr')(filaConEstados([['100', 'auto'], ['101', 'activo']]).card);
+  assert.deepStrictEqual([pedidos.length, ev.msg.at(-1)[0]], [1, 'No hay cambios para guardar']);
+});
+
+test('guardarSubrubrosFr: error del servidor → mensaje en rojo, no limpia el "sin guardar", lo elegido queda y cfFr no cambia', async () => {
+  const { run, pedidos, ev } = cargarGuardar(() => { throw new Error('activos.100: activo inválido'); });
+  const f = filaConEstados([['100', 'inactivo'], ['101', 'activo']]);
+  await run('guardarSubrubrosFr')(f.card);
+  assert.strictEqual(pedidos.length, 1);
+  assert.deepStrictEqual(ev.msg.at(-1), ['activos.100: activo inválido', 'text-crit']);
+  assert.strictEqual(ev.sucio.length, 0);
+  assert.deepStrictEqual(f.selects.map(s => s.value), ['inactivo', 'activo']);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(run('cfFr.activoGranel'))), { 101: true });
+});
+
+test('fijarProductoFr: conserva el estado elegido sin guardar en el renglón repintado y no lo manda', async () => {
+  let renglon = '';
+  const pedidos = [];
+  const li = { set outerHTML(v) { renglon = v; }, closest: () => ({ querySelector: () => ({ value: '' }) }) };
+  const sel = { value: 'inactivo' };
+  const { run } = cargar({ pedirEsq: async (...a) => { pedidos.push(a); return { migrado: true, porGranel: { 100: { minKg: 6 } } }; },
+    document: { querySelector: s => (s === '#frSubrubros li[data-plu="100"]' ? li : s === '#frSubrubros select[data-plu="100"]' ? sel : null) } });
+  await run('fijarProductoFr')('100', 6);
+  assert.match(renglon, /data-act="inactivo"/);
+  assert.match(renglon, /<option value="inactivo" selected>/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(pedidos[0][2])), { minKg: 6 });
+});
+
+test('conectarSubrubrosFr: cambiar el select de estado marca la fila (data-act) para resaltarla', () => {
+  const { run } = cargar({ conectarSubrubrosHf: () => {} });
+  const f = filaSub();
+  f.card.querySelector = (orig => s => (s === '#frSoloFalta' ? { checked: false } : s === '.fr-guardar' ? {} : orig(s)))(f.card.querySelector);
+  run('conectarSubrubrosFr')(f.card);
+  const li = { dataset: { act: 'auto' } };
+  f.card.oninput({ target: { value: 'activo', matches: s => s === 'select.fr-act', closest: () => li } });
+  assert.strictEqual(li.dataset.act, 'activo');
 });
