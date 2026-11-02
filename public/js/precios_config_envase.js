@@ -1,6 +1,6 @@
 // ── Precios · Configuración › Costeo Fraccionado › tarjeta "Envase" (spec 2026-10-29-precios-fraccionado-envase-bolsa-bobina-design) ──
 // Script clásico, después de precios_config_fraccionado.js: usa sus globales (cfFr, API_FR, pedirEsq, guardarFr, repintarFr, pieFr, esc,
-// campoU, numOrNull, msgEsq, limpiarSucio, fmtMoney) y el buscador de SIGA de precios_produccion.js (htmlBuscadorSiga, conectarBuscadorSiga).
+// campoU, numOrNull, msgEsq, limpiarSucio, fmtMoney, coincideFr) y el buscador de SIGA de precios_produccion.js (htmlBuscadorSiga, conectarBuscadorSiga).
 // El envase es un COSTO que se suma al del producto antes de calcular los precios (los márgenes van después). Hay un envase por peso de
 // presentación, con dos formas independientes que se pueden cargar a la vez (cada producto elige cuál usa en su modal; sin elegir, bolsa):
 // bolsa = el PLU de SIGA (cuesta lo que diga su tab) y bobina = gramos de bolsa × $ por kg de bobina (un solo $/kg para todos los pesos).
@@ -13,6 +13,8 @@
 // guarda) y QUITAR uno que no tiene productos (la fila sale de la tabla y al guardar se borra su envase: null/null). Un peso CON productos
 // no puede salir de la lista (la arman ellos): ahí el botón es "Vaciar" y limpia sus dos campos. Lo quitado se deduce de la tabla: un peso
 // con envase guardado que ya no tiene fila (pesosQuitadosFr), así que quitar + agregar el mismo peso es un reemplazo.
+// La cantidad "34 productos" de la celda del peso es un botón: abre el modal #dlgEvProductos con cuáles son (los de cfFr.subrubrosSiga y
+// cfFr.sinSubrubro con ese pesoG, los mismos que cuenta cfFr.pesos) y un buscador. Muestra lo GUARDADO (cfFr), no lo tipeado sin guardar.
 const BOBINA_G_MAX_FR = 1000;
 const COSTO_BOBINA_MAX_FR = 1e7;
 const PESO_MAX_FR = 999999; // peso de un envase: gramos enteros de hasta 6 cifras (espejo del servidor)
@@ -113,10 +115,25 @@ function estadoEnvaseFr(filas, costoBobinaKg) {
   if (sinNada) return { texto: `${sinNada} sin bolsa ni bobina`, estado: 'info' };
   return { texto: 'todos con envase', estado: 'ok' };
 }
+// Productos de un peso (cf = cfFr): las presentaciones con ese pesoG de todos los graneles (con y sin subrubro), por nombre A→Z. envase = el que
+// elige su granel en cf.porGranel (sin elegir, bolsa).
+function productosDePesoFr(cf, pesoG) {
+  const graneles = [...(cf.subrubrosSiga || []).flatMap(s => s.graneles || []), ...(cf.sinSubrubro || [])], porGranel = cf.porGranel || {};
+  return graneles.flatMap(g => (g.presentaciones || []).filter(p => p.pesoG === pesoG).map(p => ({ plu: p.plu, nombre: p.nombre, granelPlu: g.plu, granelNombre: g.nombre,
+    envase: (porGranel[g.plu] || {}).envase === 'bobina' ? 'bobina' : 'bolsa' }))).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es'));
+}
+// Filtro del modal: todas las palabras en el nombre, el PLU, el granel o su PLU, sin mayúsculas ni tildes (coincideFr). Vacío = todos.
+const filtrarProductosPesoFr = (productos, texto) => productos.filter(p => coincideFr(`${p.nombre} ${p.plu} ${p.granelNombre} ${p.granelPlu}`, texto));
+// El envase que tiene hoy un peso (e = envasePorPeso[pesoG]): "Bolsa PLU 4521 (Zipper) · Bobina 8 g".
+function textoEnvasePesoFr(e) {
+  const x = e || {}, partes = [x.bolsaPlu && `Bolsa PLU ${x.bolsaPlu}${x.bolsaNombre ? ` (${x.bolsaNombre})` : ''}`,
+    x.bobinaG > 0 && `Bobina ${String(x.bobinaG).replace('.', ',')} g`].filter(Boolean);
+  return partes.length ? partes.join(' · ') : 'Sin envase cargado';
+}
 
 if (typeof module === 'object' && module.exports) module.exports = { errorEnvaseFr, cuerpoEnvaseFr, errorCostoBobinaFr, erroresEnvaseFr,
   cuerpoCambiosEnvaseFr, filasPesosFr, pesoCortoFr, productosFr, costoBobinaUnidadFr, infoBolsaFr, estadoEnvaseFr,
-  errorPesoNuevoFr, errorNuevoSinEnvaseFr, pesosQuitadosFr, textoQuitadosFr };
+  errorPesoNuevoFr, errorNuevoSinEnvaseFr, pesosQuitadosFr, textoQuitadosFr, productosDePesoFr, filtrarProductosPesoFr, textoEnvasePesoFr };
 
 // ── DOM ──
 const elegidosFr = {}; // ponytail: plu → nombre de lo elegido con el buscador (la tabla aún no lo sabe por SIGA), estado de UI que se muta en el lugar
@@ -139,9 +156,15 @@ function htmlCostoBobinaFr(gramos, costoKg) {
   const c = costoBobinaUnidadFr(gramos, costoKg);
   return c == null ? faltaFr('falta el costo de bobina') : `<b class="whitespace-nowrap tabular-nums">$ ${fmtMoney(c)}</b> <span class="text-gris">por unidad</span>`;
 }
+// Bajo el peso: "34 productos" como botón que abre la lista (#dlgEvProductos); sin productos, texto plano.
+function htmlProductosPesoFr(f) {
+  if (!f.presentaciones) return `<span>${esc(productosFr(0))}</span>`;
+  const cuales = f.presentaciones === 1 ? 'el producto' : `los ${f.presentaciones} productos`;
+  return `<button type="button" class="ev-prod-ver" data-prod-peso="${f.pesoG}" aria-haspopup="dialog" aria-label="Ver ${cuales} de ${esc(pesoCortoFr(f.pesoG))}">${esc(productosFr(f.presentaciones))}</button>`;
+}
 // Celda del peso: el peso con sus productos o, en una fila nueva, el input para tipearlo (gramos enteros) con el chip "nuevo".
 function htmlCeldaPesoFr(f, k) {
-  if (!f.nuevo) return `<td class="fr-peso${f.presentaciones ? '' : ' fr-peso-vacio'}"><b>${esc(pesoCortoFr(f.pesoG))}</b><span>${esc(productosFr(f.presentaciones))}</span></td>`;
+  if (!f.nuevo) return `<td class="fr-peso${f.presentaciones ? '' : ' fr-peso-vacio'}"><b>${esc(pesoCortoFr(f.pesoG))}</b>${htmlProductosPesoFr(f)}</td>`;
   return `<td class="ev-campo"><div class="ev-peso-fila">${campoU(`<input type="number" min="1" max="${PESO_MAX_FR}" step="1" data-k="pesoG" placeholder="ej. 750"
       aria-label="Peso en gramos de la fila nueva" aria-describedby="evErrPeso-${k}">`, 'g', { w: 'w-28' })}</div>
     <span class="fp-chip ev-chip-nuevo">nuevo</span><span class="ev-err" id="evErrPeso-${k}" hidden></span></td>`;
@@ -312,6 +335,33 @@ function vaciarPesoFr(tr) {
   });
   tr.querySelector('[data-k="bolsaPlu"]').focus(); // el botón se deshabilita: el foco sigue en la fila
 }
+// Modal de los productos de un peso (#dlgEvProductos): solo lectura, con buscador y contador. Todo lo que viene de SIGA pasa por esc().
+const htmlProductoPesoFr = p => `<li><b>${esc(p.nombre)}</b><span>PLU ${esc(p.plu)} · Granel: ${esc(p.granelNombre)} · Usa: ${p.envase === 'bobina' ? 'Bobina' : 'Bolsa'}</span></li>`;
+// Lo que se ve para un texto buscado: { cuenta, html } (la lista, o el aviso de que nada coincide).
+function vistaProductosPesoFr(lista, texto) {
+  const vistos = filtrarProductosPesoFr(lista, texto);
+  return { cuenta: `Mostrando ${vistos.length} de ${lista.length}`,
+    html: vistos.length ? `<ul class="ev-prod-lista">${vistos.map(htmlProductoPesoFr).join('')}</ul>` : `<p class="ev-prod-vacio">Ningún producto coincide con «${esc(texto.trim())}»</p>` };
+}
+// El foco entra al buscador y, al cerrar (botón o Esc), vuelve al botón que abrió el modal. Se muestra lo guardado (cfFr), no lo tipeado en la tabla.
+function abrirProductosPesoFr(pesoG, opener) {
+  const d = document.getElementById('dlgEvProductos'), bus = d.querySelector('.ev-prod-bus'), lista = productosDePesoFr(cfFr, pesoG);
+  const pintar = () => {
+    const v = vistaProductosPesoFr(lista, bus.value), cuerpo = d.querySelector('.ev-prod-cuerpo');
+    d.querySelector('.ev-prod-cuenta').textContent = v.cuenta;
+    cuerpo.innerHTML = v.html;
+    cuerpo.scrollTop = 0;
+  };
+  d.querySelector('.ev-prod-titulo').textContent = `Productos de ${pesoCortoFr(pesoG)}`;
+  d.querySelector('.ev-prod-envase').textContent = `Envase: ${textoEnvasePesoFr((cfFr.envasePorPeso || {})[pesoG])}`;
+  bus.value = '';
+  bus.oninput = pintar;
+  d.querySelector('.ev-prod-cerrar').onclick = () => d.close();
+  d.addEventListener('close', () => opener.focus(), { once: true });
+  pintar();
+  d.showModal();
+  bus.focus();
+}
 function conectarPesosFr(card) {
   card.oninput = e => {
     const i = e.target;
@@ -323,9 +373,10 @@ function conectarPesosFr(card) {
     else refrescarFilaFr(i.closest('tr'));
   };
   card.onclick = e => {
-    const b = e.target.closest('.ev-buscar, .ev-vaciar, .ev-quitar, .ev-agregar');
+    const b = e.target.closest('.ev-buscar, .ev-vaciar, .ev-quitar, .ev-agregar, .ev-prod-ver');
     if (!b) return;
-    if (b.matches('.ev-agregar')) agregarPesoFr(card);
+    if (b.matches('.ev-prod-ver')) abrirProductosPesoFr(Number(b.dataset.prodPeso), b);
+    else if (b.matches('.ev-agregar')) agregarPesoFr(card);
     else if (b.matches('.ev-quitar')) quitarPesoFr(card, b.closest('tr'));
     else if (b.matches('.ev-vaciar')) vaciarPesoFr(b.closest('tr'));
     else abrirBuscadorBolsaFr(b.closest('tr'));

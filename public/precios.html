@@ -423,6 +423,8 @@
   .fr-peso b{display:block;font-size:14px;color:#242423;line-height:1.3}
   .fr-peso span{font-size:12px;color:#5c5f52}
   .fr-peso-vacio b{color:#5c5f52}
+  .ev-prod-ver{padding:0;border:0;background:none;font-size:12px;line-height:16px;color:#405936;text-decoration:underline;text-underline-offset:2px;cursor:pointer} /* "34 productos": enlace que abre #dlgEvProductos; misma altura que el texto plano */
+  .ev-prod-ver:hover{color:#4f6e42;text-decoration-thickness:2px}
   .ev-ayuda{max-width:100ch;margin-bottom:10px}
   .ev-ayuda b{color:#242423}
   .ev-formas{display:grid;grid-template-columns:1fr 1fr;border-radius:8px;background:#f5f8f1;font-size:12.5px;line-height:1.5;color:#3d4136}
@@ -467,6 +469,16 @@
   /* Buscador de bolsas (#dlgFP): sólo elige un producto de SIGA */
   #dlgFP .fp-dlg-bus input[type=search]{width:100%}
   #dlgFP button:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  /* Productos de un peso (#dlgEvProductos): título, buscador y contador fijos; la lista corre sola entre ellos y el botón Cerrar */
+  .ev-prod-dlg{display:flex;flex-direction:column;height:min(85vh,40rem)} /* alto fijo: al filtrar el modal no cambia de tamaño ni se mueve (está centrado) */
+  .ev-prod-cuerpo{flex:1 1 auto;min-height:0;overflow-y:auto;margin-top:8px;border:1px solid rgba(26,28,24,.16);border-radius:8px}
+  .ev-prod-lista li{padding:7px 12px}
+  .ev-prod-lista li+li{border-top:1px solid rgba(26,28,24,.08)}
+  .ev-prod-lista b{display:block;font-size:13px;font-weight:600;line-height:1.35;color:#242423}
+  .ev-prod-lista span{display:block;font-size:12px;line-height:1.4;color:#5c5f52;font-variant-numeric:tabular-nums}
+  .ev-prod-vacio{padding:20px 12px;text-align:center;font-size:13px;color:#5c5f52}
+  #dlgEvProductos button:focus-visible,#dlgEvProductos .ev-prod-cuerpo:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  #dlgEvProductos input::placeholder{color:#6b6e62;opacity:1}
   /* ── Sugerido del historial (public/js/precios_fraccionado_historial.js): chips "Historial" + "Usar", resumen de cargas y panel "Ver distribución" ── */
   .hf-estado{margin-bottom:14px;font-size:12.5px;line-height:1.5;color:#5c5f52}
   .hf-linea{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;color:#242423}
@@ -933,6 +945,20 @@
     <div class="fp-dlg-bus mt-3"></div>
     <div class="flex justify-end mt-6">
       <button type="button" class="fp-dlg-cancelar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cancelar</button>
+    </div>
+  </div>
+</dialog>
+<!-- Productos de un peso de la tabla Envase (Configuración › Costeo Fraccionado › Envase, botón "34 productos"): /js/precios_config_envase.js abrirProductosPesoFr. Solo lectura. -->
+<dialog id="dlgEvProductos" class="rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,640px)] bg-card text-ink backdrop:bg-ink/40" aria-labelledby="dlgEvProdTitulo">
+  <div class="ev-prod-dlg p-5">
+    <h3 id="dlgEvProdTitulo" class="ev-prod-titulo font-disp text-base font-bold text-ink"></h3>
+    <p class="ev-prod-envase text-xs text-gris mt-1"></p>
+    <input type="search" class="ev-prod-bus mt-3 w-full px-2 py-1 rounded-lg border border-borde bg-white text-sm focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20"
+      placeholder="Producto, granel o PLU" aria-label="Filtrar los productos por nombre, granel o PLU" autocomplete="off">
+    <p class="ev-prod-cuenta text-xs text-gris mt-2" aria-live="polite" aria-atomic="true"></p>
+    <div class="ev-prod-cuerpo" tabindex="0" role="region" aria-label="Lista de productos"></div>
+    <div class="flex justify-end mt-4">
+      <button type="button" class="ev-prod-cerrar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cerrar</button>
     </div>
   </div>
 </dialog>

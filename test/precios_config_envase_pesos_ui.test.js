@@ -1,5 +1,5 @@
 'use strict';
-// Configuración › Costeo Fraccionado › tarjeta Envase: AGREGAR y QUITAR pesos (public/js/precios_config_envase.js). Puros con require;
+// Configuración › Costeo Fraccionado › tarjeta Envase: AGREGAR y QUITAR pesos y el modal con los productos de cada peso (public/js/precios_config_envase.js). Puros con require;
 // HTML con cheerio; el DOM (agregar / quitar / vaciar / guardar) con los scripts cargados en un vm y una tarjeta de mentira.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -299,4 +299,130 @@ test('cuerpoCambiosEnvaseFr con pesos agregados y quitados: nuevos con su envase
   assert.deepStrictEqual(cuerpo('', [{ pesoG: 250, plu: '900', g: '' }, { pesoG: 500, plu: '', g: '8' }, { nuevo: 'n1', pesoG: '300', plu: '', g: '6' }], null, epp),
     { pesos: { 300: { bolsaPlu: null, bobinaG: 6 } } });
   assert.strictEqual(cuerpo('', [{ pesoG: 250, plu: '900', g: '' }, { pesoG: 500, plu: '', g: '8' }, { nuevo: 'n1', pesoG: '300', plu: '', g: '5' }], null, epp), null);
+});
+
+// ── Modal "Productos de N g": el botón de la celda del peso, la lista de un peso desde cfFr, el filtro y el DOM del modal ──
+const { productosDePesoFr, textoEnvasePesoFr } = require(RUTA);
+const { productosPorSubrubro } = require('../lib/precios_config_fraccionado');
+const plano = x => JSON.parse(JSON.stringify(x)); // los arrays del vm tienen otro prototipo: se comparan como JSON
+const pr = (plu, nombre, pesoG) => ({ plu, nombre, pesoG });
+const CF_PROD = { ...CFG, envasePorPeso: { 500: { bolsaPlu: '901', bolsaNombre: 'Zipper 500', bolsaCosto: 9, bobinaG: 8 } },
+  pesos: [{ pesoG: 250, presentaciones: 1 }, { pesoG: 500, presentaciones: 4 }],
+  subrubrosSiga: [
+    { id: 1, nombre: 'Frutos secos', graneles: [
+      { plu: '100', nombre: 'ALMENDRAS GRANEL', presentaciones: [pr('101', 'ALMENDRAS 500G', 500), pr('102', 'ALMENDRAS 250G', 250), pr('103', 'ALMENDRAS ESPECIAL', null)] },
+      { plu: '110', nombre: 'NUEZ PELADA', presentaciones: [pr('111', 'NUEZ PELADA 500G', 500)] }] },
+    { id: 2, nombre: 'Semillas', graneles: [{ plu: '200', nombre: 'CHÍA', presentaciones: [pr('201', 'CHÍA 500G', 500)] }] }],
+  sinSubrubro: [{ plu: '300', nombre: 'ZZ SUELTO', presentaciones: [pr('301', 'ÁVENA <img src=x onerror=alert(1)> 500G', 500)] }],
+  porGranel: { 110: { envase: 'bobina' }, 100: { envase: 'bolsa' }, 200: {} } };
+
+test('productosDePesoFr: junta graneles de varios subrubros y sin subrubro, ordena por nombre (es) y trae el envase de su granel (bolsa si no eligió)', () => {
+  assert.deepStrictEqual(productosDePesoFr(CF_PROD, 500).map(p => [p.plu, p.granelPlu, p.granelNombre, p.envase]), [
+    ['101', '100', 'ALMENDRAS GRANEL', 'bolsa'], ['301', '300', 'ZZ SUELTO', 'bolsa'], ['201', '200', 'CHÍA', 'bolsa'], ['111', '110', 'NUEZ PELADA', 'bobina']]);
+  assert.deepStrictEqual(productosDePesoFr(CF_PROD, 250), [{ plu: '102', nombre: 'ALMENDRAS 250G', granelPlu: '100', granelNombre: 'ALMENDRAS GRANEL', envase: 'bolsa' }]);
+  assert.deepStrictEqual([productosDePesoFr(CF_PROD, 750), productosDePesoFr({}, 500), productosDePesoFr({ subrubrosSiga: [{ graneles: [{ plu: '1' }] }] }, 500)], [[], [], []]);
+  assert.strictEqual(CF_PROD.subrubrosSiga[0].graneles[0].presentaciones.length, 3); // no muta
+});
+
+test('productosDePesoFr cuenta lo mismo que cfFr.pesos (productosPorSubrubro): un granel sin PLU no entra ni en la lista ni en el conteo', () => {
+  const grupos = [
+    { plu: '100', nombre: 'ALMENDRAS', subrubroId: 1, subrubro: 'Frutos secos', presentaciones: [{ plu: '101', nombre: 'ALMENDRAS 500G' }, { plu: '102', nombre: 'ALMENDRAS 250G' }, { plu: '103', nombre: 'ALMENDRAS ESPECIAL' }] },
+    { plu: '300', nombre: 'AVENA', subrubroId: null, presentaciones: [{ plu: '301', nombre: 'AVENA 500G' }, { plu: '302', nombre: 'AVENA 500G ZIPPER' }] },
+    { plu: null, nombre: 'SIN GRANEL', subrubroId: null, presentaciones: [{ plu: '901', nombre: 'HUERFANO 500G' }] }];
+  const cf = productosPorSubrubro(grupos);
+  assert.deepStrictEqual(cf.pesos, [{ pesoG: 250, presentaciones: 1 }, { pesoG: 500, presentaciones: 3 }]);
+  cf.pesos.forEach(({ pesoG, presentaciones }) => assert.strictEqual(productosDePesoFr(cf, pesoG).length, presentaciones, `${pesoG} g`));
+});
+
+test('textoEnvasePesoFr: bolsa con o sin nombre, bobina, las dos, y "Sin envase cargado"', () => {
+  assert.strictEqual(textoEnvasePesoFr({ bolsaPlu: '4521', bolsaNombre: 'Zipper', bobinaG: 8 }), 'Bolsa PLU 4521 (Zipper) · Bobina 8 g');
+  assert.strictEqual(textoEnvasePesoFr({ bolsaPlu: '4521', bolsaNombre: null }), 'Bolsa PLU 4521');
+  assert.strictEqual(textoEnvasePesoFr({ bobinaG: 8.5 }), 'Bobina 8,5 g');
+  assert.deepStrictEqual([textoEnvasePesoFr(undefined), textoEnvasePesoFr({}), textoEnvasePesoFr({ bolsaNombre: 'x', bobinaG: 0 })], ['Sin envase cargado', 'Sin envase cargado', 'Sin envase cargado']);
+});
+
+test('filtrarProductosPesoFr: sin mayúsculas ni tildes, por nombre, PLU, granel y PLU del granel; varias palabras; vacío = todos; sin coincidencias = []', () => {
+  const { run } = cargar();
+  const lista = productosDePesoFr(CF_PROD, 500), f = t => plano(run('filtrarProductosPesoFr')(lista, t)).map(p => p.plu);
+  assert.deepStrictEqual([f('chia'), f('CHÍA'), f('avena'), f('111'), f('suelto'), f('110'), f('nuez 500'), f('500 nuez')], [['201'], ['201'], ['301'], ['111'], ['301'], ['111'], ['111'], ['111']]);
+  assert.deepStrictEqual([f(''), f('   ')], [['101', '301', '201', '111'], ['101', '301', '201', '111']]);
+  assert.deepStrictEqual([f('zzz'), f('nuez avena')], [[], []]);
+});
+
+test('htmlPesosFr: "N productos" es un botón accesible que abre el modal; "sin productos" y la fila nueva, texto plano', () => {
+  const { run } = cargar();
+  const $ = $de(run('htmlPesosFr()'));
+  const b = $.find('tr[data-peso="250"] .fr-peso button');
+  assert.deepStrictEqual([b.length, b.text(), b.attr('type'), b.attr('aria-haspopup'), b.attr('aria-label'), b.attr('data-prod-peso'), b.hasClass('ev-prod-ver')],
+    [1, '3 productos', 'button', 'dialog', 'Ver los 3 productos de 250 g', '250', true]);
+  assert.strictEqual($.find('tr[data-peso="500"] .fr-peso button').attr('aria-label'), 'Ver el producto de 500 g'); // singular
+  assert.deepStrictEqual([$.find('tr[data-peso="1500"] .fr-peso button').length, $.find('tr[data-peso="1500"] .fr-peso span').text()], [0, 'sin productos']);
+  const nueva = $de(`<table><tbody>${run("htmlFilaPesoFr({ nuevo: 'n1', presentaciones: 0 })")}</tbody></table>`);
+  assert.strictEqual(nueva.find('.ev-prod-ver').length, 0);
+});
+
+// <dialog> de mentira: los elementos de adentro se crean al pedirlos; close() dispara los listeners de 'close' (una vez, como { once: true }).
+function dialogo() {
+  const els = {}, d = { open: false, oyentes: [], showModal() { d.open = true; },
+    querySelector: s => els[s] || (els[s] = { textContent: '', innerHTML: '', value: '', scrollTop: 0, focus() { enFoco.el = this; } }),
+    addEventListener(t, f) { d.oyentes.push([t, f]); },
+    close() { d.open = false; d.oyentes.splice(0).forEach(([t, f]) => t === 'close' && f()); } };
+  return d;
+}
+
+test('abrirProductosPesoFr: título, envase de hoy, foco al buscador, filtra al tipear con contador, avisa sin coincidencias y Cerrar devuelve el foco', () => {
+  const d = dialogo(), { run } = cargar({ document: { getElementById: id => (id === 'dlgEvProductos' ? d : null) } }, CF_PROD), q = s => d.querySelector(s);
+  const opener = { focus() { enFoco.el = this; } };
+  run('abrirProductosPesoFr')(500, opener);
+  assert.deepStrictEqual([d.open, q('.ev-prod-titulo').textContent, q('.ev-prod-envase').textContent, q('.ev-prod-cuenta').textContent, enFoco.el === q('.ev-prod-bus')],
+    [true, 'Productos de 500 g', 'Envase: Bolsa PLU 901 (Zipper 500) · Bobina 8 g', 'Mostrando 4 de 4', true]);
+  const lista = $de(q('.ev-prod-cuerpo').innerHTML);
+  assert.deepStrictEqual(lista.find('li b').toArray().map(b => lista.find(b).text().slice(0, 5)), ['ALMEN', 'ÁVENA', 'CHÍA ', 'NUEZ ']); // por nombre
+  assert.strictEqual(lista.find('li').eq(0).find('span').text(), 'PLU 101 · Granel: ALMENDRAS GRANEL · Usa: Bolsa');
+  assert.match(lista.find('li').eq(3).find('span').text(), /Usa: Bobina$/);
+  assert.strictEqual(lista.find('img').length, 0); // el nombre con <img onerror> de SIGA va escapado
+  assert.match(lista.find('li').eq(1).find('b').text(), /<img src=x onerror=alert\(1\)>/);
+
+  q('.ev-prod-bus').value = 'nuez'; q('.ev-prod-bus').oninput();
+  assert.deepStrictEqual([q('.ev-prod-cuenta').textContent, $de(q('.ev-prod-cuerpo').innerHTML).find('li').length], ['Mostrando 1 de 4', 1]);
+  q('.ev-prod-bus').value = ' <b>zzz '; q('.ev-prod-bus').oninput();
+  const vacio = $de(q('.ev-prod-cuerpo').innerHTML);
+  assert.deepStrictEqual([q('.ev-prod-cuenta').textContent, vacio.find('li').length, vacio.find('b').length, vacio.find('p').text()], ['Mostrando 0 de 4', 0, 0, 'Ningún producto coincide con «<b>zzz»']);
+  q('.ev-prod-bus').value = ''; q('.ev-prod-bus').oninput();
+  assert.strictEqual(q('.ev-prod-cuenta').textContent, 'Mostrando 4 de 4');
+
+  q('.ev-prod-cerrar').onclick();
+  assert.deepStrictEqual([d.open, enFoco.el === opener], [false, true]);
+  run('abrirProductosPesoFr')(250, opener); // reabrir: buscador vacío, otro peso, sin envase
+  assert.deepStrictEqual([q('.ev-prod-bus').value, q('.ev-prod-titulo').textContent, q('.ev-prod-envase').textContent, q('.ev-prod-cuenta').textContent],
+    ['', 'Productos de 250 g', 'Envase: Sin envase cargado', 'Mostrando 1 de 1']);
+  d.close();
+  assert.strictEqual(enFoco.el, opener); // también al cerrar con Esc (evento close)
+});
+
+test('conectarPesosFr: el clic en "N productos" abre el modal de ese peso y el foco vuelve a ese botón', () => {
+  const d = dialogo(), { run } = cargar({ document: { getElementById: () => d } }, CF_PROD);
+  const card = tarjeta('6000', FILAS);
+  run('conectarPesosFr')(card);
+  const btn = { dataset: { prodPeso: '250' }, matches: s => s === '.ev-prod-ver', focus() { enFoco.el = this; } };
+  card.onclick({ target: { closest: () => btn } });
+  assert.deepStrictEqual([d.open, d.querySelector('.ev-prod-titulo').textContent], [true, 'Productos de 250 g']);
+  d.close();
+  assert.strictEqual(enFoco.el, btn);
+});
+
+test('vistaProductosPesoFr: escapa nombre, PLU y granel de SIGA y el texto buscado; caracteres de regex no rompen; 300 productos', () => {
+  const { run } = cargar();
+  const malo = [{ plu: '<i>1</i>', nombre: 'A & "B" <img src=x onerror=alert(1)>', granelPlu: 9, granelNombre: '<b>G</b>', envase: 'bobina' }];
+  const v = run(`vistaProductosPesoFr(${JSON.stringify(malo)}, '')`);
+  const $ = $de(v.html);
+  assert.deepStrictEqual([$.find('img').length, $.find('i').length, $.find('span b').length, v.cuenta], [0, 0, 0, 'Mostrando 1 de 1']);
+  assert.match($.find('li span').text(), /Usa: Bobina$/);
+  const simple = [{ plu: 7, nombre: 'Maní (pelado) 500 g', granelPlu: 9, granelNombre: 'Maní', envase: 'bolsa' }];
+  const cuenta = t => run(`vistaProductosPesoFr(${JSON.stringify(simple)}, ${JSON.stringify(t)})`).cuenta;
+  for (const t of ['*', '\\', '  [a-  ', '.*']) assert.strictEqual(cuenta(t), 'Mostrando 0 de 1', t); // literal, no regex
+  assert.strictEqual(cuenta('  (PELADO)  mani '), 'Mostrando 1 de 1');
+  assert.strictEqual($de(run(`vistaProductosPesoFr([], '<script>x</script>')`).html).find('script').length, 0);
+  const muchos = Array.from({ length: 300 }, (_, i) => ({ plu: i, nombre: `Prod ${i}`, granelPlu: 1, granelNombre: 'G', envase: 'bolsa' }));
+  assert.strictEqual(run(`vistaProductosPesoFr(${JSON.stringify(muchos)}, '  ')`).cuenta, 'Mostrando 300 de 300');
 });
