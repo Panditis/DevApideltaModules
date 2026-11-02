@@ -97,6 +97,26 @@ test('aplicarEnvase pesos: bolsaPlu (trim, número ok) y bobinaG por peso; ausen
   assert.deepStrictEqual(r, { 500: { bolsaPlu: '900', bobinaG: 8.5 } }); // no muta
 });
 
+test('aplicarEnvase sinEnvase: marca borrando envase, false/null des-marca, envase des-marca, conflicto/tipo error, atómico, MAX_PESOS', () => {
+  const r = Object.freeze({ 500: Object.freeze({ bolsaPlu: '900', bobinaG: 8 }) });
+  const s = envPeso(r, '500', { sinEnvase: true });
+  assert.deepStrictEqual(s, { 500: { sinEnvase: true } });
+  assert.deepStrictEqual(envPeso(s, '500', { sinEnvase: false }), {});
+  assert.deepStrictEqual(envPeso(s, '500', { sinEnvase: null }), {});
+  assert.deepStrictEqual(envPeso(s, '500', { bolsaPlu: '7' }), { 500: { bolsaPlu: '7' } });
+  assert.deepStrictEqual(envPeso(s, '500', { bolsaPlu: null, bobinaG: null }), {});
+  assert.deepStrictEqual(envPeso(s, '500', {}), s); // body vacío no toca
+  assert.deepStrictEqual(envPeso(r, '500', { sinEnvase: true, bolsaPlu: null }), { 500: { sinEnvase: true } });
+  assert.throws(() => envPeso(r, '500', { sinEnvase: true, bobinaG: 5 }), /peso 500: sinEnvase no puede ir junto con bolsaPlu ni bobinaG/);
+  for (const malo of ['true', 1, {}]) assert.throws(() => envPeso(r, '500', { sinEnvase: malo }), /peso 500: sinEnvase debe ser true, false o null/);
+  assert.throws(() => CF.aplicarEnvase({ envasePorPeso: r }, { pesos: { 250: { sinEnvase: true }, 0: {} } }), /peso/);
+  const lleno = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [String(i + 1), { sinEnvase: true }]));
+  assert.throws(() => envPeso(lleno, '999', { sinEnvase: true }), /200 pesos/);
+  assert.deepStrictEqual(envPeso(lleno, '5', { bolsaPlu: '9' })[5], { bolsaPlu: '9' });
+  const c = CF.envaseConCosto(s, () => null);
+  assert.deepStrictEqual(c, { 500: { sinEnvase: true, bolsaNombre: null, bolsaCosto: null } });
+});
+
 test('aplicarEnvase pesos: rechaza nombrando el peso bobinaG 0, -1, "x", >1000, bolsaPlu "abc", peso inválido y el peso 201; atómico', () => {
   const previo = Object.freeze({ 500: Object.freeze({ bolsaPlu: '900' }) });
   for (const malo of [0, -1, 'x', 1000.5, 1001]) assert.throws(() => envPeso(previo, '500', { bobinaG: malo }), /peso 500: bobinaG/, String(malo));

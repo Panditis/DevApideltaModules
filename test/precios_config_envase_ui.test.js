@@ -70,6 +70,19 @@ test('estadoEnvaseFr: el primero que aplique de los 5 casos, con singular y plur
   assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: 5 }, { bobinaG: 8 }], 6000), { texto: 'todos con envase', estado: 'ok' });
 });
 
+test('estadoEnvaseFr con pesos sin envase: sólo cuentan las filas visibles; si todos son sin envase, info "todos sin envase"', () => {
+  const sin = { sinEnvase: true, presentaciones: 4 };
+  // un peso sin envase a propósito no es "sin bolsa ni bobina"
+  assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: 5 }, sin], null), { texto: 'todos con envase', estado: 'ok' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: 5 }, sin, {}], null), { texto: '1 sin bolsa ni bobina', estado: 'info' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bolsaPlu: '9', bolsaCosto: null }, sin], 6000), { texto: '1 bolsa sin costo', estado: 'falta' });
+  assert.deepStrictEqual(estadoEnvaseFr([{ bobinaG: 8 }, sin], null), { texto: 'falta costo de bobina', estado: 'falta' });
+  // ninguna fila visible pero hay pesos sin envase: no es "sin pesos"
+  assert.deepStrictEqual(estadoEnvaseFr([sin], null), { texto: 'todos sin envase', estado: 'info' });
+  assert.deepStrictEqual(estadoEnvaseFr([sin, { ...sin, presentaciones: 0 }], 6000), { texto: 'todos sin envase', estado: 'info' });
+  assert.deepStrictEqual(estadoEnvaseFr([], null), { texto: 'sin pesos', estado: 'info' });
+});
+
 // ── vm ──
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const campoU = (input, u) => `<span class="campo-u">${input}<span class="u">${u}</span></span>`;
@@ -109,7 +122,7 @@ test('htmlPesosFr: todos los pesos (también configurados sin productos), dos co
   assert.strictEqual($.find('img').length, 0); // nombre de bolsa de SIGA escapado
   assert.match(f250.find('.ev-nota').text(), /<img src=x onerror=alert\(1\)> · \$ 20/);
   assert.match($.find('tr[data-peso="500"] .ev-nota').text(), /no está en SIGA/);
-  assert.strictEqual($.find('#evTabla thead th').length, 4); // columna de acción: Vaciar / ✕
+  assert.strictEqual($.find('#evTabla thead th').length, 4); // columna de acción: ✕ (quitar)
   assert.deepStrictEqual($.find('#evTabla tbody tr').toArray().map(tr => $.find(tr).find('.ev-acc button').length), [1, 1, 1, 1]);
 });
 
@@ -122,7 +135,7 @@ test('costo de bobina por unidad: gramos × $/kg en la fila; sin costo "falta el
   assert.match(sin.find('tr[data-peso="250"] .ev-bob').text(), /falta el costo de bobina/);
   const vacio = $de(cargar({}, { ...CFG, pesos: [], envasePorPeso: {} }).run('htmlTablaPesosFr()'));
   assert.strictEqual(vacio.find('#evTabla tbody').html(), ''); // la tabla va igual (la fila nueva necesita dónde ir), tbody sin espacios
-  assert.match(vacio.find('p.fr-vacio').text(), /Todavía no hay pesos/);
+  assert.match(vacio.find('p.fr-vacio').text(), /No hay pesos en la tabla/);
 });
 
 test('refrescarFilaFr: al tipear recalcula en vivo el costo por unidad (con el $/kg tipeado arriba) y la nota de la bolsa', () => {
@@ -256,9 +269,20 @@ test('abrirBuscadorBolsaFr: elegir llena el PLU, avisa input (ensucia y repinta 
   assert.deepStrictEqual([plu.value, plu.eventos, d.abierto, run('elegidosFr[902]')], ['902', [['input', true]], false, 'Bolsa 1kg']);
 });
 
-test('barra de estado: el chip Envase sale de lo guardado (estadoEnvaseActualFr)', () => {
+test('barra de estado: el chip Envase sale de lo guardado (estadoEnvaseActualFr), sin contar los pesos guardados sin envase', () => {
   const { run } = cargar();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(run('estadoEnvaseActualFr()'))), { texto: '1 bolsa sin costo', estado: 'falta' });
+  const todos = cargar({}, { ...CFG, envasePorPeso: { 250: { sinEnvase: true }, 500: { sinEnvase: true }, 1000: { sinEnvase: true } } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(todos.run('estadoEnvaseActualFr()'))), { texto: 'todos sin envase', estado: 'info' });
+  const uno = cargar({}, { ...CFG, envasePorPeso: { 250: { bolsaPlu: '900', bolsaCosto: 20, bolsaNombre: 'B', bobinaG: 8 }, 500: { sinEnvase: true }, 1000: { bobinaG: 5 } } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(uno.run('estadoEnvaseActualFr()'))), { texto: 'todos con envase', estado: 'ok' });
+});
+
+test('filasPesosFr expone sinEnvase en la fila; htmlTablaPesosFr no la muestra y la tira sí', () => {
+  const f = filasPesosFr([{ pesoG: 250, presentaciones: 3 }, { pesoG: 500, presentaciones: 1 }], { 500: { sinEnvase: true } });
+  assert.deepStrictEqual([f[0].sinEnvase, f[1].sinEnvase, f[1].presentaciones], [undefined, true, 1]);
+  const $ = $de(cargar({}, { ...CFG, envasePorPeso: { 500: { sinEnvase: true } } }).run('htmlPesosFr()'));
+  assert.deepStrictEqual([$.find('#evTabla tbody tr').toArray().map(tr => $.find(tr).attr('data-peso')), $.find('#evSinEnvase .ev-sin-item b').text()], [['250', '1000'], '500 g']);
 });
 
 test('cuerpoCambiosEnvaseFr: sólo pesos cambiados (vacíos → null, PLU recortado), costo sólo si cambió; nada → null', () => {

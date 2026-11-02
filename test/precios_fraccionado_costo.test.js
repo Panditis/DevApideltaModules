@@ -141,6 +141,16 @@ test('envase: peso sin bolsa → sinBolsa; sin peso de bolsa → sinBobina; cues
   assert.deepStrictEqual([o.avisos, o.lineas.map(l => l.rol), o.porUnidad], [['sinBobina'], ['mo'], 200]);
 });
 
+test('envase sinEnvase: bolsa y bobina sin línea ni aviso, mismo costo; normaliza solo true y sin envase', () => {
+  const sin = { ...ENV, envasePorPeso: { ...ENV.envasePorPeso, 250: { sinEnvase: true }, 1000: { sinEnvase: true } } };
+  const b = costearEnv(250, sin);
+  assert.deepStrictEqual([b.avisos, b.lineas.map(l => l.rol), b.porUnidad], [[], ['mo'], 50]);
+  const o = costearEnv(1000, sin, 'bobina');
+  assert.deepStrictEqual([o.avisos, o.lineas.map(l => l.rol), o.porUnidad], [[], ['mo'], 200]);
+  assert.deepStrictEqual(FC.normalizarCosteoFraccionado({ envasePorPeso: { 1: { sinEnvase: true }, 2: { sinEnvase: 'si' },
+    3: { sinEnvase: true, bolsaPlu: '9' } } }).envasePorPeso, { 1: { sinEnvase: true }, 3: { bolsaPlu: '9' } });
+});
+
 test('envase faltante: bolsa sin costo o bobina sin $/kg → faltante, porUnidad y extraKg null (nunca 0)', () => {
   const b = FC.costearPresentacion({ pesoG: 500, cf: ENV, granel: GRANEL, costoDe: () => ({ costo: 0, nombre: 'x' }) });
   assert.deepStrictEqual([b.faltantes, b.porUnidad, b.extraKg], [['900'], null, null]);

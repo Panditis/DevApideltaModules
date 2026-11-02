@@ -454,16 +454,21 @@
   .ev-err{display:block;margin-top:4px;font-size:12px;font-weight:600;color:#a4262c}
   .ev-err[hidden]{display:none}
   .ev-vacio{margin:6px 0 0 28px;font-size:13px;color:#5c5f52;max-width:80ch}
-  /* Agregar / quitar pesos: fila nueva destacada con su chip, "Vaciar" (peso con productos) y ✕ (peso sin productos) discretos, aviso de lo quitado */
+  /* Agregar / quitar pesos: fila nueva destacada con su chip, ✕ discreto en cada fila, aviso de lo quitado y la tira "Pesos sin envase" (#evSinEnvase) bajo la tabla */
   .fr-filas tbody tr.ev-nueva,.fr-filas tbody tr.ev-nueva:hover{background:rgba(64,89,54,.07)}
   .ev-chip-nuevo{margin-top:4px;background:#dff6dd;color:#0e700e;font-size:11px;font-weight:600}
   .ev-tabla td.ev-acc{padding-right:0;text-align:right;white-space:nowrap}
-  .ev-vaciar{height:28px;padding:0 10px;border-radius:8px;font-size:12px;font-weight:600;color:#5c5f52}
-  .ev-vaciar:hover:not(:disabled){color:#a4262c;background:rgba(164,38,44,.08)}
-  .ev-vaciar:disabled{opacity:.4;cursor:not-allowed}
   .ev-quitados{margin-top:10px;font-size:12.5px;font-weight:600;color:#8a5d00}
   .ev-quitados:empty{margin:0} /* región viva: vacía no ocupa lugar pero sigue en el árbol (con display:none el lector no anuncia lo que aparece) */
   .ev-agregar-fila{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:10px}
+  .ev-sin{max-width:64rem;margin-top:16px;padding:10px 16px 12px;border-radius:8px;background:#f5f8f1}
+  .ev-sin-t{font-size:13px;font-weight:700;color:#242423}
+  .ev-sin-ayuda{margin-top:2px;max-width:70ch;font-size:12.5px;line-height:1.45;color:#5c5f52}
+  .ev-sin-lista{margin-top:8px}
+  .ev-sin-item{display:flex;align-items:center;gap:12px;min-height:34px}
+  .ev-sin-item+.ev-sin-item{border-top:1px solid rgba(26,28,24,.08)}
+  .ev-sin-item>b{flex:none;width:5.5rem;font-size:14px;color:#242423}
+  .ev-sin-prod{flex:none;width:8rem;font-size:12px;color:#5c5f52}
   #frPesos .num-in[aria-invalid=true],#frPesos .campo-u:has(input[aria-invalid=true]){border-color:#a4262c;box-shadow:0 0 0 3px rgba(164,38,44,.14)}
   #frPesos input::placeholder{color:#6b6e62;opacity:1}
   /* Buscador de bolsas (#dlgFP): sólo elige un producto de SIGA */
