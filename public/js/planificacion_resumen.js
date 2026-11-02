@@ -487,6 +487,9 @@ function htmlCalculoPresentacion(g, p) {
   if (minimoDe(d.diaria, g) !== null) filas.push(fila('Stock mínimo', textoMinimo(d, g, unidad)));
   const sug = textoSugerido(g, p, unidad);
   if (sug) filas.push(fila(`Sugerido (${nfAR(g.diasObjetivo, 0)} días a cubrir)`, sug));
+  if (Number.isFinite(p.unidadesAProducir) && Number.isFinite(p.minUnidadesUrgencia)) {
+    filas.push(fila('A producir', `${nfAR(p.unidadesAProducir, 0)} u <span class="text-sm">(mínimo ${nfAR(p.minUnidadesUrgencia, 0)} u para marcar urgente)</span>`));
+  }
   filas.push(
     fila('Importancia', lineaImportancia(g)),
     fila(`Umbral clase ${escHtml(String(g.claseABC))}`, lineaUmbral(g)),

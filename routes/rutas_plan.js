@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
-const { puntajePrioridad, clasesABC, umbralDeClase, nivelUrgencia, compararUrgencia, calcularCobertura, urgenciaGrupoPorPeso, umbralPesoGrupo } = require('../lib/plan_prioridad');
+const { puntajePrioridad, clasesABC, umbralDeClase, nivelUrgencia, compararUrgencia, calcularCobertura, urgenciaGrupoPorPeso, umbralPesoGrupo, minUnidadesUrgencia, unidadesAProducir } = require('../lib/plan_prioridad');
 const { SUCURSALES_NO_REALES, filtrarSucursalesReales, sqlExcluirSucursales, sqlExcluirCentral } = require('../lib/sucursales_no_reales');
 const { validarDiasObjetivo, resolverDiasObjetivo } = require('../lib/plan_params');
 const { esMayorista } = require('../lib/catalogo_presentaciones');
@@ -414,6 +414,7 @@ async function calcularSugerenciasCatalogo(params) {
                       + (semaforo === 'RED' ? 1000 : semaforo === 'YELLOW' ? 100 : 0) + (!granelOk ? 50 : 0);
       presentaciones.push({ plu: pluBase, plus: [...bInfo.plusBase], baseNombre: bInfo.baseNombre, presentacion: bInfo.presentacion,
         ...(bInfo.esMayorista ? { esMayorista: true } : {}),
+        ...(bInfo.urgenciaMinUnidades !== undefined ? { minUnidadesUrgencia: bInfo.urgenciaMinUnidades } : {}),
         stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, ventasVentana, ventaDiariaUrg, ventasMayoristaVentana, ventaDiariaMayorista, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
         diasStock: isFinite(diasStock) ? Math.round(diasStock * 10) / 10 : 9999,
         semaforo, cantSugerida, idGranel, nombreGranel: nomGranel, cantPorUnidad: cantPU,
@@ -489,8 +490,10 @@ async function calcularSugerenciasCatalogo(params) {
   const clases = clasesABC(grupos.map(g => g.rankingScore));
   const redondear1 = n => Math.round(n * 10) / 10;
   const umbralPeso = umbralPesoGrupo(c.urgenciaPesoGrupo); // config urgenciaPesoGrupo (0 < x <= 1), default 0.20
+  const minUnid = minUnidadesUrgencia(c.urgenciaMinUnidades); // config urgenciaMinUnidades, default 10
   grupos.forEach((g, i) => {
     g.claseABC = clases[i];
+    g.minUnidadesUrgencia = minUnid;
     g.ventanaDias = ventana;                                  // para explicar el cálculo en el Resumen
     g.diasObjetivo = diasObj;                                 // días a cubrir: stock mínimo del modal de urgencia
     g.incidenciaStock = incStock;                             // % del stock central que cuenta en el sugerido
@@ -499,9 +502,12 @@ async function calcularSugerenciasCatalogo(params) {
     g.sucursalesExcluidas = SUCURSALES_NO_REALES;
     g.excluyeCentral = true; // las ventas de Casa Central no cuentan en este análisis (ver sqlExcluirCentral)
     for (const p of g.presentaciones) {
-      const cobertura = calcularCobertura((p.stockActual || 0) + (p.stockSucursales || 0), p.ventaDiariaUrg);
+      const stockRed = (p.stockActual || 0) + (p.stockSucursales || 0);
+      const cobertura = calcularCobertura(stockRed, p.ventaDiariaUrg);
       p.coberturaDias = cobertura === null ? null : redondear1(cobertura);
-      p.urgencia = nivelUrgencia(cobertura, g.claseABC, c.urgenciaDias);
+      p.unidadesAProducir = unidadesAProducir(stockRed, p.ventaDiariaUrg, diasObj);
+      p.minUnidadesUrgencia = p.minUnidadesUrgencia ?? minUnid; // el de la presentación (catálogo) pisa el global
+      p.urgencia = p.unidadesAProducir < p.minUnidadesUrgencia ? 'OK' : nivelUrgencia(cobertura, g.claseABC, c.urgenciaDias);
     }
     g.presentaciones.sort(compararUrgencia);
     if (g.presentaciones.length) {

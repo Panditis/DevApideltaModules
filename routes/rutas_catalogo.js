@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const { esMayorista } = require('../lib/catalogo_presentaciones');
+const { esMayorista, normalizarMinUnidades } = require('../lib/catalogo_presentaciones');
 
 // ── Rutas del catálogo de grupos ──────────────────────────────────────────────
 // El catálogo es data/catalogo.json (plu → grupo/presentación/mayorista) más su
@@ -130,8 +130,13 @@ router.put('/api/catalogo/grupo/:ref', (req, res) => {
     refId = maxRef + 1;
   }
   // ventaPorUnidad (mayorista que se vende por unidad) solo vale en mayoristas: true o ausente.
-  const normalizados = nuevos.map(({ ventaPorUnidad, ...i }) => ({ ...i, plu: Number(i.plu), presentacion: String(i.presentacion).trim(), refId, productoRef: ref,
-    ...(ventaPorUnidad === true && esMayorista(i) ? { ventaPorUnidad: true } : {}) }));
+  // urgenciaMinUnidades (mínimo a producir para urgencia, por presentación): entero >= 0; inválido no se guarda.
+  const normalizados = nuevos.map(({ ventaPorUnidad, urgenciaMinUnidades, ...i }) => {
+    const minU = normalizarMinUnidades(urgenciaMinUnidades);
+    return { ...i, plu: Number(i.plu), presentacion: String(i.presentacion).trim(), refId, productoRef: ref,
+      ...(ventaPorUnidad === true && esMayorista(i) ? { ventaPorUnidad: true } : {}),
+      ...(minU !== undefined ? { urgenciaMinUnidades: minU } : {}) };
+  });
   guardarJSON(CATALOGO_PATH, [...otros, ...normalizados]);
   res.json({ ok: true, productos: normalizados.length });
 });

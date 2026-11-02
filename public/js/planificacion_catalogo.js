@@ -109,7 +109,7 @@ async function abrirModalGrupo(productoRef) {
 // Estado en memoria: se renderiza desde acá y se guarda desde acá (nada se lee del DOM al guardar).
 // Cada presentación junta códigos de SIGA; los mayoristas cuentan solo sus ventas de Casa Central a
 // clientes MAYORISTA y no suman stock (ver lib/catalogo_presentaciones.js).
-let presModal        = [];    // [{ nombre, codigos: [{ plu, producto, esMayorista, ventaPorUnidad }] }]
+let presModal        = [];    // [{ nombre, minUrgencia, codigos: [{ plu, producto, esMayorista, ventaPorUnidad }] }]; minUrgencia = texto del input ('' = por defecto)
 let presModalCargado = false; // false mientras carga o si falló: no se guarda (pisaría el grupo con nada)
 let presEditando     = null;  // índice de la presentación que se está renombrando
 let resultadosSiga   = {};    // índice de presentación → filas del buscador de SIGA
@@ -121,15 +121,23 @@ function esMayoristaJS(item) {
   return !!item && (item.esMayorista === true || (item.esMayorista === undefined && item.esVariante === true));
 }
 
+// Mínimo de unidades para urgente: entero >= 0, o null si está vacío / inválido (= sin valor propio).
+function minUrgenciaValido(v) {
+  const t = String(v ?? '').trim();
+  return /^\d+$/.test(t) ? Number(t) : null;
+}
+
 function renderModalGrupoBody(items) {
   const porPres = new Map();
+  const minPorPres = new Map(); // presentación → primer urgenciaMinUnidades válido de sus items
   for (const it of items) {
     const nombre = it.presentacion || '(sin presentación)';
     if (!porPres.has(nombre)) porPres.set(nombre, []);
+    if (!minPorPres.has(nombre) && minUrgenciaValido(it.urgenciaMinUnidades) !== null) minPorPres.set(nombre, String(it.urgenciaMinUnidades));
     porPres.get(nombre).push({ plu: Number(it.plu), producto: it.producto || it.baseNombre || '', esMayorista: esMayoristaJS(it),
       ventaPorUnidad: esMayoristaJS(it) && it.ventaPorUnidad === true });
   }
-  presModal = [...porPres.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nombre, codigos]) => ({ nombre, codigos }));
+  presModal = [...porPres.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nombre, codigos]) => ({ nombre, codigos, minUrgencia: minPorPres.get(nombre) ?? '' }));
   presModalCargado = true;
   renderPresModal();
 }
@@ -166,6 +174,11 @@ function renderTarjetaPres(p, i) {
       <button class="btn btn-danger btn-sm pres-btn-mini" data-acc="borrar" data-i="${i}" title="Borrar presentación">🗑</button>
     </div>
     ${filas || '<div class="pres-cod-vacio">Sin códigos todavía.</div>'}
+    <div class="pres-min-urg">
+      <label for="presMinUrg${i}">Mín. unidades para urgente</label>
+      <input type="number" id="presMinUrg${i}" class="plu-input pres-min-urg-input" data-i="${i}" min="0" step="1" inputmode="numeric" placeholder="10 (por defecto)" value="${escHtml(p.minUrgencia ?? '')}" style="width:130px">
+      <span class="pres-min-urg-ayuda">Si falta producir menos que esto, no se marca urgente. Vacío = por defecto, 0 = sin mínimo</span>
+    </div>
     <div class="pres-buscar">
       <input type="text" class="plu-input pres-buscar-input" data-i="${i}" placeholder="Agregar código (PLU o nombre)…">
       <div class="pres-buscar-res" data-i="${i}"></div>
@@ -187,7 +200,7 @@ function crearPresentacion() {
   const nombre = inp.value.trim();
   if (!nombre) { inp.focus(); return; }
   if (presExiste(nombre)) { toast(`Ya existe la presentación "${nombre}"`, true); inp.focus(); return; }
-  presModal = [...presModal, { nombre, codigos: [] }];
+  presModal = [...presModal, { nombre, codigos: [], minUrgencia: '' }];
   inp.value = '';
   presEditando = null;
   renderPresModal();
@@ -281,6 +294,11 @@ _bodyGrupo.addEventListener('change', e => {
 });
 _bodyGrupo.addEventListener('input', e => {
   const el = e.target;
+  if (el.classList.contains('pres-min-urg-input')) { // sin re-render: no pierde el foco
+    const i = Number(el.dataset.i);
+    presModal = presModal.map((p, k) => k === i ? { ...p, minUrgencia: el.value } : p);
+    return;
+  }
   if (!el.classList.contains('pres-buscar-input')) return;
   const i = Number(el.dataset.i), q = el.value.trim(), cont = resultadosDe(i);
   clearTimeout(buscarSigaTimer);
@@ -328,6 +346,7 @@ async function guardarGrupo() {
   // Las presentaciones sin códigos no se guardan (en el catálogo una presentación existe por sus códigos).
   const vacias = presModal.filter(p => !p.codigos.length).map(p => p.nombre);
   const items = presModal.flatMap(p => p.codigos.map(c => ({
+    ...(minUrgenciaValido(p.minUrgencia) !== null ? { urgenciaMinUnidades: minUrgenciaValido(p.minUrgencia) } : {}),
     plu: c.plu, producto: c.producto,
     baseNombre:   normalizarNombreJS(c.producto),
     presentacion: p.nombre,

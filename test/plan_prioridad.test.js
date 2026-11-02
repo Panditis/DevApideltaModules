@@ -154,3 +154,30 @@ test('umbralPesoGrupo: valor de config entre 0 (exclusivo) y 1; si no, 0.20', ()
   assert.strictEqual(umbralPesoGrupo(1), 1);
   for (const malo of [0, -0.1, 1.01, 'x', null, undefined, NaN]) assert.strictEqual(umbralPesoGrupo(malo), 0.2, String(malo));
 });
+
+test('minUnidadesUrgencia: número >= 0 de config; si no, el default', () => {
+  const { minUnidadesUrgencia, MIN_UNIDADES_URGENCIA_DEFAULT } = require('../lib/plan_prioridad');
+  assert.strictEqual(minUnidadesUrgencia(0), 0);
+  assert.strictEqual(minUnidadesUrgencia(5), 5);
+  for (const malo of [-1, 'x', null, undefined, NaN]) assert.strictEqual(minUnidadesUrgencia(malo), MIN_UNIDADES_URGENCIA_DEFAULT, String(malo));
+});
+
+test('unidadesAProducir: lo que falta para cubrir diasObjetivo con el stock de la red', () => {
+  const { unidadesAProducir } = require('../lib/plan_prioridad');
+  assert.strictEqual(unidadesAProducir(0, 0.2, 30), 6);      // miel sin stock, 0.2 u/día: 6 u
+  assert.strictEqual(unidadesAProducir(4, 0.2, 30), 2);
+  assert.strictEqual(unidadesAProducir(10, 0.2, 30), 0);     // stock de sobra
+  assert.strictEqual(unidadesAProducir(-3, 2, 30), 60);      // stock negativo cuenta como 0
+  assert.strictEqual(unidadesAProducir(0, null, 30), 0);
+});
+
+test('caso Miel Naranjo: sin stock, 0.2 u/día, 30 días => 6 u, menor al mínimo 10 (no urgente); mínimo 0 nunca filtra', () => {
+  const { unidadesAProducir, minUnidadesUrgencia, urgenciaGrupoPorPeso } = require('../lib/plan_prioridad');
+  const falta = unidadesAProducir(0, 0.2, 30);
+  assert.strictEqual(falta, 6);
+  assert.ok(falta < minUnidadesUrgencia(undefined));
+  assert.ok(!(falta < minUnidadesUrgencia(0)));
+  assert.ok(!(0 < minUnidadesUrgencia(0)));
+  const g = urgenciaGrupoPorPeso([{ urgencia: 'OK', facturacionMensual: 100 }], 0.2);
+  assert.strictEqual(g.urgencia, 'OK');
+});

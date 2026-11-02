@@ -591,3 +591,55 @@ test('PUT grupo: guarda los válidos con el refId del grupo y la presentación s
     assert.deepStrictEqual(mix.map(i => [i.plu, i.presentacion, i.refId, i.esMayorista]), [[101, '500G', 1, false], [201, '500G', 1, true]]);
   } finally { cerrar(ctx); }
 });
+
+// ── urgenciaMinUnidades por presentación ───────────────────────────────────────────────────────
+test('buildCatalogoMaps: la presentación expone el primer urgenciaMinUnidades válido de sus códigos', () => {
+  const { baseMap } = buildCatalogoMaps([
+    { plu: 1, presentacion: 'A', refId: 1, productoRef: 'X', baseNombre: 'a' },
+    { plu: 2, presentacion: 'A', refId: 1, productoRef: 'X', baseNombre: 'a2', urgenciaMinUnidades: 'x' },
+    { plu: 3, presentacion: 'A', refId: 1, productoRef: 'X', baseNombre: 'a3', urgenciaMinUnidades: 25 },
+    { plu: 4, presentacion: 'B', refId: 1, productoRef: 'X', baseNombre: 'b', urgenciaMinUnidades: 0 },
+    { plu: 5, presentacion: 'C', refId: 1, productoRef: 'X', baseNombre: 'c' },
+  ]);
+  assert.strictEqual(baseMap.get('1|A').urgenciaMinUnidades, 25);
+  assert.strictEqual(baseMap.get('1|B').urgenciaMinUnidades, 0);
+  assert.strictEqual(baseMap.get('1|C').urgenciaMinUnidades, undefined);
+});
+
+test('PUT grupo: urgenciaMinUnidades se guarda si es entero >= 0 (número o texto); inválido se descarta sin rechazar', async () => {
+  const ctx = await montarCatalogo();
+  try {
+    const base = { producto: 'Mix', presentacion: '500G', esMayorista: false };
+    const vals = [15, '20', 0, '0', -1, 1.5, 'abc', '', null, undefined];
+    const r = await ctx.put('Mix', vals.map((v, k) => ({ ...base, plu: 1001 + k, urgenciaMinUnidades: v })));
+    assert.strictEqual(r.status, 200);
+    const mix = ctx.catalogo().filter(i => i.productoRef === 'Mix');
+    assert.deepStrictEqual(mix.map(i => i.urgenciaMinUnidades), [15, 20, 0, 0, undefined, undefined, undefined, undefined, undefined, undefined]);
+    assert.ok(mix.slice(4).every(i => !('urgenciaMinUnidades' in i)));
+  } finally { cerrar(ctx); }
+});
+
+test('sugerencias por grupo: el mínimo de unidades de la presentación pisa el global', async () => {
+  const catalogo = CATALOGO.map(i => i.presentacion === '500G' ? { ...i, urgenciaMinUnidades: 100000 } : i.presentacion === '1Kg' ? { ...i, urgenciaMinUnidades: 0 } : i);
+  const ctx = await montarPlan({ catalogo });
+  try {
+    const grupos = await (await fetch(`${ctx.url}/api/plan/sugerencias-grupos`)).json();
+    const pres = Object.fromEntries(grupos[0].presentaciones.map(p => [p.presentacion, p]));
+    assert.strictEqual(grupos[0].minUnidadesUrgencia, 10);          // el global (default) no cambia
+    assert.strictEqual(pres['500G'].minUnidadesUrgencia, 100000);
+    assert.ok(pres['500G'].unidadesAProducir > 0);
+    assert.strictEqual(pres['500G'].urgencia, 'OK');                // no llega a su mínimo
+    assert.strictEqual(pres['1Kg'].minUnidadesUrgencia, 0);
+    assert.strictEqual(pres['2Kg'].minUnidadesUrgencia, 10);        // sin valor: el global
+  } finally { cerrar(ctx); }
+});
+
+test('buildCatalogoMaps: presentación solo mayorista también lee urgenciaMinUnidades', () => {
+  const { baseMap } = buildCatalogoMaps([
+    { plu: 301, presentacion: 'Bulto', refId: 3, productoRef: 'M', baseNombre: 'm', esMayorista: true, urgenciaMinUnidades: 7 },
+    { plu: 302, presentacion: 'Bulto', refId: 3, productoRef: 'M', baseNombre: 'm2', esMayorista: true },
+  ]);
+  const b = baseMap.get('3|Bulto');
+  assert.strictEqual(b.esMayorista, true);
+  assert.strictEqual(b.urgenciaMinUnidades, 7);
+});
