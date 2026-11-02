@@ -44,16 +44,16 @@ const FRACC = epp => ({ fraccionado: { costoHora: 6000, maquinas: [], envasePorP
 const PESOS = [{ pesoG: 250, presentaciones: 3 }, { pesoG: 500, presentaciones: 34 }];
 const fila = (pesoG, plu = '', g = '') => ({ pesoG, plu, g });
 
-test('front→router real: quitar con productos = sinEnvase:true; GET / y /costeo lo devuelven', async () => {
+test('front→router real: quitar con productos = sinEnvase+oculto; GET / y /costeo lo devuelven', async () => {
   const a = appCon(FRACC({ 500: { bolsaPlu: '900', bobinaG: 8 }, 250: { bolsaPlu: '901' } }));
   try {
     const epp = { 500: { bolsaPlu: '900', bobinaG: 8 }, 250: { bolsaPlu: '901' } };
     const body = cuerpo('', [fila(250, '901')], null, epp, PESOS);
-    assert.deepStrictEqual(body, { pesos: { 500: { sinEnvase: true } } });
+    assert.deepStrictEqual(body, { pesos: { 500: { sinEnvase: true, oculto: true } } });
     const r = await a.pedir('PUT', `${BASE}/envase`, body);
     assert.ok(r.status === 200 && !r.error, r.error);
-    assert.deepStrictEqual(a.epp(), { 250: { bolsaPlu: '901' }, 500: { sinEnvase: true } });
-    assert.deepStrictEqual((await a.pedir('GET', BASE)).envasePorPeso[500], { sinEnvase: true });
+    assert.deepStrictEqual(a.epp(), { 250: { bolsaPlu: '901' }, 500: { sinEnvase: true, oculto: true } });
+    assert.deepStrictEqual((await a.pedir('GET', BASE)).envasePorPeso[500], { sinEnvase: true, oculto: true });
     const c = await a.pedir('GET', `${BASE}/costeo`);
     assert.strictEqual(c.envasePorPeso[500].sinEnvase, true);
     assert.ok(!('bolsaPlu' in c.envasePorPeso[500]) && !('bobinaG' in c.envasePorPeso[500]));
@@ -120,4 +120,84 @@ test('costeo con lo que guardó el router: peso sinEnvase sale sin aviso de enva
   // entrada corrupta con flag Y bolsa: gana la bolsa (el flag no puede esconder un envase cargado)
   const mixto = normalizarCosteoFraccionado({ envasePorPeso: { 500: { sinEnvase: true, bolsaPlu: '900' } } });
   assert.deepStrictEqual(mixto.envasePorPeso[500], { bolsaPlu: '900' });
+});
+
+test('PUT envase oculto: marcar, conservar, sacar, errores, atomicidad, GET y 403', async () => {
+  const a = appCon(FRACC({ 500: { sinEnvase: true }, 250: { bolsaPlu: '901' } }));
+  const put = async pesos => (await a.pedir('PUT', `${BASE}/envase`, { pesos })).error;
+  try {
+    assert.strictEqual(await put({ 500: { oculto: true } }), undefined);
+    assert.deepStrictEqual(a.epp()[500], { sinEnvase: true, oculto: true });
+    assert.deepStrictEqual((await a.pedir('GET', BASE)).envasePorPeso[500], { sinEnvase: true, oculto: true });
+    assert.strictEqual((await a.pedir('GET', `${BASE}/costeo`)).envasePorPeso[500].oculto, true);
+    // sinEnvase: true sin oculto conserva el oculto que tenía
+    await put({ 500: { sinEnvase: true } });
+    assert.deepStrictEqual(a.epp()[500], { sinEnvase: true, oculto: true });
+    // oculto false solo: vuelve a la tabla marcada
+    await put({ 500: { oculto: null } });
+    assert.deepStrictEqual(a.epp()[500], { sinEnvase: true });
+    await put({ 500: { sinEnvase: true, oculto: true } });
+    // errores: todo o nada
+    const antes = a.epp();
+    for (const [pesos, re] of [
+      [{ 250: { oculto: true } }, /peso 250: oculto solo vale junto con sinEnvase/],
+      [{ 500: { sinEnvase: false, oculto: true } }, /oculto solo vale junto con sinEnvase/],
+      [{ 500: { oculto: 'si' } }, /peso 500: oculto debe ser true, false o null/],
+      [{ 500: { oculto: false }, 0: { bolsaPlu: '1' } }, /peso inválido/]]) {
+      assert.match(await put(pesos), re);
+      assert.deepStrictEqual(a.epp(), antes);
+    }
+    // sinEnvase false saca ambos; cargar bolsa saca ambos; null/null borra la entrada
+    await put({ 500: { sinEnvase: false } });
+    assert.ok(!(500 in a.epp()));
+    await put({ 500: { sinEnvase: true, oculto: true } });
+    await put({ 500: { bolsaPlu: '905' } });
+    assert.deepStrictEqual(a.epp()[500], { bolsaPlu: '905' });
+    await put({ 500: { sinEnvase: true, oculto: true } });
+    await put({ 500: { bolsaPlu: null, bobinaG: null } });
+    assert.ok(!(500 in a.epp()));
+  } finally { a.cerrar(); }
+  const b = appCon(FRACC({ 500: { sinEnvase: true } }), { sinConfig: true });
+  try {
+    assert.strictEqual((await b.pedir('PUT', `${BASE}/envase`, { pesos: { 500: { oculto: true } } })).status, 403);
+    assert.deepStrictEqual(b.epp(), { 500: { sinEnvase: true } });
+  } finally { b.cerrar(); }
+});
+
+test('normalización y costeo con oculto: se descarta sin sinEnvase; costeo igual con y sin oculto', () => {
+  const n = epp => normalizarCosteoFraccionado({ costoHora: 6000, maquinas: [], porGranel: { 100: { minKg: 2 } }, envasePorPeso: epp });
+  assert.deepStrictEqual(n({ 500: { oculto: true }, 250: { bolsaPlu: '9', oculto: true }, 750: { sinEnvase: true, oculto: 'si' } }).envasePorPeso,
+    { 250: { bolsaPlu: '9' }, 750: { sinEnvase: true } });
+  const con = costearPresentacion({ pesoG: 500, granel: { plu: '100' }, cf: n({ 500: { sinEnvase: true, oculto: true } }) });
+  const sin = costearPresentacion({ pesoG: 500, granel: { plu: '100' }, cf: n({ 500: { sinEnvase: true } }) });
+  assert.deepStrictEqual(con, sin);
+});
+
+test('front→router real con la casilla: marcar, destildar, ✕, volver a poner marcado, fila nueva y mezcla; GET devuelve los flags', async () => {
+  const inicial = { 100: { bolsaPlu: '900' }, 250: { sinEnvase: true }, 500: { sinEnvase: true, oculto: true }, 750: { bobinaG: 10 } };
+  const a = appCon(FRACC(inicial));
+  const P = [{ pesoG: 100, presentaciones: 1 }, ...PESOS];
+  const conSin = (f, sin = true) => ({ ...f, sin });
+  try {
+    // 100 con bolsa → casilla (la bolsa se borra); 250 casilla destildada con bolsa nueva; 500 quitado vuelto a poner y marcado;
+    // 750 sin productos quitado con ✕; 300 fila nueva con casilla
+    const body = cuerpo('', [conSin(fila(100, '900')), conSin(fila(250, '904'), false), conSin(fila(500)),
+      { nuevo: 'n1', ...conSin(fila('300')) }], null, inicial, P);
+    assert.deepStrictEqual(body, { pesos: {
+      100: { sinEnvase: true }, 250: { sinEnvase: false, bolsaPlu: '904', bobinaG: null },
+      300: { sinEnvase: true }, 500: { sinEnvase: true, oculto: false }, 750: { bolsaPlu: null, bobinaG: null } } });
+    const r = await a.pedir('PUT', `${BASE}/envase`, body);
+    assert.ok(r.status === 200 && !r.error, r.error);
+    const esperado = { 100: { sinEnvase: true }, 250: { bolsaPlu: '904' }, 300: { sinEnvase: true }, 500: { sinEnvase: true } };
+    assert.deepStrictEqual(a.epp(), esperado);
+    const g = (await a.pedir('GET', BASE)).envasePorPeso;
+    assert.deepStrictEqual([g[100], g[500], g[750]], [{ sinEnvase: true }, { sinEnvase: true }, undefined]);
+    // ✕ de 100 (con productos, casilla guardada) → { sinEnvase, oculto }; casilla sin cambios en 500 no se manda
+    const body2 = cuerpo('', [fila(250, '904'), conSin(fila(300)), conSin(fila(500))], null, esperado, P);
+    assert.deepStrictEqual(body2, { pesos: { 100: { sinEnvase: true, oculto: true } } });
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/envase`, body2)).error, undefined);
+    assert.deepStrictEqual(a.epp()[100], { sinEnvase: true, oculto: true });
+    const c = (await a.pedir('GET', `${BASE}/costeo`)).envasePorPeso;
+    assert.deepStrictEqual([c[100].oculto, c[500].oculto, c[500].sinEnvase], [true, undefined, true]);
+  } finally { a.cerrar(); }
 });

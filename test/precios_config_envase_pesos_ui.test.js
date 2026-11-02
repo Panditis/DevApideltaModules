@@ -1,7 +1,8 @@
 'use strict';
-// Configuración › Costeo Fraccionado › tarjeta Envase: AGREGAR y QUITAR pesos (también los que tienen productos: quedan "sin envase" en la tira "Pesos sin envase"),
-// "Volver a poner" y el modal con los productos de cada peso (public/js/precios_config_envase.js). Puros con require; HTML con cheerio; el DOM
-// (agregar / quitar / volver a poner / guardar) con los scripts cargados en un vm y una tarjeta de mentira.
+// Configuración › Costeo Fraccionado › tarjeta Envase: AGREGAR y QUITAR pesos (también los que tienen productos: quedan quitados en la tira "Pesos quitados de la tabla"),
+// la casilla "No necesita bolsa ni bobina" de cada fila (sinEnvase visible, sin oculto), "Volver a poner" y el modal con los productos de cada peso
+// (public/js/precios_config_envase.js). Puros con require; HTML con cheerio; el DOM (agregar / quitar / volver a poner / casilla / guardar) con los scripts
+// cargados en un vm y una tarjeta de mentira.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -23,18 +24,27 @@ test('errorPesoNuevoFr: obligatorio, gramos enteros de 1 a 999999 y que no esté
   assert.deepStrictEqual(errorPesoNuevoFr('250', ya), { campo: 'pesoG', mensaje: 'Ese peso ya está en la lista' });
 });
 
-test('errorPesoNuevoFr con la tira "Pesos sin envase": un peso de la tira no se agrega (usá "Volver a poner"); el de la tabla sigue "ya está"', () => {
+test('errorPesoNuevoFr con la tira "Pesos quitados de la tabla": un peso de la tira no se agrega (usá "Volver a poner"); el de la tabla sigue "ya está"', () => {
   const ya = new Set([250]), tira = new Set([500]);
-  assert.deepStrictEqual(errorPesoNuevoFr('500', ya, tira), { campo: 'pesoG', mensaje: 'Ese peso está en «Pesos sin envase»: usá «Volver a poner»' });
+  assert.deepStrictEqual(errorPesoNuevoFr('500', ya, tira), { campo: 'pesoG', mensaje: 'Ese peso está en «Pesos quitados de la tabla»: usá «Volver a poner»' });
   assert.strictEqual(errorPesoNuevoFr('250', ya, tira).mensaje, 'Ese peso ya está en la lista');
   assert.strictEqual(errorPesoNuevoFr('750', ya, tira), null);
   assert.strictEqual(errorPesoNuevoFr('500', ya), null); // sin tira, como antes
 });
 
-test('errorNuevoSinEnvaseFr: la fila nueva necesita bolsa o bobina; marca el PLU', () => {
-  assert.deepStrictEqual(errorNuevoSinEnvaseFr({ plu: ' ', g: '' }), { campo: 'bolsaPlu', mensaje: 'Cargá la bolsa o la bobina de este peso, o quitá la fila' });
+test('errorNuevoSinEnvaseFr: la fila nueva necesita bolsa, bobina o la casilla "No necesita bolsa ni bobina"; marca el PLU', () => {
+  assert.deepStrictEqual(errorNuevoSinEnvaseFr({ plu: ' ', g: '' }),
+    { campo: 'bolsaPlu', mensaje: 'Cargá la bolsa o la bobina de este peso, tildá «No necesita bolsa ni bobina», o quitá la fila' });
   assert.strictEqual(errorNuevoSinEnvaseFr({ plu: '900', g: '' }), null);
   assert.strictEqual(errorNuevoSinEnvaseFr({ plu: '', g: '8' }), null);
+  assert.strictEqual(errorNuevoSinEnvaseFr({ plu: '', g: '', sin: true }), null); // la casilla lo resuelve
+  assert.strictEqual(errorNuevoSinEnvaseFr({ plu: '', g: '', sin: false }).campo, 'bolsaPlu');
+});
+
+test('erroresEnvaseFr con la casilla marcada: no valida el PLU ni los gramos tipeados (están deshabilitados y no se mandan); el peso de una fila nueva sí', () => {
+  const e = erroresEnvaseFr('6000', [{ pesoG: 250, plu: 'abc', g: '9999', sin: true }, { pesoG: 500, plu: 'abc', g: '9999', sin: false },
+    { nuevo: 'n1', pesoG: '800', plu: '', g: '', sin: true }, { nuevo: 'n2', pesoG: '12.5', plu: '', g: '', sin: true }]);
+  assert.deepStrictEqual(e.map(x => [x.pesoG, x.campo]), [[500, 'bolsaPlu'], [500, 'bobinaG'], ['12.5', 'pesoG']]);
 });
 
 test('erroresEnvaseFr con filas nuevas: obligatorio, inválido, repetido (tabla y otra nueva) y sin envase, con nuevo', () => {
@@ -62,27 +72,30 @@ test('pesosQuitadosFr: los guardados sin fila, ascendente; la fila nueva con ese
   assert.deepStrictEqual(pesosQuitadosFr([], undefined), []);
 });
 
-test('pesosQuitadosFr con pesos: también los que tienen productos y ya no tienen fila; los guardados sin envase no son un quitado nuevo', () => {
+test('pesosQuitadosFr con pesos: también los que tienen productos y ya no tienen fila; los guardados quitados (oculto) no son un quitado nuevo, los de la casilla sí', () => {
   const pesos = [{ pesoG: 250, presentaciones: 3 }, { pesoG: 500, presentaciones: 1 }, { pesoG: 1000, presentaciones: 2 }, { pesoG: 2000, presentaciones: 0 }];
-  const epp = { 250: { bolsaPlu: '9' }, 500: { sinEnvase: true }, 300: { bobinaG: 5 } };
-  assert.deepStrictEqual(pesosQuitadosFr([{ pesoG: 2000 }], epp, pesos), [250, 300, 1000]); // 500 ya está guardado sin envase; 2000 sin productos y sin envase no es nada
+  const epp = { 250: { bolsaPlu: '9' }, 500: { sinEnvase: true, oculto: true }, 300: { bobinaG: 5 } };
+  assert.deepStrictEqual(pesosQuitadosFr([{ pesoG: 2000 }], epp, pesos), [250, 300, 1000]); // 500 ya está guardado quitado; 2000 sin productos y sin envase no es nada
   assert.deepStrictEqual(pesosQuitadosFr([{ pesoG: 250 }, { pesoG: 1000 }], epp, pesos), [300]);
   assert.deepStrictEqual(pesosQuitadosFr([{ pesoG: 250 }], { 250: { bolsaPlu: '9' } }, undefined), []);
+  // 500 guardado con la casilla (sinEnvase visible): sacarlo de la tabla es un quitado nuevo
+  assert.deepStrictEqual(pesosQuitadosFr([{ pesoG: 250 }, { pesoG: 1000 }], { 250: { bolsaPlu: '9' }, 500: { sinEnvase: true } }, pesos), [500]);
 });
 
-test('pesosSinEnvaseFr: los guardados sin envase + los de productos sin fila; una fila NUEVA no cuenta; sin productos ni flag no entra', () => {
+test('pesosSinEnvaseFr: los guardados quitados (oculto) + los de productos sin fila; una fila NUEVA no cuenta; sin productos ni oculto no entra (la casilla tampoco)', () => {
   const guardadas = filasPesosFr([{ pesoG: 250, presentaciones: 3 }, { pesoG: 500, presentaciones: 1 }, { pesoG: 1000, presentaciones: 2 }],
-    { 250: { bolsaPlu: '9' }, 500: { sinEnvase: true }, 300: { bobinaG: 5 }, 1500: { sinEnvase: true } });
+    { 250: { bolsaPlu: '9' }, 500: { sinEnvase: true, oculto: true }, 300: { bobinaG: 5 }, 1500: { sinEnvase: true, oculto: true }, 2000: { sinEnvase: true } });
   assert.deepStrictEqual(pesosSinEnvaseFr([{ pesoG: 250 }, { pesoG: 1000 }, { pesoG: 300 }], guardadas), [
-    { pesoG: 500, presentaciones: 1, guardado: true }, { pesoG: 1500, presentaciones: 0, guardado: true }]);
-  assert.deepStrictEqual(pesosSinEnvaseFr([{ pesoG: 300 }], guardadas).map(x => [x.pesoG, x.guardado]), [[250, false], [500, true], [1000, false], [1500, true]]); // 250 y 1000 quitados, sin guardar
+    { pesoG: 500, presentaciones: 1, guardado: true }, { pesoG: 1500, presentaciones: 0, guardado: true }]); // 2000 (casilla, sin productos) sin fila: se borra al guardar, no va a la tira
+  assert.deepStrictEqual(pesosSinEnvaseFr([{ pesoG: 300 }, { pesoG: 2000 }], guardadas).map(x => [x.pesoG, x.guardado]), [[250, false], [500, true], [1000, false], [1500, true]]); // 250 y 1000 quitados, sin guardar
   assert.deepStrictEqual(pesosSinEnvaseFr([{ pesoG: 250 }, { pesoG: 1000 }, { nuevo: 'n1', pesoG: '500' }], guardadas).map(x => x.pesoG), [500, 1500]); // la fila nueva no lo saca de la tira
   assert.deepStrictEqual(pesosSinEnvaseFr([], []), []);
 });
 
-test('filasPesosFr: el flag sinEnvase llega a la fila (sólo cuando el servidor lo manda)', () => {
-  const f = filasPesosFr([{ pesoG: 500, presentaciones: 4 }, { pesoG: 250, presentaciones: 1 }], { 500: { sinEnvase: true } });
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(f)), [{ pesoG: 250, presentaciones: 1 }, { pesoG: 500, presentaciones: 4, sinEnvase: true }]);
+test('filasPesosFr: los flags sinEnvase y oculto llegan a la fila (sólo cuando el servidor los manda)', () => {
+  const f = filasPesosFr([{ pesoG: 500, presentaciones: 4 }, { pesoG: 250, presentaciones: 1 }, { pesoG: 750, presentaciones: 2 }], { 500: { sinEnvase: true, oculto: true }, 750: { sinEnvase: true } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(f)), [{ pesoG: 250, presentaciones: 1 }, { pesoG: 500, presentaciones: 4, sinEnvase: true, oculto: true },
+    { pesoG: 750, presentaciones: 2, sinEnvase: true }]);
 });
 
 test('textoQuitadosFr: nada, 1, 2 y 3+ pesos con ListFormat es', () => {
@@ -155,30 +168,38 @@ test('htmlFilaPesoFr de fila nueva: input de peso con aria-label, chip nuevo, da
   assert.match(tr.find('.ev-buscar').attr('aria-label'), /la fila nueva/);
 });
 
-// Tarjeta de mentira con filas reales y nuevas: [peso, plu, g] o { nuevo, pesoG, plu, g }. Los inputs avisan input a card.oninput.
+// Tarjeta de mentira con filas reales y nuevas: [peso, plu, g, sin?] o { nuevo, pesoG, plu, g, sin? } (sin = casilla "No necesita bolsa ni bobina" marcada).
+// Los inputs avisan input a card.oninput; la casilla también (dispatchEvent) y guarda disabled en los inputs, el Buscar y la casilla de su fila.
 const enFoco = { el: null };
 function tarjeta(costo, filas) {
   const card = {};
   const campo = (value, k, tr) => {
     const err = { textContent: '', hidden: true };
-    return { value, validity: {}, attrs: {}, err, id: '', setAttribute(a, v) { this.attrs[a] = v; }, removeAttribute(a) { delete this.attrs[a]; },
+    return { value, validity: {}, attrs: {}, err, id: '', disabled: false, setAttribute(a, v) { this.attrs[a] = v; }, removeAttribute(a) { delete this.attrs[a]; },
       focus() { enFoco.el = this; }, matches: s => s === 'input[data-k]' || s === `[data-k="${k}"]`,
       closest: s => (s === 'tr' ? tr : { querySelector: () => err }), dispatchEvent(e) { if (card.oninput && e.type === 'input') card.oninput({ target: this }); } };
   };
-  const filaDeHtml = html => { // la fila que arma htmlFilaPesoFr: nueva (data-nuevo) o de un peso (data-peso, con lo que lleva en sus inputs)
+  const filaDeHtml = html => { // la fila que arma htmlFilaPesoFr: nueva (data-nuevo) o de un peso (data-peso, con lo que lleva en sus inputs y su casilla)
     const nuevo = (html.match(/data-nuevo="(\w+)"/) || [])[1], v = k => (html.match(new RegExp(`data-k="${k}" value="([^"]*)"`)) || [])[1] ?? '';
-    return nuevo ? fila({ nuevo, pesoG: '', plu: '', g: '' }) : fila([html.match(/data-peso="(\d+)"/)[1], v('bolsaPlu'), v('bobinaG')]);
+    const sin = /class="ev-sin-chk"[^>]*\schecked/.test(html);
+    return nuevo ? fila({ nuevo, pesoG: '', plu: '', g: '', sin }) : fila([html.match(/data-peso="(\d+)"/)[1], v('bolsaPlu'), v('bobinaG'), sin]);
   };
   const fila = d => {
     const tr = { dataset: {}, celdas: { '.ev-nota': { innerHTML: '' }, '.ev-bob': { innerHTML: '' } } };
-    const [peso, plu, g] = Array.isArray(d) ? d : [null, d.plu, d.g];
+    const [peso, plu, g, sin] = Array.isArray(d) ? d : [null, d.plu, d.g, d.sin];
     tr.inputs = { bolsaPlu: campo(plu, 'bolsaPlu', tr), bobinaG: campo(g, 'bobinaG', tr) };
+    tr.buscar = { disabled: !!sin };
+    tr.chk = { checked: !!sin, attrs: {}, matches: s => s === '.ev-sin-chk', closest: s => (s === 'tr' ? tr : null), focus() { enFoco.el = this; },
+      dispatchEvent(e) { if (card.oninput && e.type === 'input') card.oninput({ target: this }); } };
+    if (sin) { tr.inputs.bolsaPlu.disabled = true; tr.inputs.bobinaG.disabled = true; }
     if (Array.isArray(d)) tr.dataset.peso = String(peso); else { tr.dataset.nuevo = d.nuevo; tr.inputs.pesoG = campo(d.pesoG, 'pesoG', tr); }
     tr.boton = { disabled: false, focus() { enFoco.el = this; } };
     tr.querySelector = s => {
       const k = (s.match(/data-k="(\w+)"/) || [])[1];
       if (k) return tr.inputs[k] || null;
       if (s === '.ev-vaciar') return tr.vaciar || null;
+      if (s === '.ev-sin-chk') return tr.chk;
+      if (s === '.ev-buscar') return tr.buscar;
       if (s === '.ev-acc button:not(:disabled)') return tr.boton.disabled ? null : tr.boton;
       return tr.celdas[s];
     };
@@ -258,8 +279,8 @@ test('fila nueva agregada y quitada antes de guardar no manda nada', async () =>
   assert.deepStrictEqual([pedidos.length, ev.msg.at(-1)[0]], [0, 'No hay cambios para guardar']);
 });
 
-// CFG con el 500 ya guardado sin envase (tira) y el 1000 con envase: filas de la tabla = 250, 300, 1000 y 1500 (sin 500).
-const CFG_SIN = { ...CFG, envasePorPeso: { 250: { bolsaPlu: '900', bolsaNombre: 'Z', bolsaCosto: 20, bobinaG: 8 }, 300: { bobinaG: 5 }, 500: { sinEnvase: true },
+// CFG con el 500 ya guardado quitado (tira) y el 1000 con envase: filas de la tabla = 250, 300, 1000 y 1500 (sin 500).
+const CFG_SIN = { ...CFG, envasePorPeso: { 250: { bolsaPlu: '900', bolsaNombre: 'Z', bolsaCosto: 20, bobinaG: 8 }, 300: { bobinaG: 5 }, 500: { sinEnvase: true, oculto: true },
   1000: { bolsaPlu: '905', bolsaNombre: 'Y', bolsaCosto: 9 }, 1500: { bobinaG: 10 } } };
 const FILAS_SIN = [[250, '900', '8'], [300, '', '5'], [1000, '905', ''], [1500, '', '10']];
 const nombresTira = card => { const $ = $de(card.tira.innerHTML); return $.find('.ev-sin-item b').toArray().map(b => $.find(b).text()); };
@@ -288,12 +309,12 @@ test('quitar TODAS las filas: el foco va a "+ Agregar peso" y todos los pesos co
   assert.strictEqual(card.quitados.textContent, 'Quitaste 250 g, 500 g y 1 kg: sus 6 productos se costean sin envase y sin aviso al guardar.');
 });
 
-test('la tira: oculta sin pesos sin envase; con ellos, título, ayuda, productos como botón (abre el modal) y "Volver a poner" accesible; sin HTML inyectado', () => {
+test('la tira: oculta sin pesos quitados; con ellos, título, ayuda, productos como botón (abre el modal) y "Volver a poner" accesible; sin HTML inyectado', () => {
   const sin = $de(cargar().run('htmlPesosFr()')).find('#evSinEnvase');
   assert.deepStrictEqual([sin.length, sin.attr('hidden') !== undefined, sin.find('.ev-sin-item').length], [1, true, 0]);
   const $ = $de(cargar({}, CFG_SIN).run('htmlPesosFr()')), tira = $.find('#evSinEnvase');
   assert.deepStrictEqual([tira.attr('hidden'), tira.find('.ev-sin-t').text(), $.find('#evTabla tbody tr').toArray().map(tr => $.find(tr).attr('data-peso'))],
-    [undefined, 'Pesos sin envase', ['250', '300', '1000', '1500']]);
+    [undefined, 'Pesos quitados de la tabla', ['250', '300', '1000', '1500']]);
   assert.strictEqual(tira.find('.ev-sin-ayuda').text(), 'Estos pesos no suman costo de envase y no avisan. Volvé a ponerlos para cargarles bolsa o bobina.');
   assert.strictEqual(tira.attr('aria-labelledby'), tira.find('.ev-sin-t').attr('id'));
   const item = tira.find('.ev-sin-item'), ver = item.find('.ev-prod-ver'), poner = item.find('.ev-poner');
@@ -305,8 +326,8 @@ test('la tira: oculta sin pesos sin envase; con ellos, título, ayuda, productos
   assert.strictEqual($de(malo).find('img').length, 0);
 });
 
-test('la tira muestra un peso guardado sin envase y sin productos con texto plano (no botón), y la tabla queda vacía', () => {
-  const $ = $de(cargar({}, { ...CFG, pesos: [], envasePorPeso: { 750: { sinEnvase: true } } }).run('htmlPesosFr()'));
+test('la tira muestra un peso guardado quitado y sin productos con texto plano (no botón), y la tabla queda vacía', () => {
+  const $ = $de(cargar({}, { ...CFG, pesos: [], envasePorPeso: { 750: { sinEnvase: true, oculto: true } } }).run('htmlPesosFr()'));
   assert.deepStrictEqual([$.find('#evTabla tbody').html(), $.find('#evSinEnvase .ev-prod-ver').length, $.find('#evSinEnvase .ev-sin-prod').text()], ['', 0, 'sin productos']);
 });
 
@@ -554,37 +575,37 @@ test('vistaProductosPesoFr: escapa nombre, PLU y granel de SIGA y el texto busca
   assert.strictEqual(run(`vistaProductosPesoFr(${JSON.stringify(muchos)}, '  ')`).cuenta, 'Mostrando 300 de 300');
 });
 
-// ── Pesos sin envase: cuerpo del PUT, guardar, agregar un peso de la tira, errores del servidor y el modal ──
-test('cuerpoCambiosEnvaseFr con pesos sin envase: quitado con productos → sinEnvase:true, sin productos → null/null, volver a poner → sinEnvase:false, sin tocar → nada', () => {
+// ── Pesos quitados y casilla "No necesita bolsa ni bobina": cuerpo del PUT, guardar, agregar un peso de la tira, errores del servidor y el modal ──
+test('cuerpoCambiosEnvaseFr con pesos quitados: quitado con productos → sinEnvase:true + oculto:true, sin productos → null/null, volver a poner → sinEnvase:false, sin tocar → nada', () => {
   const run = cargar().run;
   const cuerpo = (...a) => JSON.parse(JSON.stringify(run('cuerpoCambiosEnvaseFr')(...a)) ?? 'null');
   const pesos = [{ pesoG: 250, presentaciones: 3 }, { pesoG: 500, presentaciones: 1 }, { pesoG: 1000, presentaciones: 2 }];
-  const epp = { 250: { bolsaPlu: '900' }, 500: { sinEnvase: true }, 300: { bobinaG: 5 } };
-  // 250 (con productos y envase) y 1000 (con productos, sin envase cargado) sin fila: sinEnvase:true; 300 (sin productos): null/null; el 500 ya está así: no se manda
-  assert.deepStrictEqual(cuerpo('', [], null, epp, pesos), { pesos: { 250: { sinEnvase: true }, 300: { bolsaPlu: null, bobinaG: null }, 1000: { sinEnvase: true } } });
+  const epp = { 250: { bolsaPlu: '900' }, 500: { sinEnvase: true, oculto: true }, 300: { bobinaG: 5 } };
+  // 250 (con productos y envase) y 1000 (con productos, sin envase cargado) sin fila: sinEnvase:true + oculto:true; 300 (sin productos): null/null; el 500 ya está así: no se manda
+  assert.deepStrictEqual(cuerpo('', [], null, epp, pesos), { pesos: { 250: { sinEnvase: true, oculto: true }, 300: { bolsaPlu: null, bobinaG: null }, 1000: { sinEnvase: true, oculto: true } } });
   const filas = (extra = []) => [{ pesoG: 250, plu: '900', g: '' }, { pesoG: 300, plu: '', g: '5' }, { pesoG: 1000, plu: '', g: '' }, ...extra];
   assert.strictEqual(cuerpo('', filas(), null, epp, pesos), null); // el 500 sin fila y sin tocar no se manda
   assert.deepStrictEqual(cuerpo('', filas([{ pesoG: 500, plu: ' 77 ', g: '' }]), null, epp, pesos), { pesos: { 500: { sinEnvase: false, bolsaPlu: '77', bobinaG: null } } });
   assert.deepStrictEqual(cuerpo('', filas([{ pesoG: 500, plu: '', g: '6' }]), null, epp, pesos), { pesos: { 500: { sinEnvase: false, bolsaPlu: null, bobinaG: 6 } } });
   assert.deepStrictEqual(cuerpo('', filas([{ pesoG: 500, plu: '', g: '' }]), null, epp, pesos), { pesos: { 500: { sinEnvase: false, bolsaPlu: null, bobinaG: null } } }); // vuelto a poner, vacío
-  assert.deepStrictEqual(cuerpo('', [{ pesoG: 250, plu: '900', g: '' }, { pesoG: 1000, plu: '', g: '' }], null, { 250: { bolsaPlu: '900' } }, pesos), { pesos: { 500: { sinEnvase: true } } }); // 500 con productos y sin fila
+  assert.deepStrictEqual(cuerpo('', [{ pesoG: 250, plu: '900', g: '' }, { pesoG: 1000, plu: '', g: '' }], null, { 250: { bolsaPlu: '900' } }, pesos), { pesos: { 500: { sinEnvase: true, oculto: true } } }); // 500 con productos y sin fila
   assert.strictEqual(cuerpo('', [{ pesoG: 250, plu: '900', g: '' }], null, { 250: { bolsaPlu: '900' } }, [{ pesoG: 250, presentaciones: 3 }]), null); // sin más pesos con productos: nada
   assert.deepStrictEqual(cuerpo('', [], null, { 300: { bobinaG: 5 } }, undefined), { pesos: { 300: { bolsaPlu: null, bobinaG: null } } }); // sin la lista de pesos: como antes
   assert.deepStrictEqual(cuerpo('7000', filas(), 6000, epp, pesos), { costoBobinaKg: 7000 });
 });
 
-test('guardarEnvaseFr: quitar un peso con productos manda UNA entrada { sinEnvase: true } (sin bolsa ni bobina) y repinta la tabla sin ese peso y la tira con él', async () => {
+test('guardarEnvaseFr: quitar un peso con productos manda UNA entrada { sinEnvase: true, oculto: true } (sin bolsa ni bobina) y repinta la tabla sin ese peso y la tira con él', async () => {
   const pedidos = [];
   const enriquecido = { 250: { bolsaPlu: '900', bolsaNombre: 'Bolsa', bolsaCosto: 20, bobinaG: 8 }, 300: { bobinaG: 5 }, 500: { bolsaPlu: '901', bolsaNombre: null, bolsaCosto: null },
-    1000: { sinEnvase: true }, 1500: { bobinaG: 10 } };
+    1000: { sinEnvase: true, oculto: true }, 1500: { bobinaG: 10 } };
   const srv = servidor(pedidos, enriquecido);
   const { run, ev } = cargar(srv.extra);
   const card = tarjeta('6000', FILAS);
   run('quitarPesoFr')(card, card.trs[3]); // 1000: 2 productos
   assert.strictEqual(card.quitados.textContent, 'Quitaste 1 kg: sus 2 productos se costean sin envase y sin aviso al guardar.');
   await run('guardarEnvaseFr')(card);
-  assert.deepStrictEqual(pedidos[0], ['PUT', 'envase', { pesos: { 1000: { sinEnvase: true } } }]);
-  assert.strictEqual(Object.keys(pedidos[0][2].pesos[1000]).length, 1); // sin bolsaPlu ni bobinaG
+  assert.deepStrictEqual(pedidos[0], ['PUT', 'envase', { pesos: { 1000: { sinEnvase: true, oculto: true } } }]);
+  assert.deepStrictEqual(Object.keys(pedidos[0][2].pesos[1000]), ['sinEnvase', 'oculto']); // sin bolsaPlu ni bobinaG
   const $ = $de(srv.repintado());
   assert.deepStrictEqual($.find('#evTabla tbody tr').toArray().map(tr => $.find(tr).attr('data-peso')), ['250', '300', '500', '1500']);
   assert.deepStrictEqual([$.find('#evSinEnvase').attr('hidden'), $.find('#evSinEnvase .ev-sin-item b').text(), $.find('#evQuitados').text(), ev.msg.at(-1)[0]], [undefined, '1 kg', '', 'Guardado']);
@@ -613,10 +634,10 @@ test('guardarEnvaseFr: un peso de la tira agregado a mano con "+ Agregar peso" e
   await run('guardarEnvaseFr')(card);
   assert.strictEqual(pedidos.length, 0);
   assert.deepStrictEqual([card.trs[4].inputs.pesoG.err.textContent, card.trs[5].inputs.pesoG.err.textContent, card.trs[6].inputs.pesoG.attrs['aria-invalid']],
-    ['Ese peso está en «Pesos sin envase»: usá «Volver a poner»', 'Ese peso ya está en la lista', undefined]);
+    ['Ese peso está en «Pesos quitados de la tabla»: usá «Volver a poner»', 'Ese peso ya está en la lista', undefined]);
   assert.strictEqual(enFoco.el, card.trs[4].inputs.pesoG);
   assert.deepStrictEqual(ev.msg.at(-1), ['Hay 2 campos para corregir (marcados en rojo)', 'text-crit']);
-  run('ponerPesoFr')(card, 500); // al volver a poner el 500 el aviso "está en Pesos sin envase" ya no vale y se limpia
+  run('ponerPesoFr')(card, 500); // al volver a poner el 500 el aviso "está en Pesos quitados de la tabla" ya no vale y se limpia
   assert.strictEqual(card.trs.find(t => t.dataset.nuevo === 'n1').inputs.pesoG.attrs['aria-invalid'], undefined);
   assert.strictEqual(card.trs.find(t => t.dataset.nuevo === 'n2').inputs.pesoG.attrs['aria-invalid'], undefined); // cualquier cambio de la lista limpia los avisos de peso repetido (vuelven al guardar)
 });
@@ -636,7 +657,7 @@ test('guardarEnvaseFr: si el PUT falla con un peso quitado, la tabla, la tira y 
 
 test('textoEnvasePesoFr / abrirProductosPesoFr de un peso sin envase: "Sin envase: no suma costo ni avisa" y sus productos sin la línea "Usa"', () => {
   assert.strictEqual(textoEnvasePesoFr({ sinEnvase: true }), 'Sin envase: no suma costo ni avisa');
-  const cf = { ...CF_PROD, envasePorPeso: { 500: { sinEnvase: true } } };
+  const cf = { ...CF_PROD, envasePorPeso: { 500: { sinEnvase: true } } }; // casilla marcada (visible): el modal dice lo mismo que para un quitado
   const d = dialogo(), { run } = cargar({ document: { getElementById: id => (id === 'dlgEvProductos' ? d : null) } }, cf), q = s => d.querySelector(s);
   run('abrirProductosPesoFr')(500, { focus() {} });
   assert.strictEqual(q('.ev-prod-envase').textContent, 'Sin envase: no suma costo ni avisa');
@@ -647,4 +668,179 @@ test('textoEnvasePesoFr / abrirProductosPesoFr de un peso sin envase: "Sin envas
   assert.deepStrictEqual([q('.ev-prod-envase').textContent, q('.ev-prod-cuenta').textContent], ['Sin envase: no suma costo ni avisa', 'Mostrando 1 de 1']);
   run('abrirProductosPesoFr')(250, { focus() {} }); // sin la marca y sin sinEnvase guardado: la línea de siempre
   assert.strictEqual(q('.ev-prod-envase').textContent, 'Envase: Sin envase cargado');
+});
+
+// ── Casilla "No necesita bolsa ni bobina" (sinEnvase visible: la fila se queda en la tabla) ──
+// 250 guardado con la casilla; 750 también pero sin productos; el resto como CFG. Filas de la tabla: 250, 300, 500, 750, 1000, 1500.
+const CFG_CAS = { ...CFG, envasePorPeso: { 250: { sinEnvase: true }, 300: { bobinaG: 5 }, 500: { bolsaPlu: '901', bolsaNombre: 'Z', bolsaCosto: 9 }, 750: { sinEnvase: true },
+  1500: { bobinaG: 10 } } };
+const FILAS_CAS = [[250, '', '', true], [300, '', '5'], [500, '901', ''], [750, '', '', true], [1000, '', ''], [1500, '', '10']];
+const cuerpoDe = (run, ...a) => JSON.parse(JSON.stringify(run('cuerpoCambiosEnvaseFr')(...a)) ?? 'null');
+
+test('htmlPesosFr: cada fila trae la casilla "No necesita bolsa ni bobina" (label real, aria-label con el peso); sin marcar nada queda deshabilitado', () => {
+  const { run } = cargar();
+  const $ = $de(run('htmlPesosFr()'));
+  const l = $.find('tr[data-peso="250"] label.ev-sin-chk-l'), c = l.find('input[type=checkbox].ev-sin-chk');
+  assert.deepStrictEqual([l.text().trim(), c.length, c.attr('checked'), c.attr('aria-label')], ['No necesita bolsa ni bobina', 1, undefined, 'No necesita bolsa ni bobina: 250 g']);
+  assert.deepStrictEqual([$.find('#evTabla tbody .ev-sin-chk').length, $.find('#evTabla input[disabled], #evTabla button[disabled]').length], [5, 0]);
+  const nueva = $de(`<table><tbody>${run("htmlFilaPesoFr({ nuevo: 'n3', presentaciones: 0 })")}</tbody></table>`).find('tr[data-nuevo="n3"]');
+  assert.deepStrictEqual([nueva.find('.ev-sin-chk').attr('aria-label'), nueva.find('.ev-sin-chk').attr('checked'), nueva.find('label.ev-sin-chk-l').text().trim()],
+    ['No necesita bolsa ni bobina: la fila nueva', undefined, 'No necesita bolsa ni bobina']);
+});
+
+test('htmlPesosFr con pesos guardados con la casilla: siguen en la tabla marcados, con PLU, Buscar y gramos deshabilitados, "Sin envase" y "—"; la tira no los muestra', () => {
+  const { run } = cargar({}, CFG_CAS);
+  const $ = $de(run('htmlPesosFr()'));
+  assert.deepStrictEqual($.find('#evTabla tbody tr').toArray().map(tr => $.find(tr).attr('data-peso')), ['250', '300', '500', '750', '1000', '1500']);
+  for (const g of ['250', '750']) {
+    const tr = $.find(`tr[data-peso="${g}"]`);
+    assert.deepStrictEqual([tr.find('.ev-sin-chk').attr('checked') !== undefined, tr.find('[data-k="bolsaPlu"]').attr('disabled') !== undefined, tr.find('.ev-buscar').attr('disabled') !== undefined,
+      tr.find('[data-k="bobinaG"]').attr('disabled') !== undefined, tr.find('[data-k="bolsaPlu"]').attr('value'), tr.find('.ev-nota').text(), tr.find('.ev-bob').text(),
+      tr.find('.ev-quitar').attr('disabled')], [true, true, true, true, '', 'Sin envase', '—', undefined], g);
+  }
+  assert.deepStrictEqual([$.find('tr[data-peso="300"] [data-k="bolsaPlu"]').attr('disabled'), $.find('tr[data-peso="300"] .ev-sin-chk').attr('checked')], [undefined, undefined]);
+  assert.deepStrictEqual([$.find('#evSinEnvase').attr('hidden') !== undefined, $.find('#evSinEnvase .ev-sin-item').length], [true, 0]);
+  assert.strictEqual($.find('tr[data-peso="250"] .ev-prod-ver').text(), '3 productos'); // el botón del modal sigue
+});
+
+test('estadoEnvaseActualFr con la casilla: una fila marcada cuenta como resuelta; "todos resueltos" si hay marcadas y el resto está bien; "todos sin envase" si todas', () => {
+  const chip = cfg => JSON.parse(JSON.stringify(cargar({}, cfg).run('estadoEnvaseActualFr()')));
+  assert.deepStrictEqual(chip({ ...CFG, envasePorPeso: { 250: { sinEnvase: true }, 500: { bolsaPlu: '901', bolsaNombre: 'Z', bolsaCosto: 9 }, 1000: { bobinaG: 5 } } }), { texto: 'todos resueltos', estado: 'ok' });
+  assert.deepStrictEqual(chip({ ...CFG, envasePorPeso: { 250: { sinEnvase: true }, 500: { sinEnvase: true }, 1000: { sinEnvase: true } } }), { texto: 'todos sin envase', estado: 'info' });
+  assert.deepStrictEqual(chip({ ...CFG, envasePorPeso: { 250: { sinEnvase: true }, 500: { sinEnvase: true, oculto: true }, 1000: { bobinaG: 5 } } }), { texto: 'todos resueltos', estado: 'ok' });
+  assert.deepStrictEqual(chip({ ...CFG, envasePorPeso: { 250: { sinEnvase: true }, 500: { bolsaPlu: '901', bolsaNombre: 'Z', bolsaCosto: null }, 1000: { bobinaG: 5 } } }), { texto: '1 bolsa sin costo', estado: 'falta' });
+  assert.strictEqual(chip({ ...CFG, envasePorPeso: { 250: { sinEnvase: true } } }).texto, '2 sin bolsa ni bobina'); // 500 y 1000 sin nada; el 250 marcado no cuenta
+});
+
+test('la casilla: tildar deshabilita PLU, Buscar y gramos conservando lo tipeado, saca sus errores y pone "Sin envase" y "—"; destildar los habilita y recalcula; el foco queda en la casilla', () => {
+  const { run, ev } = cargar({ document: { getElementById: () => ({ value: '6000' }) } });
+  const card = tarjeta('6000', FILAS), tr = card.trs[0], plu = tr.inputs.bolsaPlu, g = tr.inputs.bobinaG, otra = card.trs[1].inputs.bobinaG;
+  run('conectarPesosFr')(card);
+  run('marcarErrorFr')(plu, 'El PLU lleva sólo dígitos'); run('marcarErrorFr')(g, 'Los gramos son un número');
+  otra.value = '7'; // lo tipeado en otra fila no se toca
+  tr.chk.checked = true; enFoco.el = tr.chk;
+  tr.chk.dispatchEvent({ type: 'input' });
+  assert.deepStrictEqual([plu.disabled, g.disabled, tr.buscar.disabled, plu.value, g.value, plu.attrs['aria-invalid'], g.attrs['aria-invalid'], plu.err.textContent, g.err.hidden],
+    [true, true, true, '900', '8', undefined, undefined, '', true]);
+  assert.deepStrictEqual([tr.celdas['.ev-nota'].innerHTML, tr.celdas['.ev-bob'].innerHTML, enFoco.el === tr.chk, otra.value, otra.disabled, ev.msg.at(-1)],
+    ['Sin envase', '<span class="text-gris">—</span>', true, '7', false, ['', undefined]]);
+  tr.chk.checked = false;
+  tr.chk.dispatchEvent({ type: 'input' });
+  assert.deepStrictEqual([plu.disabled, g.disabled, tr.buscar.disabled, plu.value, g.value], [false, false, false, '900', '8']); // lo tipeado vuelve
+  assert.match(tr.celdas['.ev-bob'].innerHTML, /\$ 48<\/b> <span[^>]*>por unidad/);
+  assert.match(tr.celdas['.ev-nota'].innerHTML, /\$ 20/);
+});
+
+test('cuerpoCambiosEnvaseFr con la casilla: marcada → { sinEnvase: true } sin bolsa ni bobina; guardada y sin tocar → nada; destildada → { sinEnvase: false, bolsaPlu, bobinaG }', () => {
+  const { run } = cargar(), pesos = CFG_CAS.pesos, epp = CFG_CAS.envasePorPeso;
+  const filas = (cambios = {}) => FILAS_CAS.map(([pesoG, plu, g, sin]) => ({ pesoG, plu, g, sin: !!sin, ...cambios[pesoG] }));
+  assert.strictEqual(cuerpoDe(run, '6000', filas(), 6000, epp, pesos), null); // todo como está guardado
+  // marcar un peso con envase (aunque tenga bolsa/bobina tipeada) y uno sin nada: sólo { sinEnvase: true }
+  assert.deepStrictEqual(cuerpoDe(run, '6000', filas({ 500: { sin: true }, 1000: { sin: true, plu: '77', g: '9' } }), 6000, epp, pesos),
+    { pesos: { 500: { sinEnvase: true }, 1000: { sinEnvase: true } } });
+  // destildar el 250 (guardado con la casilla) con lo que tengan los inputs: vacíos → null, o con valores
+  assert.deepStrictEqual(cuerpoDe(run, '6000', filas({ 250: { sin: false } }), 6000, epp, pesos), { pesos: { 250: { sinEnvase: false, bolsaPlu: null, bobinaG: null } } });
+  assert.deepStrictEqual(cuerpoDe(run, '6000', filas({ 750: { sin: false, plu: ' 77 ', g: '6' } }), 6000, epp, pesos), { pesos: { 750: { sinEnvase: false, bolsaPlu: '77', bobinaG: 6 } } });
+  // lo tipeado en los inputs de una fila marcada guardada no cuenta (están deshabilitados)
+  assert.strictEqual(cuerpoDe(run, '6000', filas({ 250: { plu: '5', g: '2' } }), 6000, epp, pesos), null);
+  // fila nueva con la casilla: { sinEnvase: true }
+  assert.deepStrictEqual(cuerpoDe(run, '6000', [...filas(), { nuevo: 'n1', pesoG: '800', plu: '', g: '', sin: true }], 6000, epp, pesos), { pesos: { 800: { sinEnvase: true } } });
+  // quitar con ✕ una fila marcada: con productos → quitado, sin productos → se borra
+  assert.deepStrictEqual(cuerpoDe(run, '6000', filas().filter(f => f.pesoG !== 250 && f.pesoG !== 750), 6000, epp, pesos),
+    { pesos: { 250: { sinEnvase: true, oculto: true }, 750: { bolsaPlu: null, bobinaG: null } } });
+  // un quitado guardado (oculto) que vuelve a la tabla: marcado → oculto: false; sin marcar → sinEnvase: false
+  const eppOculto = { ...epp, 500: { sinEnvase: true, oculto: true } };
+  const sin500 = filas().filter(f => f.pesoG !== 500);
+  assert.strictEqual(cuerpoDe(run, '6000', sin500, 6000, eppOculto, pesos), null);
+  assert.deepStrictEqual(cuerpoDe(run, '6000', [...sin500, { pesoG: 500, plu: '', g: '', sin: true }], 6000, eppOculto, pesos), { pesos: { 500: { sinEnvase: true, oculto: false } } });
+  assert.deepStrictEqual(cuerpoDe(run, '6000', [...sin500, { pesoG: 500, plu: '', g: '', sin: false }], 6000, eppOculto, pesos), { pesos: { 500: { sinEnvase: false, bolsaPlu: null, bobinaG: null } } });
+});
+
+test('guardarEnvaseFr: marcar la casilla manda { sinEnvase: true } sin bolsa ni bobina (aunque lo tipeado sea inválido); la fila sigue en la tabla marcada, el chip la cuenta resuelta', async () => {
+  const pedidos = [];
+  const srv = servidor(pedidos, { 250: { sinEnvase: true }, 300: { bobinaG: 5 }, 500: { bolsaPlu: '901', bolsaNombre: 'Z', bolsaCosto: 9 }, 1500: { bobinaG: 10 } });
+  const { run, ev } = cargar(srv.extra);
+  const card = tarjeta('6000', FILAS);
+  card.trs[0].inputs.bolsaPlu.value = 'abc'; card.trs[0].inputs.bobinaG.value = '9999'; // inválidos, pero con la casilla no cuentan
+  card.trs[0].chk.checked = true;
+  await run('guardarEnvaseFr')(card);
+  assert.deepStrictEqual(pedidos[0], ['PUT', 'envase', { pesos: { 250: { sinEnvase: true } } }]);
+  assert.deepStrictEqual(Object.keys(pedidos[0][2].pesos[250]), ['sinEnvase']);
+  const $ = $de(srv.repintado()), tr = $.find('tr[data-peso="250"]');
+  assert.deepStrictEqual([$.find('#evTabla tbody tr').length, tr.find('.ev-sin-chk').attr('checked') !== undefined, tr.find('[data-k="bolsaPlu"]').attr('disabled') !== undefined,
+    $.find('#evSinEnvase').attr('hidden') !== undefined, ev.msg.at(-1)[0], run('estadoEnvaseActualFr()').texto], [5, true, true, true, 'Guardado', '1 sin bolsa ni bobina']);
+});
+
+test('guardarEnvaseFr: una fila guardada con la casilla y sin tocar no manda nada; destildarla y cargar una bolsa manda { sinEnvase: false, bolsaPlu, bobinaG }', async () => {
+  const sin = [];
+  const { run: run0 } = cargar({ pedirEsq: async (...a) => { sin.push(a); return {}; } }, CFG_CAS);
+  await run0('guardarEnvaseFr')(tarjeta('6000', FILAS_CAS));
+  assert.strictEqual(sin.length, 0);
+  const pedidos = [];
+  const srv = servidor(pedidos, { 250: { bolsaPlu: '77', bolsaNombre: 'Z', bolsaCosto: 3 } });
+  const { run } = cargar(srv.extra, CFG_CAS);
+  const card = tarjeta('6000', FILAS_CAS);
+  card.trs[0].chk.checked = false; card.trs[0].inputs.bolsaPlu.value = '77';
+  await run('guardarEnvaseFr')(card);
+  assert.deepStrictEqual(pedidos[0], ['PUT', 'envase', { pesos: { 250: { sinEnvase: false, bolsaPlu: '77', bobinaG: null } } }]);
+});
+
+test('"+ Agregar peso" con la casilla marcada: el peso vale sin bolsa ni bobina y se guarda { sinEnvase: true }; sin casilla y vacío sigue siendo error', async () => {
+  const pedidos = [];
+  const srv = servidor(pedidos, { 250: { bolsaPlu: '900', bolsaNombre: 'Z', bolsaCosto: 20, bobinaG: 8 }, 800: { sinEnvase: true } });
+  const { run } = cargar(srv.extra);
+  const card = tarjeta('6000', FILAS);
+  run('agregarPesoFr')(card);
+  card.trs.at(-1).inputs.pesoG.value = '800';
+  await run('guardarEnvaseFr')(card);
+  assert.strictEqual(pedidos.length, 0);
+  assert.match(card.trs.at(-1).inputs.bolsaPlu.err.textContent, /tildá «No necesita bolsa ni bobina»/);
+  card.trs.at(-1).chk.checked = true;
+  await run('guardarEnvaseFr')(card);
+  assert.deepStrictEqual(pedidos[0], ['PUT', 'envase', { pesos: { 800: { sinEnvase: true } } }]);
+});
+
+test('ponerPesoFr: un peso guardado quitado (oculto) vuelve con la casilla SIN marcar y vacío; si lo marcan se guarda { sinEnvase: true, oculto: false }; uno con la casilla quitado sin guardar vuelve marcado', async () => {
+  const pedidos = [];
+  const srv = servidor(pedidos, { 500: { sinEnvase: true } });
+  const { run } = cargar(srv.extra, CFG_SIN);
+  const card = tarjeta('6000', FILAS_SIN);
+  run('ponerPesoFr')(card, 500);
+  assert.deepStrictEqual([card.trs[2].chk.checked, card.trs[2].inputs.bolsaPlu.disabled, card.trs[2].inputs.bolsaPlu.value], [false, false, '']);
+  card.trs[2].chk.checked = true;
+  await run('guardarEnvaseFr')(card);
+  assert.deepStrictEqual(pedidos[0], ['PUT', 'envase', { pesos: { 500: { sinEnvase: true, oculto: false } } }]);
+  // deshacer: el 250 estaba guardado con la casilla, lo quitan (va a la tira) y lo vuelven a poner → marcado y deshabilitado, y guardar no manda nada
+  const sin = [];
+  const { run: run2 } = cargar({ pedirEsq: async (...a) => { sin.push(a); return {}; } }, CFG_CAS);
+  const c2 = tarjeta('6000', FILAS_CAS);
+  run2('quitarPesoFr')(c2, c2.trs[0]);
+  assert.deepStrictEqual([nombresTira(c2), c2.quitados.textContent.slice(0, 19)], [['250 g'], 'Quitaste 250 g: sus']);
+  run2('ponerPesoFr')(c2, 250);
+  assert.deepStrictEqual([c2.trs[0].chk.checked, c2.trs[0].inputs.bolsaPlu.disabled, c2.trs[0].inputs.bobinaG.disabled, c2.trs[0].buscar.disabled], [true, true, true, true]);
+  assert.strictEqual(enFoco.el, c2.trs[0].chk); // el PLU está deshabilitado: el foco va a la casilla
+  await run2('guardarEnvaseFr')(c2);
+  assert.strictEqual(sin.length, 0);
+});
+
+test('quitar con ✕ una fila guardada con la casilla: con productos va a la tira y manda { sinEnvase: true, oculto: true }; sin productos se borra (null/null)', async () => {
+  const pedidos = [];
+  const srv = servidor(pedidos, { 250: { sinEnvase: true, oculto: true }, 300: { bobinaG: 5 }, 500: { bolsaPlu: '901', bolsaNombre: 'Z', bolsaCosto: 9 }, 1500: { bobinaG: 10 } });
+  const { run } = cargar(srv.extra, CFG_CAS);
+  const card = tarjeta('6000', FILAS_CAS);
+  run('quitarPesoFr')(card, card.trs[0]); // 250: 3 productos
+  run('quitarPesoFr')(card, card.trs[2]); // 750 (el 250 ya no está): sin productos
+  assert.deepStrictEqual([nombresTira(card), card.quitados.textContent], [['250 g'],
+    'Quitaste 250 g: sus 3 productos se costean sin envase y sin aviso al guardar. Quitaste 750 g: se saca de la lista al guardar.']);
+  await run('guardarEnvaseFr')(card);
+  assert.deepStrictEqual(pedidos[0], ['PUT', 'envase', { pesos: { 250: { sinEnvase: true, oculto: true }, 750: { bolsaPlu: null, bobinaG: null } } }]);
+  const $ = $de(srv.repintado());
+  assert.deepStrictEqual([$.find('#evTabla tbody tr').toArray().map(t => $.find(t).attr('data-peso')), $.find('#evSinEnvase .ev-sin-item b').text()], [['300', '500', '1000', '1500'], '250 g']);
+});
+
+test('abrirProductosPesoFr de un peso con la casilla (sinEnvase visible): "Sin envase: no suma costo ni avisa" y sus productos sin la línea "Usa"', () => {
+  const d = dialogo(), { run } = cargar({ document: { getElementById: id => (id === 'dlgEvProductos' ? d : null) } }, { ...CF_PROD, envasePorPeso: { 500: { sinEnvase: true } } });
+  run('abrirProductosPesoFr')(500, { focus() {} }); // abierto desde la tabla (sin la marca de la tira)
+  const lista = $de(d.querySelector('.ev-prod-cuerpo').innerHTML);
+  assert.deepStrictEqual([d.querySelector('.ev-prod-envase').textContent, lista.find('li').length, /Usa:/.test(lista.text())], ['Sin envase: no suma costo ni avisa', 4, false]);
 });

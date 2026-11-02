@@ -438,7 +438,7 @@
   .ev-bobina{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px}
   .ev-hint{font-size:12.5px;line-height:1.45;color:#5c5f52;max-width:60ch}
   .ev-tabla{table-layout:fixed;max-width:64rem} /* anchos fijos: las filas no se corren al aparecer un aviso */
-  .ev-tabla th:nth-child(1){width:9.5rem}
+  .ev-tabla th:nth-child(1){width:13rem} /* el peso y, debajo, la casilla "No necesita bolsa ni bobina" en una línea */
   .ev-tabla th:nth-child(2){width:23rem}
   .ev-tabla th:nth-child(4){width:5.5rem}
   .ev-tabla th{text-align:left;text-transform:none;letter-spacing:0;vertical-align:bottom}
@@ -454,7 +454,13 @@
   .ev-err{display:block;margin-top:4px;font-size:12px;font-weight:600;color:#a4262c}
   .ev-err[hidden]{display:none}
   .ev-vacio{margin:6px 0 0 28px;font-size:13px;color:#5c5f52;max-width:80ch}
-  /* Agregar / quitar pesos: fila nueva destacada con su chip, ✕ discreto en cada fila, aviso de lo quitado y la tira "Pesos sin envase" (#evSinEnvase) bajo la tabla */
+  /* Casilla "No necesita bolsa ni bobina" (bajo el peso): marcada deshabilita la bolsa y la bobina de la fila (los .campo-u:has(input:disabled) y .cfg-btn2:disabled ya se atenúan) */
+  .ev-sin-chk-l{display:flex;align-items:center;gap:6px;margin-top:2px;padding:4px 0;font-size:12px;line-height:16px;color:#3d4136;cursor:pointer}
+  .ev-sin-chk{flex:none;width:14px;height:14px;margin:0;accent-color:#405936;cursor:pointer}
+  .ev-sin-chk:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  .ev-sin-chk-l:has(:checked){font-weight:600;color:#242423}
+  #frPesos .num-in:disabled{opacity:.45;background:#f5f8f1;cursor:not-allowed}
+  /* Agregar / quitar pesos: fila nueva destacada con su chip, ✕ discreto en cada fila, aviso de lo quitado y la tira "Pesos quitados de la tabla" (#evSinEnvase) bajo la tabla */
   .fr-filas tbody tr.ev-nueva,.fr-filas tbody tr.ev-nueva:hover{background:rgba(64,89,54,.07)}
   .ev-chip-nuevo{margin-top:4px;background:#dff6dd;color:#0e700e;font-size:11px;font-weight:600}
   .ev-tabla td.ev-acc{padding-right:0;text-align:right;white-space:nowrap}

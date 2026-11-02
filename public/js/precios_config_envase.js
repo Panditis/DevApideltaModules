@@ -9,21 +9,26 @@
 // el servidor) y el costo por unidad de la bobina se recalcula al tipear, sin guardar. El PUT devuelve el envase crudo (sin el nombre ni el
 // costo de la bolsa): después de guardar se recargan pesos y envasePorPeso del GET /costeo. Enter en un campo no hace nada (la tarjeta no
 // es un <form>): guardar es siempre el botón. El buscador de bolsas es el diálogo #dlgFP de precios.html (sólo elige un producto de SIGA).
-// La lista de pesos sale de las presentaciones; encima se puede AGREGAR un peso a mano (fila nueva con el peso tipeable: sin envase no se
-// guarda) y QUITAR cualquiera con el ✕ (la fila sale de la tabla y queda pendiente hasta Guardar). Un peso SIN productos se borra
-// (null/null). Un peso CON productos no puede desaparecer (lo arman ellos): queda "sin envase" ({ sinEnvase: true }, el servidor borra su
-// bolsa y bobina), sus productos se costean sin envase y sin aviso, y pasa a la tira "Pesos sin envase" (#evSinEnvase) bajo la tabla, desde
-// donde se lo puede "Volver a poner" (fila vacía y editable; si estaba guardado sin envase, el PUT manda sinEnvase: false). Lo quitado se
+// La lista de pesos sale de las presentaciones; encima se puede AGREGAR un peso a mano (fila nueva con el peso tipeable: sin bolsa, bobina ni la
+// casilla "No necesita bolsa ni bobina" no se guarda) y QUITAR cualquiera con el ✕ (la fila sale de la tabla y queda pendiente hasta Guardar). Un peso SIN productos se borra
+// (null/null). Un peso CON productos no puede desaparecer (lo arman ellos): queda quitado ({ sinEnvase: true, oculto: true }, el servidor borra su
+// bolsa y bobina), sus productos se costean sin envase y sin aviso, y pasa a la tira "Pesos quitados de la tabla" (#evSinEnvase) bajo la tabla, desde
+// donde se lo puede "Volver a poner" (fila vacía y editable; si estaba guardado quitado, el PUT manda sinEnvase: false). Lo quitado se
 // deduce de la tabla: un peso con envase guardado, o con productos, que ya no tiene fila (pesosQuitadosFr), así que quitar + agregar el
 // mismo peso SIN productos es un reemplazo; uno con productos que está en la tira no se puede agregar a mano (hay que "Volver a poner").
+// Hay DOS formas de "sin envase", que costean igual (sin envase y sin aviso): la casilla "No necesita bolsa ni bobina" de la fila (el peso se queda
+// en la tabla, con la bolsa y la bobina deshabilitadas: { sinEnvase: true }) y el quitado (fuera de la tabla: { sinEnvase: true, oculto: true }).
+// Marcada la casilla, lo tipeado en bolsa y bobina se conserva en los inputs (si la destildan vuelve) pero no se valida ni se manda.
 // La cantidad "34 productos" de la celda del peso es un botón: abre el modal #dlgEvProductos con cuáles son (los de cfFr.subrubrosSiga y
 // cfFr.sinSubrubro con ese pesoG, los mismos que cuenta cfFr.pesos) y un buscador. Muestra lo GUARDADO (cfFr), no lo tipeado sin guardar.
 const BOBINA_G_MAX_FR = 1000;
 const COSTO_BOBINA_MAX_FR = 1e7;
 const PESO_MAX_FR = 999999; // peso de un envase: gramos enteros de hasta 6 cifras (espejo del servidor)
 const PESO_REPETIDO_FR = 'Ese peso ya está en la lista';
-const PESO_EN_TIRA_FR = 'Ese peso está en «Pesos sin envase»: usá «Volver a poner»';
+const PESO_EN_TIRA_FR = 'Ese peso está en «Pesos quitados de la tabla»: usá «Volver a poner»';
 const SIN_ENVASE_TXT_FR = 'Sin envase: no suma costo ni avisa';
+const SIN_NOTA_FR = 'Sin envase'; // bajo el PLU de una fila con la casilla "No necesita bolsa ni bobina" marcada
+const CASILLA_SIN_FR = 'No necesita bolsa ni bobina';
 const PLU_BOLSA_FR = /^\d{1,12}$/;
 
 // ── Puros (test/precios_config_envase_ui.test.js) ──
@@ -42,7 +47,7 @@ const errorCostoBobinaFr = txt => {
   return s !== '' && !(Number.isFinite(n) && n > 0 && n <= COSTO_BOBINA_MAX_FR) ? 'El costo de bobina es un número mayor que 0 ($ por kg), o vacío para sacarlo' : null;
 };
 // Peso (texto) de una fila agregada a mano: obligatorio, gramos enteros de 1 a PESO_MAX_FR y que no esté ya en la lista (yaEstan = Set de
-// pesos en número) ni estar en la tira "Pesos sin envase" (enTira, otro Set: ahí se usa "Volver a poner"). null si está bien; si no { campo: 'pesoG', mensaje }.
+// pesos en número) ni estar en la tira "Pesos quitados de la tabla" (enTira, otro Set: ahí se usa "Volver a poner"). null si está bien; si no { campo: 'pesoG', mensaje }.
 function errorPesoNuevoFr(txt, yaEstan, enTira = new Set()) {
   const s = String(txt).trim(), n = Number(s);
   if (s === '') return { campo: 'pesoG', mensaje: 'Escribí el peso, en gramos' };
@@ -50,13 +55,14 @@ function errorPesoNuevoFr(txt, yaEstan, enTira = new Set()) {
   if (yaEstan.has(n)) return { campo: 'pesoG', mensaje: PESO_REPETIDO_FR };
   return enTira.has(n) ? { campo: 'pesoG', mensaje: PESO_EN_TIRA_FR } : null;
 }
-// Un peso sin bolsa ni bobina no existe (el servidor lo borra): la fila nueva tiene que traer alguno de los dos.
-const errorNuevoSinEnvaseFr = f => (!String(f.plu).trim() && !String(f.g).trim()
-  ? { campo: 'bolsaPlu', mensaje: 'Cargá la bolsa o la bobina de este peso, o quitá la fila' } : null);
+// Un peso sin bolsa ni bobina no existe (el servidor lo borra): la fila nueva tiene que traer alguno de los dos o la casilla "No necesita bolsa ni bobina" (f.sin).
+const errorNuevoSinEnvaseFr = f => (!f.sin && !String(f.plu).trim() && !String(f.g).trim()
+  ? { campo: 'bolsaPlu', mensaje: 'Cargá la bolsa o la bobina de este peso, tildá «No necesita bolsa ni bobina», o quitá la fila' } : null);
 // Todo lo que está mal antes de guardar, en el orden de la pantalla: [{ campo: 'costoBobinaKg' | 'pesoG' | 'bolsaPlu' | 'bobinaG', pesoG?, nuevo?, mensaje }].
-// filas = [{ pesoG, plu, g, nuevo? }] con el texto de cada input; el PLU y los gramos de una fila se marcan por separado. Una fila agregada a mano
-// trae nuevo (su id) y su pesoG es lo tipeado: no puede repetir un peso de la tabla ni el de otra fila nueva (los quitados ya no están en filas)
-// ni uno de la tira "Pesos sin envase" (enTira: Set de pesos en número, opcional).
+// filas = [{ pesoG, plu, g, sin?, nuevo? }] con el texto de cada input y la casilla (sin); el PLU y los gramos de una fila se marcan por separado, salvo con la
+// casilla marcada (esos campos están deshabilitados y no se mandan: no se validan). Una fila agregada a mano trae nuevo (su id) y su pesoG es lo
+// tipeado: no puede repetir un peso de la tabla ni el de otra fila nueva (los quitados ya no están en filas) ni uno de la tira
+// "Pesos quitados de la tabla" (enTira: Set de pesos en número, opcional).
 function erroresEnvaseFr(costoTxt, filas, enTira) {
   const errores = [], costo = errorCostoBobinaFr(costoTxt), yaEstan = new Set(filas.filter(f => !f.nuevo).map(f => Number(f.pesoG)));
   if (costo) errores.push({ campo: 'costoBobinaKg', mensaje: costo });
@@ -64,27 +70,28 @@ function erroresEnvaseFr(costoTxt, filas, enTira) {
     const peso = f.nuevo ? errorPesoNuevoFr(f.pesoG, yaEstan, enTira) : null;
     if (f.nuevo && !peso) yaEstan.add(Number(f.pesoG));
     const sinEnvase = f.nuevo && !peso ? errorNuevoSinEnvaseFr(f) : null;
-    [peso, errorEnvaseFr(f.plu, ''), errorEnvaseFr('', f.g), sinEnvase].forEach(e => { if (e) errores.push({ ...e, pesoG: f.pesoG, nuevo: f.nuevo }); });
+    [peso, f.sin ? null : errorEnvaseFr(f.plu, ''), f.sin ? null : errorEnvaseFr('', f.g), sinEnvase].forEach(e => { if (e) errores.push({ ...e, pesoG: f.pesoG, nuevo: f.nuevo }); });
   });
   return errores;
 }
 // { pesoG: presentaciones } de cfFr.pesos (viene del universo: incluye los pesos sin envase).
 const presentacionesPorPesoFr = pesos => Object.fromEntries((pesos || []).map(p => [p.pesoG, p.presentaciones]));
 // Pesos quitados de la tabla que todavía no se guardaron (ascendente): los que tienen envase guardado o productos y ya no tienen fila. Uno sin
-// productos se borra al guardar (null/null); uno con productos queda sin envase ({ sinEnvase: true }). Los que YA están guardados sin envase no
-// cuentan: no hay nada que guardar. pesos = cfFr.pesos (para saber cuáles tienen productos; sin él sólo cuentan los de envasePorPeso).
+// productos se borra al guardar (null/null); uno con productos queda quitado ({ sinEnvase: true, oculto: true }). Los que YA están guardados
+// quitados (oculto) no cuentan: no hay nada que guardar. Uno guardado con la casilla marcada (sinEnvase visible) sí: si se saca de la tabla se quita.
+// pesos = cfFr.pesos (para saber cuáles tienen productos; sin él sólo cuentan los de envasePorPeso).
 function pesosQuitadosFr(filas, envasePorPeso, pesos) {
   const quedan = new Set(filas.map(f => Number(f.pesoG))), epp = envasePorPeso || {}, n = presentacionesPorPesoFr(pesos);
   const candidatos = [...Object.keys(epp), ...Object.keys(n).filter(g => n[g] > 0)].map(Number);
-  return [...new Set(candidatos)].filter(g => !quedan.has(g) && !(epp[g] && epp[g].sinEnvase)).sort((a, b) => a - b);
+  return [...new Set(candidatos)].filter(g => !quedan.has(g) && !(epp[g] && epp[g].oculto)).sort((a, b) => a - b);
 }
-// Pesos "sin envase": los guardados con sinEnvase y los con productos que ya no tienen fila en la tabla (quitados con ✕, pendientes de guardar).
-// [{ pesoG, presentaciones, guardado }] ascendente; guardado = ya viene así del servidor. Una fila NUEVA con ese peso no cuenta como fila: es un
-// error al guardar (hay que "Volver a poner"). filas = las de la tabla; guardadas = filasPesosFr(...).
+// Pesos de la tira "Pesos quitados de la tabla": los guardados quitados (oculto) y los con productos que ya no tienen fila en la tabla (quitados con ✕,
+// pendientes de guardar). [{ pesoG, presentaciones, guardado }] ascendente; guardado = ya viene así del servidor. Una fila NUEVA con ese peso no cuenta
+// como fila: es un error al guardar (hay que "Volver a poner"). filas = las de la tabla; guardadas = filasPesosFr(...).
 function pesosSinEnvaseFr(filas, guardadas) {
   const quedan = new Set(filas.filter(f => !f.nuevo).map(f => Number(f.pesoG)));
-  return guardadas.filter(f => !quedan.has(f.pesoG) && (f.sinEnvase || f.presentaciones))
-    .map(f => ({ pesoG: f.pesoG, presentaciones: f.presentaciones, guardado: !!f.sinEnvase }));
+  return guardadas.filter(f => !quedan.has(f.pesoG) && (f.oculto || f.presentaciones))
+    .map(f => ({ pesoG: f.pesoG, presentaciones: f.presentaciones, guardado: !!f.oculto }));
 }
 // Lo que pasa con los productos de un peso quitado, para el aviso y el ✕: "su producto se costea" / "sus 34 productos se costean".
 const efectoQuitarFr = n => (n === 1 ? 'su producto se costea' : `sus ${n} productos se costean`);
@@ -97,24 +104,27 @@ function textoQuitadosFr(pesos, presentaciones = {}) {
     sin.length && `Quitaste ${lista(sin)}: ${sin.length === 1 ? 'se saca' : 'se sacan'} de la lista al guardar.`].filter(Boolean).join(' ');
 }
 // Body del PUT /envase con sólo lo que cambió respecto de lo guardado (costoGuardado, envasePorPeso con claves string, pesos = cfFr.pesos); null si no cambió nada.
-// Quitado sin productos: los dos campos null (el servidor borra el peso); quitado con productos: { sinEnvase: true }; un peso guardado sin envase que vuelve
-// a la tabla: { sinEnvase: false, bolsaPlu, bobinaG } con lo que tengan los inputs; uno nuevo o editado, con su envase; el vaciado, igual que el quitado sin productos.
-// Un peso sin envase que no se tocó no se manda.
+// Quitado sin productos: los dos campos null (el servidor borra el peso); quitado con productos: { sinEnvase: true, oculto: true }; fila con la casilla
+// "No necesita bolsa ni bobina" marcada (f.sin): { sinEnvase: true } sin bolsa ni bobina (un quitado guardado que vuelve a la tabla marcado agrega oculto: false,
+// porque sin eso conserva el que tenía); un peso guardado sin envase (casilla o quitado) con la casilla destildada: { sinEnvase: false, bolsaPlu, bobinaG } con lo
+// que tengan los inputs; uno nuevo o editado, con su envase; el vaciado, igual que el quitado sin productos. Un peso sin envase que no se tocó no se manda.
 function cuerpoCambiosEnvaseFr(costoTxt, filas, costoGuardado, envasePorPeso, pesos) {
   const body = {}, costo = numOrNull(costoTxt), cambios = {}, epp = envasePorPeso || {}, n = presentacionesPorPesoFr(pesos);
   if (costo !== (costoGuardado ?? null)) body.costoBobinaKg = costo;
   filas.forEach(f => {
     const pesoG = Number(f.pesoG), antes = epp[pesoG] || {}, ahora = cuerpoEnvaseFr(f.plu, f.g);
-    if (antes.sinEnvase) cambios[pesoG] = { sinEnvase: false, ...ahora };
+    if (f.sin) { if (!antes.sinEnvase) cambios[pesoG] = { sinEnvase: true }; else if (antes.oculto) cambios[pesoG] = { sinEnvase: true, oculto: false }; }
+    else if (antes.sinEnvase) cambios[pesoG] = { sinEnvase: false, ...ahora };
     else if (ahora.bolsaPlu !== (antes.bolsaPlu ?? null) || ahora.bobinaG !== (antes.bobinaG ?? null)) cambios[pesoG] = ahora;
   });
-  pesosQuitadosFr(filas, epp, pesos).forEach(g => { cambios[g] = n[g] > 0 ? { sinEnvase: true } : { bolsaPlu: null, bobinaG: null }; });
+  pesosQuitadosFr(filas, epp, pesos).forEach(g => { cambios[g] = n[g] > 0 ? { sinEnvase: true, oculto: true } : { bolsaPlu: null, bobinaG: null }; });
   if (Object.keys(cambios).length) body.pesos = cambios;
   return Object.keys(body).length ? body : null;
 }
 // Filas: los pesos del universo (pesos del GET /costeo) + los configurados que ya no tienen presentaciones (0), ascendente, cada uno con su envase
-// (envasePorPeso: claves string, { bolsaPlu?, bobinaG?, bolsaNombre?, bolsaCosto? } o { sinEnvase: true }). El flag sinEnvase llega a la fila (sólo
-// cuando es true: el servidor no manda false); la tabla muestra las que no lo tienen y la tira "Pesos sin envase", las que sí.
+// (envasePorPeso: claves string, { bolsaPlu?, bobinaG?, bolsaNombre?, bolsaCosto? } o { sinEnvase: true, oculto?: true }). Los flags sinEnvase y oculto llegan a
+// la fila (sólo cuando son true: el servidor no manda false); la tabla muestra las que no son oculto (las sinEnvase con la casilla marcada) y la tira
+// "Pesos quitados de la tabla", las oculto.
 const filasPesosFr = (pesos, envasePorPeso) => {
   const epp = envasePorPeso || {}, n = new Map((pesos || []).map(p => [Number(p.pesoG), p.presentaciones]));
   return [...new Set([...n.keys(), ...Object.keys(epp).map(Number)])].sort((a, b) => a - b)
@@ -134,17 +144,18 @@ function infoBolsaFr(plu, f, elegidos = {}) {
   if (f.bolsaNombre == null) return { tipo: 'noSiga' };
   return { tipo: f.bolsaCosto == null ? 'sinCosto' : 'ok', nombre: f.bolsaNombre, costo: f.bolsaCosto };
 }
-// Chip "Envase" de la barra de estado (filas de filasPesosFr), el primero que aplique: { texto, estado }. Cuenta sólo las filas visibles de la tabla:
-// un peso sin envase a propósito (f.sinEnvase) no es "sin bolsa ni bobina". Si todos son así: info "todos sin envase".
+// Chip "Envase" de la barra de estado (filas de filasPesosFr), el primero que aplique: { texto, estado }. Cuenta sólo las filas visibles de la tabla (las
+// quitadas, oculto, no): una con la casilla "No necesita bolsa ni bobina" (f.sinEnvase) es a propósito, así que no es "sin bolsa ni bobina" ni "bolsa sin
+// costo". Si ninguna fila necesita envase: info "todos sin envase"; si todas están resueltas pero alguna tiene la casilla: "todos resueltos" (no "con envase").
 function estadoEnvaseFr(todas, costoBobinaKg) {
-  const filas = todas.filter(f => !f.sinEnvase);
+  const visibles = todas.filter(f => !f.oculto), filas = visibles.filter(f => !f.sinEnvase);
   const sinCostoBolsa = filas.filter(f => f.bolsaPlu && f.bolsaCosto == null).length, sinNada = filas.filter(f => !f.bolsaPlu && !f.bobinaG).length;
   if (!todas.length) return { texto: 'sin pesos', estado: 'info' };
   if (!filas.length) return { texto: 'todos sin envase', estado: 'info' };
   if (costoBobinaKg == null && filas.some(f => f.bobinaG)) return { texto: 'falta costo de bobina', estado: 'falta' };
   if (sinCostoBolsa) return { texto: `${sinCostoBolsa} bolsa${sinCostoBolsa === 1 ? '' : 's'} sin costo`, estado: 'falta' };
   if (sinNada) return { texto: `${sinNada} sin bolsa ni bobina`, estado: 'info' };
-  return { texto: 'todos con envase', estado: 'ok' };
+  return { texto: filas.length < visibles.length ? 'todos resueltos' : 'todos con envase', estado: 'ok' };
 }
 // Productos de un peso (cf = cfFr): las presentaciones con ese pesoG de todos los graneles (con y sin subrubro), por nombre A→Z. envase = el que
 // elige su granel en cf.porGranel (sin elegir, bolsa).
@@ -188,42 +199,46 @@ function htmlCostoBobinaFr(gramos, costoKg) {
   const c = costoBobinaUnidadFr(gramos, costoKg);
   return c == null ? faltaFr('falta el costo de bobina') : `<b class="whitespace-nowrap tabular-nums">$ ${fmtMoney(c)}</b> <span class="text-gris">por unidad</span>`;
 }
-// Bajo el peso: "34 productos" como botón que abre la lista (#dlgEvProductos); sin productos, texto plano. sinEnvase: el botón de la tira "Pesos sin envase".
+// Bajo el peso: "34 productos" como botón que abre la lista (#dlgEvProductos); sin productos, texto plano. sinEnvase: el botón de la tira "Pesos quitados de la tabla".
 function htmlProductosPesoFr(f, sinEnvase = false) {
   if (!f.presentaciones) return `<span>${esc(productosFr(0))}</span>`;
   const cuales = f.presentaciones === 1 ? 'el producto' : `los ${f.presentaciones} productos`;
   return `<button type="button" class="ev-prod-ver" data-prod-peso="${f.pesoG}"${sinEnvase ? ' data-sin-envase' : ''} aria-haspopup="dialog" aria-label="Ver ${cuales} de ${esc(pesoCortoFr(f.pesoG))}">${esc(productosFr(f.presentaciones))}</button>`;
 }
-// Celda del peso: el peso con sus productos o, en una fila nueva, el input para tipearlo (gramos enteros) con el chip "nuevo".
-function htmlCeldaPesoFr(f, k) {
-  if (!f.nuevo) return `<td class="fr-peso${f.presentaciones ? '' : ' fr-peso-vacio'}"><b>${esc(pesoCortoFr(f.pesoG))}</b>${htmlProductosPesoFr(f)}</td>`;
+// Casilla de la fila, bajo el peso: "No necesita bolsa ni bobina" (vale para todos los productos de ese peso). Marcada, la bolsa y la bobina de la fila quedan
+// deshabilitadas (alternarSinEnvaseFr) y el peso se guarda { sinEnvase: true }. El aria-label repite el texto visible y suma de qué fila es.
+const htmlCasillaSinFr = (f, peso) => `<label class="ev-sin-chk-l" title="Vale para todos los productos de este peso: se costean sin envase y sin aviso">
+  <input type="checkbox" class="ev-sin-chk" aria-label="${CASILLA_SIN_FR}: ${peso}"${f.sinEnvase ? ' checked' : ''}>${CASILLA_SIN_FR}</label>`;
+// Celda del peso: el peso con sus productos o, en una fila nueva, el input para tipearlo (gramos enteros) con el chip "nuevo"; los dos con la casilla debajo.
+function htmlCeldaPesoFr(f, k, casilla) {
+  if (!f.nuevo) return `<td class="fr-peso${f.presentaciones ? '' : ' fr-peso-vacio'}"><b>${esc(pesoCortoFr(f.pesoG))}</b>${htmlProductosPesoFr(f)}${casilla}</td>`;
   return `<td class="ev-campo"><div class="ev-peso-fila">${campoU(`<input type="number" min="1" max="${PESO_MAX_FR}" step="1" data-k="pesoG" placeholder="ej. 750"
       aria-label="Peso en gramos de la fila nueva" aria-describedby="evErrPeso-${k}">`, 'g', { w: 'w-28' })}</div>
-    <span class="fp-chip ev-chip-nuevo">nuevo</span><span class="ev-err" id="evErrPeso-${k}" hidden></span></td>`;
+    <span class="fp-chip ev-chip-nuevo">nuevo</span><span class="ev-err" id="evErrPeso-${k}" hidden></span>${casilla}</td>`;
 }
 // Último botón de la fila: ✕ que la saca de la tabla; el aria-label y el title dicen el efecto. Fila nueva: se descarta. Peso sin productos: al guardar
-// se borra su envase. Peso con productos: sus productos se costean sin envase y sin aviso (pasa a la tira "Pesos sin envase", de donde se vuelve a poner).
+// se borra su envase. Peso con productos: sus productos se costean sin envase y sin aviso (pasa a la tira "Pesos quitados de la tabla", de donde se vuelve a poner).
 function htmlAccionFilaFr(f) {
   const quien = f.nuevo ? 'la fila nueva' : `el peso ${esc(pesoCortoFr(f.pesoG))}`, efecto = f.presentaciones ? efectoQuitarFr(f.presentaciones) + ' sin envase' : '';
   const titulo = f.nuevo ? 'Quitar esta fila' : f.presentaciones ? `Quitar este peso: ${efecto} y sin aviso. Después lo podés volver a poner` : 'Quitar este peso de la lista: al guardar se borra su envase';
   return `<button type="button" class="ev-quitar btn-quitar" aria-label="Quitar ${quien}${efecto ? `: ${efecto}` : ''}" title="${titulo}">✕</button>`;
 }
-// Una fila. f = { pesoG, presentaciones, bolsaPlu?, bobinaG?, bolsaNombre?, bolsaCosto? } o, agregada a mano, { nuevo: 'n1', presentaciones: 0 } (sin pesoG:
-// se tipea en su primera celda, así que los ids de aria no salen de él).
+// Una fila. f = { pesoG, presentaciones, bolsaPlu?, bobinaG?, bolsaNombre?, bolsaCosto?, sinEnvase? } o, agregada a mano, { nuevo: 'n1', presentaciones: 0 } (sin pesoG:
+// se tipea en su primera celda, así que los ids de aria no salen de él). Con sinEnvase la casilla va marcada y la bolsa y la bobina deshabilitadas, con "Sin envase" y "—".
 function htmlFilaPesoFr(f) {
-  const k = f.nuevo || f.pesoG, peso = f.nuevo ? 'la fila nueva' : esc(pesoCortoFr(f.pesoG));
-  return `<tr ${f.nuevo ? `class="ev-nueva" data-nuevo="${k}"` : `data-peso="${k}"`}>${htmlCeldaPesoFr(f, k)}
+  const k = f.nuevo || f.pesoG, peso = f.nuevo ? 'la fila nueva' : esc(pesoCortoFr(f.pesoG)), dis = f.sinEnvase ? ' disabled' : '';
+  return `<tr ${f.nuevo ? `class="ev-nueva" data-nuevo="${k}"` : `data-peso="${k}"`}>${htmlCeldaPesoFr(f, k, htmlCasillaSinFr(f, peso))}
     <td class="ev-campo"><div class="ev-plu-fila"><input type="text" inputmode="numeric" autocomplete="off" class="num-in text-left ev-plu" data-k="bolsaPlu" value="${esc(f.bolsaPlu || '')}"
-        placeholder="ej. 4521" aria-label="PLU de la bolsa de ${peso}" aria-describedby="evNota-${k} evErrPlu-${k}">
-      <button type="button" class="ev-buscar cfg-btn2" aria-label="Buscar la bolsa de ${peso} en SIGA">Buscar</button></div>
-      <span class="ev-nota" id="evNota-${k}">${htmlNotaBolsaFr(infoBolsaFr(f.bolsaPlu || '', f))}</span><span class="ev-err" id="evErrPlu-${k}" hidden></span></td>
+        placeholder="ej. 4521" aria-label="PLU de la bolsa de ${peso}" aria-describedby="evNota-${k} evErrPlu-${k}"${dis}>
+      <button type="button" class="ev-buscar cfg-btn2" aria-label="Buscar la bolsa de ${peso} en SIGA"${dis}>Buscar</button></div>
+      <span class="ev-nota" id="evNota-${k}">${f.sinEnvase ? SIN_NOTA_FR : htmlNotaBolsaFr(infoBolsaFr(f.bolsaPlu || '', f))}</span><span class="ev-err" id="evErrPlu-${k}" hidden></span></td>
     <td class="ev-campo ev-col-bobina"><div class="ev-bob-fila">${campoU(`<input type="number" min="0" max="${BOBINA_G_MAX_FR}" step="any" data-k="bobinaG" value="${esc(f.bobinaG ?? '')}"
-        placeholder="ej. 8" aria-label="Gramos de bolsa para ${peso} (por bobina)" aria-describedby="evBob-${k} evErrG-${k}">`, 'g', { w: 'w-28' })}
-      <span class="ev-bob" id="evBob-${k}">${htmlCostoBobinaFr(f.bobinaG, cfFr.costoBobinaKg)}</span></div><span class="ev-err" id="evErrG-${k}" hidden></span></td>
+        placeholder="ej. 8" aria-label="Gramos de bolsa para ${peso} (por bobina)" aria-describedby="evBob-${k} evErrG-${k}"${dis}>`, 'g', { w: 'w-28' })}
+      <span class="ev-bob" id="evBob-${k}">${f.sinEnvase ? SIN_DATO_FR : htmlCostoBobinaFr(f.bobinaG, cfFr.costoBobinaKg)}</span></div><span class="ev-err" id="evErrG-${k}" hidden></span></td>
     <td class="ev-acc">${htmlAccionFilaFr(f)}</td></tr>`;
 }
-// Las filas de la tabla al pintarla: todas menos los pesos guardados sin envase (esos van a la tira).
-const filasVisiblesFr = () => filasPesosFr(cfFr.pesos, cfFr.envasePorPeso).filter(f => !f.sinEnvase);
+// Las filas de la tabla al pintarla: todas menos los pesos quitados (oculto: esos van a la tira). Las sinEnvase se quedan, con la casilla marcada.
+const filasVisiblesFr = () => filasPesosFr(cfFr.pesos, cfFr.envasePorPeso).filter(f => !f.oculto);
 // La tabla va siempre (aunque no haya filas): "+ Agregar peso" necesita dónde poner la fila nueva. Sin filas el CSS esconde el encabezado
 // y muestra el texto de vacío (table:has(>tbody:empty)+.fr-vacio): el <tbody> no puede llevar espacios.
 function htmlTablaPesosFr() {
@@ -237,11 +252,11 @@ function htmlTablaPesosFr() {
     <p class="fr-vacio ev-vacio">No hay pesos en la tabla. Se arman con las presentaciones de Fraccionado que tienen el peso escrito en su nombre
       (por ejemplo «ALMENDRAS 500G»). Si falta uno, agregalo abajo.</p>`;
 }
-// Tira "Pesos sin envase" (#evSinEnvase), bajo la tabla: los pesos sin envase (guardados o recién quitados) con sus productos (abre el modal) y "Volver a poner".
+// Tira "Pesos quitados de la tabla" (#evSinEnvase), bajo la tabla: los pesos quitados (guardados o recién quitados) con sus productos (abre el modal) y "Volver a poner".
 const listaSinEnvaseFr = filas => pesosSinEnvaseFr(filas, filasPesosFr(cfFr.pesos, cfFr.envasePorPeso));
 const htmlItemSinEnvaseFr = p => `<li class="ev-sin-item"><b>${esc(pesoCortoFr(p.pesoG))}</b><span class="ev-sin-prod">${htmlProductosPesoFr(p, true)}</span>
   <button type="button" class="ev-poner cfg-btn2" data-poner="${esc(p.pesoG)}" aria-label="Volver a poner el peso ${esc(pesoCortoFr(p.pesoG))}">Volver a poner</button></li>`;
-const htmlSinEnvaseFr = lista => `<h5 class="ev-sin-t" id="evSinT">Pesos sin envase</h5>
+const htmlSinEnvaseFr = lista => `<h5 class="ev-sin-t" id="evSinT">Pesos quitados de la tabla</h5>
   <p class="ev-sin-ayuda">Estos pesos no suman costo de envase y no avisan. Volvé a ponerlos para cargarles bolsa o bobina.</p>
   <ul class="ev-sin-lista">${lista.map(htmlItemSinEnvaseFr).join('')}</ul>`;
 const htmlTiraSinEnvaseFr = () => { const lista = listaSinEnvaseFr(filasVisiblesFr());
@@ -253,7 +268,8 @@ const htmlPasoBobinaFr = () => `<section class="ev-paso" aria-labelledby="evT1">
       <span class="ev-err" id="evErrBobina" hidden></span></div></section>`;
 const htmlPasoPesosFr = () => `<section class="ev-paso" aria-labelledby="evT2"><h4 class="ev-paso-t" id="evT2"><span class="fr-n" aria-hidden="true">2</span>Envase de cada peso</h4>
     <p class="ev-paso-ayuda">Cada peso tiene su envase, igual para todos los productos de ese peso. Podés cargar la bolsa, la bobina o las dos: no se pisan y cada producto usa la que elija.
-      Dejá vacío lo que no uses. Con la ✕ quitás un peso: sus productos se costean sin envase y sin aviso, hasta que lo vuelvas a poner.</p>
+      Dejá vacío lo que no uses. Si un peso no lleva envase, tildá «${CASILLA_SIN_FR}»: queda en la tabla y sus productos se costean sin envase y sin aviso.
+      Con la ✕ quitás un peso de la tabla: sus productos también se costean sin envase y sin aviso, hasta que lo vuelvas a poner.</p>
     <div id="evTablaWrap">${htmlTablaPesosFr()}</div>
     <p class="ev-quitados" id="evQuitados" role="status" aria-live="polite"></p>
     <div class="ev-agregar-fila"><button type="button" class="ev-agregar cfg-btn2" data-edita aria-describedby="evAyudaAgregar">+ Agregar peso</button>
@@ -294,16 +310,27 @@ function avisarErroresEnvaseFr(card, errores) {
 
 // Un número que no se puede leer (texto en un campo numérico) no se confunde con vacío.
 const leerCampoFr = i => (i.validity && i.validity.badInput ? 'x' : i.value);
-// Recalcula, sin guardar, lo que depende de lo tipeado en una fila: la nota de la bolsa, el costo por unidad de la bobina.
+// Recalcula, sin guardar, lo que depende de lo tipeado en una fila: la nota de la bolsa, el costo por unidad de la bobina. Con la casilla "No necesita bolsa ni
+// bobina" marcada, "Sin envase" y "—".
 function refrescarFilaFr(tr) {
   const f = (cfFr.envasePorPeso || {})[tr.dataset.peso] || {}, plu = tr.querySelector('[data-k="bolsaPlu"]').value, g = tr.querySelector('[data-k="bobinaG"]');
-  tr.querySelector('.ev-nota').innerHTML = htmlNotaBolsaFr(infoBolsaFr(plu, f, elegidosFr));
-  tr.querySelector('.ev-bob').innerHTML = htmlCostoBobinaFr(numOrNull(g.value), numOrNull(document.getElementById('frBobinaKg').value));
+  const sin = tr.querySelector('.ev-sin-chk').checked;
+  tr.querySelector('.ev-nota').innerHTML = sin ? SIN_NOTA_FR : htmlNotaBolsaFr(infoBolsaFr(plu, f, elegidosFr));
+  tr.querySelector('.ev-bob').innerHTML = sin ? SIN_DATO_FR : htmlCostoBobinaFr(numOrNull(g.value), numOrNull(document.getElementById('frBobinaKg').value));
 }
-// La tabla como la leen el guardado y el aviso de lo quitado: [{ pesoG, plu, g }] (texto de los inputs); una fila nueva, además { nuevo } y su peso tipeado.
+// Tildar o destildar la casilla de una fila: deshabilita (o habilita) el PLU, su Buscar y los gramos SIN tocar lo tipeado (si destildan vuelve), saca los errores
+// de esos dos campos (con la casilla no se validan) y repinta la nota y el costo. No repinta la fila: el foco se queda en la casilla y no se pierde nada de las otras.
+function alternarSinEnvaseFr(tr) {
+  const sin = tr.querySelector('.ev-sin-chk').checked, plu = tr.querySelector('[data-k="bolsaPlu"]'), g = tr.querySelector('[data-k="bobinaG"]');
+  [plu, g, tr.querySelector('.ev-buscar')].forEach(i => { i.disabled = sin; });
+  [plu, g].forEach(limpiarErrorFr);
+  refrescarFilaFr(tr);
+}
+// La tabla como la leen el guardado y el aviso de lo quitado: [{ pesoG, plu, g, sin }] (texto de los inputs y casilla); una fila nueva, además { nuevo } y su peso tipeado.
 function leerFilasEnvaseFr(card) {
   return [...card.querySelectorAll('#evTabla tbody tr')].map(tr => {
-    const peso = tr.querySelector('[data-k="pesoG"]'), campos = { plu: tr.querySelector('[data-k="bolsaPlu"]').value, g: leerCampoFr(tr.querySelector('[data-k="bobinaG"]')) };
+    const peso = tr.querySelector('[data-k="pesoG"]'), sin = tr.querySelector('.ev-sin-chk').checked;
+    const campos = { plu: tr.querySelector('[data-k="bolsaPlu"]').value, g: leerCampoFr(tr.querySelector('[data-k="bobinaG"]')), sin };
     return peso ? { nuevo: tr.dataset.nuevo, pesoG: leerCampoFr(peso), ...campos } : { pesoG: Number(tr.dataset.peso), ...campos };
   });
 }
@@ -344,8 +371,8 @@ function abrirBuscadorBolsaFr(tr) {
 }
 
 // Agregar, quitar y volver a poner pesos. Nada se guarda hasta el Guardar: la tarjeta queda "sin guardar", lo quitado se anuncia bajo la tabla y la tira
-// "Pesos sin envase" muestra los que quedaron sin envase.
-// La lista cambió (se tipeó un peso, se quitó una fila o se volvió a poner): un "ya está en la lista" / "está en Pesos sin envase" puede haber dejado
+// "Pesos quitados de la tabla" muestra los que quedaron fuera.
+// La lista cambió (se tipeó un peso, se quitó una fila o se volvió a poner): un "ya está en la lista" / "está en Pesos quitados de la tabla" puede haber dejado
 // de valer, puede haber un reemplazo y la tira cambia.
 function refrescarPesosFr(card) {
   card.querySelectorAll('[data-k="pesoG"][aria-invalid]').forEach(i => { if ([PESO_REPETIDO_FR, PESO_EN_TIRA_FR].includes(errDeFr(i).textContent)) limpiarErrorFr(i); });
@@ -362,7 +389,7 @@ function agregarPesoFr(card) {
   cuerpo.lastElementChild.querySelector('[data-k="pesoG"]').focus();
   msgEsq(card.querySelector('.esq-msg'), '');
 }
-// ✕ de cualquier fila: sale de la tabla (el foco pasa al botón de la fila de al lado, o a "+ Agregar peso"). Un peso con productos pasa a la tira "Pesos sin envase".
+// ✕ de cualquier fila: sale de la tabla (el foco pasa al botón de la fila de al lado, o a "+ Agregar peso"). Un peso con productos pasa a la tira "Pesos quitados de la tabla".
 function quitarPesoFr(card, tr) {
   const vecina = tr.nextElementSibling || tr.previousElementSibling;
   tr.remove();
@@ -371,18 +398,19 @@ function quitarPesoFr(card, tr) {
   refrescarPesosFr(card);
   ((vecina && vecina.querySelector('.ev-acc button:not(:disabled)')) || card.querySelector('.ev-agregar')).focus();
 }
-// "Volver a poner" de la tira: la fila del peso vuelve a la tabla en su lugar (ascendente), editable y con lo que tenga guardado (vacía si estaba guardado sin
-// envase; si apenas se había quitado, lo de antes: es deshacer). El foco va a su PLU. Al guardar, un peso guardado sin envase manda sinEnvase: false.
+// "Volver a poner" de la tira: la fila del peso vuelve a la tabla en su lugar (ascendente), editable y con lo que tenga guardado (vacía y con la casilla sin marcar si
+// estaba guardado quitado; si apenas se había quitado, lo de antes: es deshacer). El foco va a su PLU (o a la casilla si quedó marcada). Al guardar, un peso guardado quitado manda sinEnvase: false con lo tipeado, o sinEnvase: true, oculto: false si se lo marcó.
 function ponerPesoFr(card, pesoG) {
   const f = filasPesosFr(cfFr.pesos, cfFr.envasePorPeso).find(x => x.pesoG === pesoG), cuerpo = card.querySelector('#evTabla tbody');
   if (!f) return;
-  const despues = [...cuerpo.children].find(tr => Number(tr.dataset.peso) > pesoG), html = htmlFilaPesoFr(f);
+  const despues = [...cuerpo.children].find(tr => Number(tr.dataset.peso) > pesoG), html = htmlFilaPesoFr(f.oculto ? { ...f, sinEnvase: false } : f);
   if (despues) despues.insertAdjacentHTML('beforebegin', html); else cuerpo.insertAdjacentHTML('beforeend', html);
   const tr = despues ? despues.previousElementSibling : cuerpo.lastElementChild;
   marcarSucio(card); // el botón de la tira se repinta: el listener de data-edita de Configuración no encontraría la tarjeta
   msgEsq(card.querySelector('.esq-msg'), '');
   refrescarPesosFr(card);
-  tr.querySelector('[data-k="bolsaPlu"]').focus();
+  const plu = tr.querySelector('[data-k="bolsaPlu"]');
+  (plu.disabled ? tr.querySelector('.ev-sin-chk') : plu).focus(); // deshacer de una fila con la casilla: el PLU está deshabilitado, el foco va a la casilla
 }
 // Modal de los productos de un peso (#dlgEvProductos): solo lectura, con buscador y contador. Todo lo que viene de SIGA pasa por esc().
 const htmlProductoPesoFr = p => `<li><b>${esc(p.nombre)}</b><span>PLU ${esc(p.plu)} · Granel: ${esc(p.granelNombre)}${p.envase ? ` · Usa: ${p.envase === 'bobina' ? 'Bobina' : 'Bolsa'}` : ''}</span></li>`;
@@ -415,6 +443,7 @@ function abrirProductosPesoFr(pesoG, opener, sinEnvase = false) {
 function conectarPesosFr(card) {
   card.oninput = e => {
     const i = e.target;
+    if (i.matches('.ev-sin-chk')) { msgEsq(card.querySelector('.esq-msg'), ''); return alternarSinEnvaseFr(i.closest('tr')); }
     if (!i.matches('input[data-k]')) return;
     limpiarErrorFr(i);
     msgEsq(card.querySelector('.esq-msg'), '');
