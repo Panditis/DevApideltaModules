@@ -76,7 +76,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   // Las 3 tablas por canal reemplazan a margenes del tipo; el ajuste por peso guardado queda (lo edita Costeo Fraccionado:
   // PUT .../fraccionado/ajustes-peso) y el del body se ignora.
   router.put('/api/precios/config/esquema/margenes', guardarCon((req, tipo, costeo) =>
-    ({ margenes: cfgEsq.validarMargenes(cuerpo(req), cfgEsq.configEsquemaDe(costeo, tipo).margenes) })));
+    ({ margenes: cfgEsq.validarMargenes(cuerpo(req), cfgEsq.configEsquemaDe(costeo, tipo).margenes, tipo) })));
 
   const TIPOS_LISTADO = cfgEsq.TIPOS;
   const sinConfig = req => !!(req && req.preciosSinConfig === true); // lo marca guardPrecios (server.js)

@@ -424,3 +424,92 @@ test('preciosCanales: el canal con precio fijo no lleva el descuento distribuido
   assert.strictEqual(d.pack.descuentoDistribuidorPct, 5);
   assert.deepStrictEqual(d.pack, E.preciosCanales(args).pack); // canal sin precio: general − descuento, como siempre
 });
+
+// ── Tabla manual (filas) de Fraccionado ──────────────────────────────────────
+
+const FILAS = [{ hasta: 500, margenPct: 70 }, { hasta: 2000, margenPct: 45 }, { hasta: null, margenPct: 25 }];
+const MANUAL = { ...TABLA, filas: FILAS };
+
+test('quiebres con filas: devuelve las filas (no el generador); filas null o ausente = tabla de hoy', () => {
+  assert.deepStrictEqual(E.quiebres(MANUAL), FILAS);
+  assert.deepStrictEqual(E.quiebres({ ...TABLA, filas: null }), E.quiebres(TABLA));
+  assert.strictEqual(E.margenDe({ ...TABLA, filas: null }, 2000), 40);
+});
+
+test('margenDe con filas: costo igual al corte cae en la fila siguiente; antes del primero la primera; enorme la última', () => {
+  assert.strictEqual(E.margenDe(MANUAL, 1), 70);
+  assert.strictEqual(E.margenDe(MANUAL, 499.99), 70);
+  assert.strictEqual(E.margenDe(MANUAL, 500), 45);
+  assert.strictEqual(E.margenDe(MANUAL, 2000), 25);
+  assert.strictEqual(E.margenDe(MANUAL, 1e12), 25);
+});
+
+test('margenDe con una sola fila: margen único para cualquier costo', () => {
+  const t = { ...TABLA, filas: [{ hasta: null, margenPct: 33 }] };
+  for (const c of [0.01, 100, 1e9]) assert.strictEqual(E.margenDe(t, c), 33);
+});
+
+test('validarFilas: válidas → null; margen sin tope ni orden, negativo > −100 vale', () => {
+  assert.strictEqual(E.FILAS_MAX, 30);
+  assert.strictEqual(E.validarFilas(FILAS), null);
+  assert.strictEqual(E.validarFilas([{ hasta: null, margenPct: 5000 }]), null);
+  assert.strictEqual(E.validarFilas([{ hasta: 10, margenPct: -99.9 }, { margenPct: 900 }]), null); // última sin hasta = null
+});
+
+test('validarFilas: cada error con su mensaje exacto y fila contada desde 1', () => {
+  const casos = [
+    [[], 'La tabla manual debe tener entre 1 y 30 filas'],
+    ['x', 'La tabla manual debe tener entre 1 y 30 filas'],
+    [Array.from({ length: 31 }, (_, i) => ({ hasta: i < 30 ? i + 1 : null, margenPct: 10 })), 'La tabla manual debe tener entre 1 y 30 filas'],
+    [[{ hasta: 0, margenPct: 10 }, { hasta: null, margenPct: 5 }], 'Fila 1: el corte debe ser un número mayor a 0'],
+    [[{ hasta: '100', margenPct: 10 }, { hasta: null, margenPct: 5 }], 'Fila 1: el corte debe ser un número mayor a 0'],
+    [[{ hasta: 100, margenPct: 10 }, { hasta: Infinity, margenPct: 8 }, { hasta: null, margenPct: 5 }], 'Fila 2: el corte debe ser un número mayor a 0'],
+    [[{ hasta: 100, margenPct: 10 }, { hasta: null, margenPct: 8 }, { hasta: null, margenPct: 5 }], 'Fila 2: el corte debe ser un número mayor a 0'],
+    [[{ hasta: 100, margenPct: 10 }, { hasta: 100, margenPct: 8 }, { hasta: null, margenPct: 5 }], 'Fila 2: el corte debe ser mayor al de la fila anterior'],
+    [[{ hasta: 100, margenPct: 10 }, { hasta: 200, margenPct: 8 }, { hasta: 150, margenPct: 6 }, { hasta: null, margenPct: 5 }], 'Fila 3: el corte debe ser mayor al de la fila anterior'],
+    [[{ hasta: 100, margenPct: 10 }, { hasta: 300, margenPct: 5 }], 'Fila 2: la última fila no lleva corte (queda "en adelante")'],
+    [[{ hasta: 100, margenPct: -100 }, { hasta: null, margenPct: 5 }], 'Fila 1: El margen debe ser mayor a −100 %'],
+    [[{ hasta: 100, margenPct: 10 }, { hasta: null, margenPct: NaN }], 'Fila 2: El margen debe ser mayor a −100 %'],
+    [[{ hasta: null }], 'Fila 1: El margen debe ser mayor a −100 %'],
+    [[null], 'Fila 1: El margen debe ser mayor a −100 %'],
+  ];
+  for (const [filas, msg] of casos) assert.strictEqual(E.validarFilas(filas), msg, JSON.stringify(filas));
+});
+
+test('validarTablaMargen: filas null/ausente como hoy; filas inválidas dan su error; generador inválido falla aunque las filas sean válidas', () => {
+  assert.strictEqual(E.validarTablaMargen({ ...TABLA, filas: null }), null);
+  assert.strictEqual(E.validarTablaMargen(MANUAL), null);
+  assert.strictEqual(E.validarTablaMargen({ ...TABLA, filas: [] }), 'La tabla manual debe tener entre 1 y 30 filas');
+  assert.strictEqual(E.validarTablaMargen({ ...MANUAL, escalones: 0 }), E.validarTablaMargen({ ...TABLA, escalones: 0 }));
+  assert.notStrictEqual(E.validarTablaMargen({ ...MANUAL, escalones: 0 }), null);
+  assert.notStrictEqual(E.validarTablaMargen({ ...MANUAL, rango: { desde: 10, hasta: 5 } }), null);
+});
+
+test('quiebres(generador) siempre pasa validarFilas: 1 a 30 escalones, rangos chicos y grandes', () => {
+  for (let n = 1; n <= 30; n++) {
+    for (const rango of [{ desde: 100, hasta: 10000 }, { desde: 1, hasta: 1.5 }, { desde: 0.5, hasta: 1e7 }]) {
+      const q = E.quiebres({ ...TABLA, escalones: n, rango });
+      assert.strictEqual(E.validarFilas(q), null, `${n} ${JSON.stringify(rango)}`);
+    }
+  }
+});
+
+const CFG_MANUAL = { margenes: { minorista: MANUAL, pack: MANUAL, bulto: MANUAL, ajustesPeso: { tramosG: [100, 1000], puntos: [10, 0] } } };
+
+test('preciosCanales Fraccionado con filas: usa la fila y suma el ajuste por peso', () => {
+  const r = E.preciosCanales({ tipo: 'fraccionado', costo: 1000, pesoG: 80, cfg: CFG_MANUAL });
+  assert.strictEqual(r.error, null);
+  assert.strictEqual(r.minorista.margenPct, 55); // fila 2 (45) + 10 por peso
+  assert.strictEqual(E.preciosCanales({ tipo: 'fraccionado', costo: 500, pesoG: 1000, cfg: CFG_MANUAL }).minorista.margenPct, 45);
+});
+
+test('preciosCanales con filas y margen fijo del producto: el fijo reemplaza; margenGeneralPct sale de la fila', () => {
+  const r = E.preciosCanales({ tipo: 'fraccionado', costo: 100, pesoG: 1000, cfg: CFG_MANUAL, margenProducto: { modo: 'fijo', minorista: 12 } });
+  assert.deepStrictEqual([r.minorista.margenPct, r.minorista.margenGeneralPct], [12, 70]);
+});
+
+test('preciosCanales con filas inválidas en cualquier canal → error margen', () => {
+  const malo = { ...MANUAL, filas: [{ hasta: 100, margenPct: 10 }, { hasta: 50, margenPct: 5 }, { hasta: null, margenPct: 1 }] };
+  const r = E.preciosCanales({ tipo: 'fraccionado', costo: 1000, cfg: { margenes: { ...CFG_MANUAL.margenes, bulto: malo } } });
+  assert.deepStrictEqual([r.error, r.minorista], ['margen', null]);
+});

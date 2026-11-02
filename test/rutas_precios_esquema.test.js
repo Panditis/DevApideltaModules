@@ -732,3 +732,74 @@ test('precio fijo sin precios-config: la card lo ve (fila.precioFijo, sugeridos.
     assert.strictEqual((await a.pedir('PUT', '/api/precios/precio-fijo/1', { minorista: 4100 })).precioFijo.minorista, 4100);
   } finally { a.cerrar(); }
 });
+
+// ── Tabla manual (filas) de Fraccionado ──────────────────────────────────────
+
+const FILAS_FRACC = [{ hasta: 1000, margenPct: 300 }, { hasta: null, margenPct: 250 }];
+const URL_MARG = '/api/precios/config/esquema/margenes';
+
+test('tabla manual: PUT ?tipo=fraccionado con filas las guarda en costeo.fraccionado y el GET las devuelve; la raíz no cambia', async () => {
+  const a = appCon(CON_FRACC);
+  try {
+    const j = await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { minorista: T_FRACC, pack: { ...T_FRACC, filas: [{ hasta: 1000, margenPct: 300 }, { margenPct: 250 }] }, bulto: T_FRACC });
+    assert.deepStrictEqual(j.margenes.pack.filas, FILAS_FRACC);
+    const d = a.leer();
+    assert.deepStrictEqual(d.fraccionado.margenes.pack, { ...T_FRACC, filas: FILAS_FRACC });
+    assert.strictEqual('filas' in d.fraccionado.margenes.minorista, false);
+    assert.deepStrictEqual(d.margenes, CON_FRACC.margenes);
+    const g = await a.pedir('GET', '/api/precios/config/esquema?tipo=fraccionado');
+    assert.deepStrictEqual(g.margenes.pack.filas, FILAS_FRACC);
+  } finally { a.cerrar(); }
+});
+
+test('tabla manual: PUT con una fila inválida rechaza los tres canales con "canal: Fila N" y no escribe', async () => {
+  const a = appCon(CON_FRACC);
+  try {
+    const antes = a.escrituras();
+    const malo = [{ hasta: 0, margenPct: 10 }, { hasta: null, margenPct: 5 }];
+    const j = await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { minorista: { ...T_FRACC, filas: FILAS_FRACC }, pack: T_FRACC, bulto: { ...T_FRACC, filas: malo } });
+    assert.strictEqual(j.error, 'bulto: Fila 1: el corte debe ser un número mayor a 0');
+    assert.strictEqual(a.escrituras(), antes);
+    assert.deepStrictEqual(a.leer(), CON_FRACC);
+  } finally { a.cerrar(); }
+});
+
+test('tabla manual: PUT sin ?tipo (Reventa) descarta las filas del body', async () => {
+  const a = appCon(CON_FRACC);
+  try {
+    await a.pedir('PUT', URL_MARG, { minorista: { ...T_FRACC, filas: FILAS_FRACC }, pack: T_FRACC, bulto: T_FRACC });
+    const d = a.leer();
+    assert.deepStrictEqual(d.margenes.minorista, T_FRACC);
+    assert.deepStrictEqual(d.fraccionado.margenes, CON_FRACC.fraccionado.margenes);
+  } finally { a.cerrar(); }
+});
+
+test('tabla manual: PUT sin filas las borra; ajustesPeso y descuentoDistribuidorPct se conservan como hoy', async () => {
+  const aj = { tramosG: [100], puntos: [5] };
+  const fraccionado = { ...CON_FRACC.fraccionado, margenes: { minorista: { ...T_FRACC, filas: FILAS_FRACC }, pack: T_FRACC, bulto: T_FRACC, ajustesPeso: aj } };
+  const a = appCon({ ...CON_FRACC, fraccionado });
+  try {
+    await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC, descuentoDistribuidorPct: 4, ajustesPeso: { tramosG: [9], puntos: [1] } });
+    assert.deepStrictEqual(a.leer().fraccionado.margenes, { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC, ajustesPeso: aj, descuentoDistribuidorPct: 4 });
+  } finally { a.cerrar(); }
+});
+
+test('tabla manual: detalle y listado de Fraccionado cambian de precio con una fila manual; Reventa no', async () => {
+  const a = appCon(CON_FRACC, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const detalle = async (tipo, plu) => {
+    const f = await a.pedir('GET', `/api/precios/esquema/detalle/${plu}?tipo=${tipo}`);
+    return (f.presentaciones ? f.presentaciones[0] : f).sugeridos.sistema.minorista;
+  };
+  const listado = async () => (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas[0].presentaciones[0].sugeridos.sistema.minorista.precio;
+  try {
+    await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC });
+    const antes = { fracc: (await detalle('fraccionado', '50')).precio, lista: await listado(), reventa: (await detalle('almacen', '1')).precio };
+    const unica = [{ hasta: null, margenPct: 400 }];
+    await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { minorista: { ...T_FRACC, filas: unica }, pack: T_FRACC, bulto: T_FRACC });
+    const fr = await detalle('fraccionado', '50');
+    assert.ok(fr.precio > antes.fracc, `${fr.precio} > ${antes.fracc}`);
+    assert.strictEqual(await listado(), fr.precio);
+    assert.notStrictEqual(antes.lista, fr.precio);
+    assert.strictEqual((await detalle('almacen', '1')).precio, antes.reventa);
+  } finally { a.cerrar(); }
+});

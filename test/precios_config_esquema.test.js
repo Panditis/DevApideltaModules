@@ -254,3 +254,46 @@ test('migrarConfigFraccionado: copia la raíz (gastos/extras tildados para Fracc
 test('limpiarCosteo: costeo.precioFijo (precio fijo de Reventa) no es clave muerta: se conserva', () => {
   assert.strictEqual(C.limpiarCosteo({ precioFijo: { 1: { minorista: 3999 } } }), null);
 });
+
+// ── Tabla manual (filas) de Fraccionado ──────────────────────────────────────
+
+const FILAS = [{ hasta: 500, margenPct: 70 }, { hasta: 2000, margenPct: 45 }, { hasta: null, margenPct: 25 }];
+
+test('validarMargenes fraccionado: guarda filas con copia limpia de claves; última hasta ausente → null', () => {
+  const sucias = [{ hasta: 500, margenPct: 70, x: 1 }, { hasta: 2000, margenPct: 45, id: 'a' }, { margenPct: 25 }];
+  const r = C.validarMargenes({ minorista: { ...TABLA, filas: sucias }, pack: TABLA, bulto: TABLA }, {}, 'fraccionado');
+  assert.deepStrictEqual(r.minorista, { ...TABLA, filas: FILAS });
+  assert.deepStrictEqual([r.pack, r.bulto], [TABLA, TABLA]);
+  assert.strictEqual(sucias[2].hasta, undefined); // no muta el body
+});
+
+test('validarMargenes: tipo almacen (o sin tipo) descarta filas, aun inválidas', () => {
+  const body = { minorista: { ...TABLA, filas: FILAS }, pack: { ...TABLA, filas: [] }, bulto: TABLA };
+  const tres = { minorista: TABLA, pack: TABLA, bulto: TABLA };
+  assert.deepStrictEqual(C.validarMargenes(body), tres);
+  assert.deepStrictEqual(C.validarMargenes(body, {}, 'almacen'), tres);
+});
+
+test('validarMargenes fraccionado: filas null = automática; rangoEstimado se conserva y sinConfigurar se descarta con filas', () => {
+  const r = C.validarMargenes({ minorista: { ...TABLA, filas: null }, pack: { ...TABLA, rangoEstimado: true, sinConfigurar: true, filas: FILAS }, bulto: TABLA }, {}, 'fraccionado');
+  assert.deepStrictEqual(r.minorista, TABLA);
+  assert.deepStrictEqual(r.pack, { ...TABLA, rangoEstimado: true, filas: FILAS });
+});
+
+test('validarMargenes fraccionado: fila inválida → "canal: Fila N: …" aunque las otras tablas sean válidas', () => {
+  const malo = [{ hasta: 100, margenPct: 10 }, { hasta: 100, margenPct: 5 }, { hasta: null, margenPct: 1 }];
+  assert.throws(() => C.validarMargenes({ minorista: TABLA, pack: { ...TABLA, filas: malo }, bulto: TABLA }, {}, 'fraccionado'),
+    { message: 'pack: Fila 2: el corte debe ser mayor al de la fila anterior' });
+  assert.throws(() => C.validarMargenes({ minorista: TABLA, pack: TABLA, bulto: { ...TABLA, filas: [{ hasta: 9, margenPct: 1 }] } }, {}, 'fraccionado'),
+    { message: 'bulto: Fila 1: la última fila no lleva corte (queda "en adelante")' });
+  assert.throws(() => C.validarMargenes({ minorista: { ...TABLA, escalones: 0, filas: FILAS }, pack: TABLA, bulto: TABLA }, {}, 'fraccionado'), /^Error: minorista: Los escalones/);
+});
+
+test('configEsquemaDe fraccionado: devuelve las filas guardadas; una config vieja no las inventa', () => {
+  const fracc = { margenes: { minorista: { ...TABLA, filas: FILAS }, pack: TABLA, bulto: TABLA } };
+  const f = C.configEsquemaDe({ ...RAIZ, fraccionado: fracc }, 'fraccionado');
+  assert.deepStrictEqual(f.margenes.minorista.filas, FILAS);
+  assert.strictEqual('filas' in f.margenes.pack, false);
+  const viejo = C.configEsquemaDe(RAIZ, 'fraccionado');
+  assert.ok(['minorista', 'pack', 'bulto'].every(c => !('filas' in viejo.margenes[c])));
+});

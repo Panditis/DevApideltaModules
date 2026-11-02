@@ -172,35 +172,111 @@ function pintarPrecioEsq(panel, cfg) {
   }, cargarPrecioEsq);
 }
 
-// ── Márgenes: 3 tablas (una por canal, para los tres tipos) + grilla de quiebres en vivo + rango desde SIGA ──
+// ── Márgenes: 3 tablas (una por canal, para los tres tipos) + rango desde SIGA ──
+// Reventa/Producción: generador (máx/mín/escalones/rango) + grilla de quiebres en vivo, de sólo lectura. Fraccionado: filas editables
+// (corte y margen) y el generador aparte, que las llena. Una tarjeta de Fraccionado es manual (data-manual: sus filas se guardan tal
+// cual, `filas` en la tabla) o automática (las filas siguen al generador y se guardan sin `filas`).
 // (El ajuste por peso de Fraccionado se edita en Costeo Fraccionado: precios_config_fraccionado.js.)
 const CANALES_ESQ = { minorista: 'Minorista', pack: 'Mayorista pack', bulto: 'Mayorista bulto' };
 const cargarMargenesEsq = () => cargarPanelEsq('panel-margenes', pintarMargenesEsq);
-const chipEsq = (txt, title = '') => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn"${title ? ` title="${esc(title)}"` : ''}>${esc(txt)}</span>`;
+const chipEsq = (txt, title = '', cls = 'bg-warn/15 text-warn') => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold ${cls}"${title ? ` title="${esc(title)}"` : ''}>${esc(txt)}</span>`;
+const CHIP_MANUAL_ESQ = chipEsq('Tabla manual', 'Las filas se guardan tal cual; el generador no las toca hasta que toques Generar', 'bg-verde/10 text-verde');
+const AVISO_MANUAL_ESQ = 'Tabla manual: estos valores no cambian las filas. Generar las reemplaza.';
+const FILA_VACIA_ESQ = { hasta: null, margenPct: null }; // generador todavía inválido: sólo la fila "en adelante", sin margen
 
-function htmlTablaMargenEsq(canal, t) {
+// Filas (puras). Siempre hay al menos una y la última es "en adelante" (sin corte).
+const soloGeneradorEsq = ({ filas, ...gen }) => gen;
+function filasDeTablaEsq(t) { // las manuales guardadas, o las que da el generador
+  if (Array.isArray(t.filas)) return t.filas;
+  const gen = soloGeneradorEsq(t);
+  return PreciosEsquema.validarTablaMargen(gen) ? [FILA_VACIA_ESQ] : PreciosEsquema.quiebres(gen);
+}
+// Agregar: antes de la última, con su margen y el corte vacío. Quitar: nunca la única; si era la última, la anterior pasa a "en adelante".
+const filasConNuevaEsq = filas => [...filas.slice(0, -1), { hasta: null, margenPct: filas[filas.length - 1].margenPct }, filas[filas.length - 1]];
+function filasSinEsq(filas, i) {
+  if (filas.length < 2) return filas;
+  const resto = filas.filter((_, j) => j !== i);
+  return resto.map((f, j) => (j === resto.length - 1 ? { ...f, hasta: null } : f));
+}
+// Cortes ascendentes en las filas con corte (el vacío, al final de ellas); la última queda al final.
+const ordenarFilasEsq = filas => [...filas.slice(0, -1).sort((a, b) => (a.hasta ?? Infinity) - (b.hasta ?? Infinity)), filas[filas.length - 1]];
+const textoManualesEsq = nombres => (nombres.length ? ` Tabla manual en ${nombres.join(', ')}: sus filas no cambian, tocá Generar para aplicarlo.` : '');
+
+function htmlFilaMargenEsq(f, i, n, canal) {
+  const donde = `${CANALES_ESQ[canal]}, fila ${i + 1}`;
+  const corte = i === n - 1 ? '<span class="text-sm text-gris">en adelante</span>'
+    : campoU(`<input type="number" step="any" min="0" data-f="hasta" value="${esc(f.hasta ?? '')}" aria-label="${donde}: costo menor a ($/kg)">`, '$', { pre: true, w: 'w-28' });
+  return `<tr class="esq-fila"><td>${corte}</td>
+    <td>${campoU(`<input type="number" step="any" data-f="margenPct" value="${esc(f.margenPct ?? '')}" aria-label="${donde}: margen (%)">`, '%', { w: 'w-24' })}</td>
+    <td><button type="button" class="esq-quitar-fila btn-quitar" aria-label="Quitar ${donde}"${n === 1 ? ' disabled' : ''}>✕</button></td></tr>`;
+}
+const htmlFilasMargenEsq = (canal, filas) => filas.map((f, i) => htmlFilaMargenEsq(f, i, filas.length, canal)).join('');
+
+function htmlGeneradorEsq(canal, t) {
   const r = t.rango || {};
-  const num = (k, v, u, extra = '', pre = false) => campoU(`<input type="number" step="any" data-k="${k}" value="${esc(v ?? '')}" ${extra}>`, u, { pre, w: 'w-28' });
-  return `<div class="cfg-card min-w-0" data-canal="${canal}"${t.rangoEstimado ? ' data-rango-estimado' : ''}>
+  const campo = (k, rotulo, v, u, extra = '', pre = false) => `<div class="cfg-campo"><label for="esq-${canal}-${k}">${rotulo}</label>
+    ${campoU(`<input type="number" step="any" id="esq-${canal}-${k}" data-k="${k}" value="${esc(v ?? '')}" ${extra}>`, u, { pre, w: 'w-28' })}</div>`;
+  return campo('maxPct', 'Margen máximo <span class="cfg-nota">costos bajos</span>', t.maxPct, '%')
+    + campo('minPct', 'Margen mínimo <span class="cfg-nota">costos altos</span>', t.minPct, '%')
+    + campo('escalones', 'Escalones', t.escalones, '#', 'min="1" max="30" step="1"')
+    + campo('desde', 'Rango desde', r.desde, '$', 'min="0"', true)
+    + campo('hasta', 'Rango hasta', r.hasta, '$', 'min="0"', true);
+}
+// Fraccionado: tabla de filas, error en vivo (role=status) y generador con su botón.
+const htmlCuerpoEditableEsq = (canal, t, manual) => `<table class="cfg-tabla fr-filas esq-filas w-full"><thead><tr>
+      <th class="text-left">Costo menor a ($/kg)</th><th class="text-left">Margen (%)</th><th><span class="sr-only">Quitar</span></th></tr></thead>
+      <tbody>${htmlFilasMargenEsq(canal, filasDeTablaEsq(t))}</tbody></table>
+    <button type="button" class="esq-agregar-fila cfg-btn2 mt-2">+ Agregar fila</button>
+    <p class="esq-error text-xs text-crit mt-2" role="status" aria-live="polite"></p>
+    <div class="mt-3 pt-3 border-t border-borde"><h5 class="font-semibold text-sm">Generar la tabla</h5>
+      <p class="text-xs text-gris mb-2">Llena las filas con un margen que baja del máximo al mínimo, en escala logarítmica entre "desde" y "hasta".</p>
+      ${htmlGeneradorEsq(canal, t)}
+      <button type="button" class="esq-generar cfg-btn2 mt-2">Generar</button>
+      <p class="esq-aviso-manual text-xs text-gris mt-2">${manual ? AVISO_MANUAL_ESQ : ''}</p></div>`;
+
+function htmlTablaMargenEsq(canal, t, editable = false) {
+  const manual = editable && Array.isArray(t.filas);
+  return `<div class="cfg-card min-w-0" data-canal="${canal}"${t.rangoEstimado ? ' data-rango-estimado' : ''}${manual ? ' data-manual' : ''}>
     <h4 class="font-semibold text-sm mb-2 flex items-center gap-2 flex-wrap">${CANALES_ESQ[canal]}
       ${t.sinConfigurar ? chipEsq('sin configurar', 'Copia del minorista: revisalo y guardá') : ''}
-      ${t.rangoEstimado ? chipEsq('rango estimado', 'Rango de arranque: tocá Recalcular rango') : ''}</h4>
-    <div class="cfg-campo"><label>Margen máximo <span class="cfg-nota">costos bajos</span></label>${num('maxPct', t.maxPct, '%')}</div>
-    <div class="cfg-campo"><label>Margen mínimo <span class="cfg-nota">costos altos</span></label>${num('minPct', t.minPct, '%')}</div>
-    <div class="cfg-campo"><label>Escalones</label>${num('escalones', t.escalones, '#', 'min="1" max="30" step="1"')}</div>
-    <div class="cfg-campo"><label>Rango desde</label>${num('desde', r.desde, '$', 'min="0"', true)}</div>
-    <div class="cfg-campo"><label>Rango hasta</label>${num('hasta', r.hasta, '$', 'min="0"', true)}</div>
-    <div class="esq-quiebres mt-3 text-xs"></div></div>`;
+      ${t.rangoEstimado ? chipEsq('rango estimado', 'Rango de arranque: tocá Recalcular rango') : ''}
+      ${editable ? `<span class="esq-chip-manual contents">${manual ? CHIP_MANUAL_ESQ : ''}</span>` : ''}</h4>
+    ${editable ? htmlCuerpoEditableEsq(canal, t, manual) : `${htmlGeneradorEsq(canal, t)}<div class="esq-quiebres mt-3 text-xs"></div>`}</div>`;
 }
-function leerTablaEsq(card) {
+
+const esManualEsq = card => card.hasAttribute('data-manual');
+const esEditableEsq = card => !!card.querySelector('.esq-filas');
+// Filas en el orden de la pantalla (la última sin corte); lo vacío o inválido queda null y lo rechaza la validación.
+function leerFilasEsq(card) {
+  const lee = (tr, k) => { const i = tr.querySelector(`[data-f="${k}"]`); return i ? numOrNull(i.value) : null; };
+  return [...card.querySelectorAll('.esq-fila')].map(tr => ({ hasta: lee(tr, 'hasta'), margenPct: lee(tr, 'margenPct') }));
+}
+function leerGeneradorEsq(card) {
   const v = k => numOrNull(card.querySelector(`[data-k="${k}"]`).value);
   return { minPct: v('minPct'), maxPct: v('maxPct'), escalones: v('escalones'), rango: { desde: v('desde'), hasta: v('hasta') },
     ...(card.hasAttribute('data-rango-estimado') ? { rangoEstimado: true } : {}) };
 }
-// Grilla de quiebres (sólo lectura) con el mismo cálculo del server; tabla inválida → el mensaje de validación.
+// Sólo una tarjeta manual manda `filas` (ordenadas por corte); la automática, el generador solo.
+const leerTablaEsq = card => ({ ...leerGeneradorEsq(card), ...(esManualEsq(card) ? { filas: ordenarFilasEsq(leerFilasEsq(card)) } : {}) });
+
+function marcarManualEsq(card, manual) {
+  if (esManualEsq(card) === manual) return;
+  card.toggleAttribute('data-manual', manual);
+  card.querySelector('.esq-chip-manual').innerHTML = manual ? CHIP_MANUAL_ESQ : '';
+  card.querySelector('.esq-aviso-manual').textContent = manual ? AVISO_MANUAL_ESQ : '';
+}
+const pintarFilasEsq = (card, filas) => { card.querySelector('.esq-filas tbody').innerHTML = htmlFilasMargenEsq(card.dataset.canal, filas); };
+
+// Reventa/Producción: grilla de quiebres (sólo lectura) con el mismo cálculo del server. Fraccionado: error de la tabla (sin grilla; las
+// filas de una tarjeta automática siguen al generador, las de una manual no se tocan). Tabla inválida → el mensaje de validación.
 function pintarQuiebresEsq(card) {
   const t = leerTablaEsq(card);
   const err = PreciosEsquema.validarTablaMargen(t);
+  if (esEditableEsq(card)) {
+    if (!esManualEsq(card) && !err) pintarFilasEsq(card, PreciosEsquema.quiebres(t));
+    card.querySelector('.esq-error').textContent = err || '';
+    return;
+  }
   const desde = (qs, i) => (i ? `≥ $ ${fmtMoney(qs[i - 1].hasta)}` : 'todos');
   card.querySelector('.esq-quiebres').innerHTML = err ? `<p class="text-crit">${esc(err)}</p>`
     : `<table class="w-full"><thead><tr class="text-gris"><th class="text-left font-normal">Costo</th><th class="text-right font-normal">Margen</th></tr></thead><tbody>
@@ -218,7 +294,7 @@ function htmlMargenesEsq(m, cfg) {
       <button type="button" class="esq-rango cfg-btn2" title="${esc(tituloRango)}">Recalcular rango</button>
       <span class="esq-msg text-sm" role="status" aria-live="polite"></span>
       <button type="button" class="esq-guardar cfg-btn ml-auto">Guardar márgenes</button></div>
-    <div class="grid grid-cols-3 gap-4">${Object.keys(CANALES_ESQ).map(c => htmlTablaMargenEsq(c, m[c] || {})).join('')}</div>
+    <div class="grid grid-cols-3 gap-4">${Object.keys(CANALES_ESQ).map(c => htmlTablaMargenEsq(c, m[c] || {}, esFraccCfg())).join('')}</div>
     ${esFraccCfg() ? '' : `<div class="cfg-card mt-4">
       <div class="cfg-campo"><label for="esqDtoDistrib">Descuento al margen para distribuidores</label>
         ${campoU(`<input id="esqDtoDistrib" type="number" step="any" min="0" max="99" value="${esc(m.descuentoDistribuidorPct ?? '')}" placeholder="0">`, 'puntos %', { w: 'w-28' })}</div>
@@ -231,27 +307,69 @@ async function recalcularRangoEsq(sec) {
   msgEsq(msg, 'Consultando costos en SIGA…');
   try {
     const { rango, n } = await pedirEsq('POST', urlEsq('/rango'));
-    sec.querySelectorAll('[data-canal]').forEach(card => {
+    const cards = [...sec.querySelectorAll('[data-canal]')];
+    cards.forEach(card => {
       card.querySelector('[data-k="desde"]').value = rango.desde;
       card.querySelector('[data-k="hasta"]').value = rango.hasta;
       card.removeAttribute('data-rango-estimado');
-      pintarQuiebresEsq(card);
+      pintarQuiebresEsq(card); // las tarjetas manuales no repintan sus filas
     });
     marcarSucio(sec);
-    msgEsq(msg, `Rango con ${n} costos: $ ${fmtMoney(rango.desde)} – $ ${fmtMoney(rango.hasta)}. Guardá para aplicarlo.`, 'text-ok');
+    const manuales = cards.filter(esManualEsq).map(c => CANALES_ESQ[c.dataset.canal]);
+    msgEsq(msg, `Rango con ${n} costos: $ ${fmtMoney(rango.desde)} – $ ${fmtMoney(rango.hasta)}. Guardá para aplicarlo.${textoManualesEsq(manuales)}`, 'text-ok');
   } catch (e) { msgEsq(msg, e.message, 'text-crit'); }
+}
+
+// Fraccionado: agregar, quitar y generar filas. Cambiar las filas pasa la tarjeta a manual y ensucia la sección (explícito: al quitar, la
+// fila ya salió del DOM y el listener de data-edita no encuentra la tarjeta). El foco va a la fila que quedó en `foco`.
+function cambiarFilasEsq(sec, card, filas, foco) {
+  pintarFilasEsq(card, filas);
+  marcarManualEsq(card, true);
+  marcarSucio(sec);
+  pintarQuiebresEsq(card);
+  const fila = card.querySelectorAll('.esq-fila')[foco];
+  const campo = fila && (fila.querySelector('[data-f="hasta"]') || fila.querySelector('[data-f="margenPct"]'));
+  if (campo) campo.focus();
+}
+// Generar: filas desde el generador y la tarjeta vuelve a automática (se guarda sin `filas`). Pisar una manual pide confirmar.
+async function generarFilasEsq(sec, card) {
+  const gen = leerGeneradorEsq(card);
+  const err = PreciosEsquema.validarTablaMargen(gen);
+  if (err) { card.querySelector('.esq-error').textContent = `No se puede generar: ${err}`; return; }
+  const eraManual = esManualEsq(card);
+  if (eraManual && !(await confirmar(`¿Reemplazar las filas de ${CANALES_ESQ[card.dataset.canal]} por las generadas? Se pierde lo editado a mano.`, { textoOk: 'Reemplazar' }))) return; // precios_config.js
+  marcarManualEsq(card, false);
+  pintarFilasEsq(card, PreciosEsquema.quiebres(gen));
+  pintarQuiebresEsq(card);
+  if (eraManual) marcarSucio(sec);
+}
+function clickFilasEsq(sec, e) {
+  const card = e.target.closest('[data-canal]'), b = e.target.closest('button');
+  if (!card || !b || !esEditableEsq(card)) return;
+  const filas = leerFilasEsq(card);
+  if (b.classList.contains('esq-agregar-fila')) cambiarFilasEsq(sec, card, filasConNuevaEsq(filas), filas.length - 1);
+  else if (b.classList.contains('esq-quitar-fila')) {
+    const i = [...card.querySelectorAll('.esq-fila')].indexOf(b.closest('tr')), nuevas = filasSinEsq(filas, i);
+    cambiarFilasEsq(sec, card, nuevas, Math.min(i, nuevas.length - 1));
+  } else if (b.classList.contains('esq-generar')) generarFilasEsq(sec, card);
 }
 
 function pintarMargenesEsq(panel, cfg) {
   const cab = esFraccCfg()
-    ? '<b>Márgenes de Fraccionado</b> — una tabla por canal sobre el costo $/kg. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. El ajuste por peso de la presentación se configura en Costeo Fraccionado.'
+    ? '<b>Márgenes de Fraccionado</b> — una tabla por canal sobre el costo $/kg: cada fila es el margen de los costos menores a su corte y la última vale en adelante. Editá cortes y márgenes a mano, o generá la tabla desde el máximo, el mínimo, los escalones y el rango. El ajuste por peso de la presentación se configura en Costeo Fraccionado.'
     : '<b>Márgenes de Reventa y Producción</b> — una tabla por canal. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. Pack y bulto no son descuentos del minorista: cada canal tiene su margen.';
   panel.innerHTML = `<p class="cfg-cab">${cab}</p>
     ${htmlMargenesEsq(cfg.margenes || {}, cfg)}`;
   panel.querySelectorAll('[data-canal]').forEach(pintarQuiebresEsq);
   // oninput (no addEventListener): el panel persiste entre cargas y no hay que acumular listeners.
-  panel.oninput = e => { const c = e.target.closest('[data-canal]'); if (c) pintarQuiebresEsq(c); };
+  panel.oninput = e => {
+    const c = e.target.closest('[data-canal]');
+    if (!c) return;
+    if (e.target.closest('.esq-fila')) marcarManualEsq(c, true); // editar una fila la pasa a manual
+    pintarQuiebresEsq(c);
+  };
   const sec = panel.querySelector('section[data-guardable]');
+  sec.onclick = e => clickFilasEsq(sec, e); // onclick: la sección se repinta al guardar
   sec.querySelector('.esq-rango').onclick = () => recalcularRangoEsq(sec);
   sec.querySelector('.esq-guardar').onclick = () => {
     const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
@@ -259,6 +377,10 @@ function pintarMargenesEsq(panel, cfg) {
     guardarBloqueEsq(sec, urlEsq('/margenes'), { ...tablas, ...(dto ? { descuentoDistribuidorPct: numOrNull(dto.value) } : {}) }, cargarMargenesEsq);
   };
 }
+
+// Helpers de la tabla manual de Fraccionado para test (puros, y los que leen una tarjeta).
+if (typeof module === 'object' && module.exports) module.exports = { htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
+  filasConNuevaEsq, filasSinEsq, ordenarFilasEsq, textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq };
 
 // ── Switch Reventa | Fraccionado (#cfgTipo, precios.html) ──
 // Cambiar de tipo con cambios sin guardar pregunta (puedeSalirConfig) y recarga el sub-tab visible con los valores del tipo.
