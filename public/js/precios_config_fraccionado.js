@@ -89,6 +89,17 @@ function cuentaProductosFr(s) {
   const n = s.graneles.length, m = s.graneles.reduce((t, g) => t + g.presentaciones.length, 0);
   return `${n} producto${n === 1 ? '' : 's'} · ${m} presentaci${m === 1 ? 'ón' : 'ones'}`;
 }
+// Consumo eléctrico de las máquinas (spec 2026-11-03): kWh por hora de trabajo, 0 a CONSUMO_MAX_FR (espejo de lib/precios_config_fraccionado.js).
+// Se multiplica por el valor de la energía de Costos; con consumo y sin valor el costo sale sin energía y se avisa.
+const CONSUMO_MAX_FR = 1000;
+const TXT_SIN_ENERGIA_FR = 'Hay máquinas con consumo y falta el valor de la energía ($/kWh): el costo no incluye la energía. Cargalo en Costos (Gastos variables) con el switch en Fraccionado.';
+// '' si no hay nada que avisar; maquinas = [{ consumoKwhHora? }], valor = valorEnergiaKwh (null/undefined = sin cargar; 0 es un valor).
+const avisoEnergiaFr = (maquinas, valor) => ((maquinas || []).some(m => m.consumoKwhHora > 0) && valor == null ? TXT_SIN_ENERGIA_FR : '');
+// null si todos los consumos están vacíos o entre 0 y CONSUMO_MAX_FR; si no, el mensaje de la primera fila mala (NaN = texto roto).
+function errorConsumoFr(maquinas) {
+  const i = maquinas.findIndex(m => 'consumoKwhHora' in m && !(m.consumoKwhHora >= 0 && m.consumoKwhHora <= CONSUMO_MAX_FR));
+  return i < 0 ? null : `${maquinas[i].nombre || `Máquina ${i + 1}`}: el consumo es un número de 0 a ${CONSUMO_MAX_FR} kWh por hora de trabajo (vacío = sin consumo)`;
+}
 // "Usada en" de una máquina (usos = { graneles }): una máquina en uso no se borra.
 const textoUsosFr = u => (u && u.graneles ? `en uso por ${u.graneles} granel${u.graneles === 1 ? '' : 'es'}` : 'sin uso');
 // Buscador de productos: todas las palabras del texto buscado están en el texto del producto, sin mayúsculas ni tildes.
@@ -291,23 +302,37 @@ const htmlQuitarMaqFr = usos => `<button type="button" class="fr-quitar btn-quit
 const htmlFilaMaqFr = (m = {}) => `<tr data-id="${esc(m.id || '')}">
   <td class="py-1 pr-3"><input class="num-in w-full text-left" data-k="nombre" maxlength="60" value="${esc(m.nombre || '')}" aria-label="Nombre de la máquina"></td>
   <td class="py-1 pr-3">${campoU(`<input type="number" min="0" step="any" data-k="costoHora" value="${esc(m.costoHora ?? '')}" aria-label="Costo por hora">`, '$/h', { w: 'w-32' })}</td>
+  <td class="py-1 pr-3">${campoU(`<input type="number" min="0" max="${CONSUMO_MAX_FR}" step="any" data-k="consumoKwhHora" value="${esc(m.consumoKwhHora ?? '')}" aria-label="Consumo en kilovatios hora por hora de trabajo (vacío = sin consumo)">`, 'kWh/h', { w: 'w-32' })}</td>
   <td class="fr-usos py-1 pr-3 text-xs text-gris">${esc(textoUsosFr(m.usos))}</td>
   <td class="fr-q py-1">${htmlQuitarMaqFr(m.usos)}</td></tr>`;
 const htmlMaquinasFr = () => `<div class="cfg-card fr-card fr-ancla min-w-0" data-guardable data-nombre="Máquinas" id="frMaquinas"><div class="fr-cuerpo">
-    <h3 class="cfg-h">Máquinas</h3><p class="cfg-ayuda">Costo por hora de cada máquina (sin IVA). Cada producto elige la suya (o ninguna) desde su modal; por unidad suma minutos × costo hora ÷ 60, con los mismos minutos que la mano de obra. Una máquina en uso no se puede borrar.</p>
-    <table class="cfg-tabla w-full"><thead><tr><th scope="col" class="text-left">Nombre</th><th scope="col" class="text-left">Costo hora</th><th scope="col" class="text-left">Usada en</th><th scope="col"><span class="sr-only">Quitar</span></th></tr></thead>
+    <h3 class="cfg-h">Máquinas</h3><p class="cfg-ayuda">Costo por hora de cada máquina (sin IVA) y, si querés, su consumo eléctrico en kWh por hora de trabajo: se multiplica por el valor de la energía de Costos (Gastos variables). Cada producto elige la suya (o ninguna) desde su modal; por unidad suma minutos × costo hora ÷ 60, con los mismos minutos que la mano de obra. Una máquina en uso no se puede borrar.</p>
+    <table class="cfg-tabla w-full"><thead><tr><th scope="col" class="text-left">Nombre</th><th scope="col" class="text-left">Costo hora</th><th scope="col" class="text-left">Consumo</th><th scope="col" class="text-left">Usada en</th><th scope="col"><span class="sr-only">Quitar</span></th></tr></thead>
       <tbody>${cfFr.maquinas.map(m => htmlFilaMaqFr(m)).join('')}</tbody></table>
+    <p class="fr-aviso-energia text-sm text-warn font-semibold mt-2" role="status" aria-live="polite">${esc(avisoEnergiaFr(cfFr.maquinas, cfFr.valorEnergiaKwh))}</p>
     <p class="fr-vacio">Todavía no hay máquinas: agregá una para poder asignarla a los productos.</p>
     <button type="button" class="fr-agregar cfg-btn2 mt-2" data-edita>+ Agregar máquina</button></div>${pieFr('Guardar máquinas')}</div>`;
 const leerMaquinasFr = card => [...card.querySelectorAll('tbody tr')].map(tr => ({ ...(tr.dataset.id ? { id: tr.dataset.id } : {}),
-  nombre: tr.querySelector('[data-k="nombre"]').value.trim(), costoHora: numOrNull(tr.querySelector('[data-k="costoHora"]').value) }));
+  nombre: tr.querySelector('[data-k="nombre"]').value.trim(), costoHora: numOrNull(tr.querySelector('[data-k="costoHora"]').value),
+  ...consumoDeFr(tr.querySelector('[data-k="consumoKwhHora"]')) }));
+// Consumo de una fila: { consumoKwhHora } con número, nada si está vacío (se guarda sin el campo), NaN si el texto es inválido (lo rechaza el server).
+const consumoDeFr = i => (i.validity && i.validity.badInput ? { consumoKwhHora: NaN } : numOrNull(i.value) == null ? {} : { consumoKwhHora: numOrNull(i.value) });
+// Leyenda de la tarjeta (con lo tipeado) y el valor de energía que trajo el GET: se pinta sola al cambiar un consumo y al volver del guardado.
+function pintarAvisoEnergiaFr(card) {
+  card.querySelector('.fr-aviso-energia').textContent = avisoEnergiaFr(leerMaquinasFr(card), cfFr.valorEnergiaKwh);
+}
 function conectarMaquinasFr(card) {
   card.querySelector('.fr-agregar').onclick = () => card.querySelector('tbody').insertAdjacentHTML('beforeend', htmlFilaMaqFr());
   card.querySelector('tbody').onclick = e => quitarFilaFr(e, card);
-  card.querySelector('.fr-guardar').onclick = () => guardarFr(card, '/maquinas', { maquinas: leerMaquinasFr(card) }, () => {
-    actualizarMaquinasPropiasFr();
-    return repintarFr('frMaquinas', htmlMaquinasFr, conectarMaquinasFr);
-  });
+  card.querySelector('tbody').oninput = e => { if (e.target.matches('[data-k="consumoKwhHora"]')) pintarAvisoEnergiaFr(card); };
+  card.querySelector('.fr-guardar').onclick = () => {
+    const maquinas = leerMaquinasFr(card), error = errorConsumoFr(maquinas);
+    if (error) return msgEsq(card.querySelector('.esq-msg'), error, 'text-crit');
+    return guardarFr(card, '/maquinas', { maquinas }, () => {
+      actualizarMaquinasPropiasFr();
+      return repintarFr('frMaquinas', htmlMaquinasFr, conectarMaquinasFr);
+    });
+  };
 }
 // "Usada en" y el ✕ de cada máquina tras guardar otra tarjeta, sin repintar la de máquinas (no pisa lo que se esté tipeando ahí).
 function actualizarUsosMaquinasFr() {
@@ -471,6 +496,9 @@ function filtrarProductosFr(det, texto) {
 // Helpers puros de Subrubros para test: aparte del module.exports de arriba (otra tarjeta lo edita al mismo tiempo).
 if (typeof module === 'object' && module.exports) Object.assign(module.exports, { minKgGranelFr, cambiosGranelesFr, errorGranelesFr, cuerpoSubrubrosFr,
   textoHeredadoFr, pisadosFr, textoPisarFr, textoCompletadosFr, activoGuardadoFr, estadoDeActivoFr, activoDeEstadoFr, cambiosActivosFr, errorActivosFr });
+
+// Helpers puros de Máquinas (consumo de energía) para test.
+if (typeof module === 'object' && module.exports) Object.assign(module.exports, { avisoEnergiaFr, errorConsumoFr, CONSUMO_MAX_FR, TXT_SIN_ENERGIA_FR });
 
 // ── Sugerido del historial (precios_fraccionado_historial.js) ──
 // Se pide aparte de la configuración: si falla, la configuración sigue andando sin chips (el aviso queda en #frHistorial). Cada cambio de

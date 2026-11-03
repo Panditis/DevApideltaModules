@@ -67,14 +67,19 @@ function htmlFilaItemEsq(it = {}, vis = TIPOS_K) {
     ${TIPOS_K.map(t => `<td class="py-1 text-center${ocultaSi(vis, t)}"><input type="checkbox" class="accent-verde" data-tipo="${t}"${it.tipos && it.tipos[t] ? ' checked' : ''} aria-label="${TIPOS_ESQ[t]}"></td>`).join('')}
     <td class="py-1 pl-2"><button type="button" class="esq-quitar text-gris hover:text-crit" data-edita aria-label="Quitar">✕</button></td></tr>`;
 }
-function htmlItemsEsq(lista, titulo, ayuda, items, vis) {
+// Valor de la energía de Fraccionado ($/kWh, spec 2026-11-03): campo propio de la tarjeta Gastos variables, no un ítem (no cuenta en el total %).
+// Vacío = sin cargar (se manda null).
+const NOTA_ENERGIA_ESQ = 'No es un porcentaje: se usa con el consumo de cada máquina';
+const htmlValorEnergiaEsq = valor => `<div class="cfg-campo mt-3 pt-3 border-t border-borde"><label for="esqValorEnergia">Valor de la energía ($/kWh) <span class="cfg-nota">${NOTA_ENERGIA_ESQ}</span></label>
+    ${campoU(`<input id="esqValorEnergia" type="number" step="any" min="0" max="100000" value="${esc(valor ?? '')}" placeholder="ej. 120">`, '$/kWh', { w: 'w-32' })}</div>`;
+function htmlItemsEsq(lista, titulo, ayuda, items, vis, extra = '') {
   return `<div class="cfg-card min-w-0" data-lista="${lista}" data-vis="${vis.join(',')}">
     <h3 class="cfg-h">${esc(titulo)}</h3><p class="cfg-ayuda">${esc(ayuda)}</p>
     <table class="cfg-tabla w-full mt-2"><thead><tr><th class="text-left">Concepto</th><th class="text-left">%</th>
       ${TIPOS_K.map(t => `<th class="${ocultaSi(vis, t).trim()}">${TIPOS_ESQ[t]}</th>`).join('')}<th></th></tr></thead>
       <tbody>${items.map(it => htmlFilaItemEsq(it, vis)).join('')}</tbody></table>
     <div class="flex items-center gap-3 mt-2"><button type="button" class="esq-agregar cfg-btn2" data-edita>+ Agregar</button>
-      <span class="esq-totales text-xs text-gris"></span></div></div>`;
+      <span class="esq-totales text-xs text-gris"></span></div>${extra}</div>`;
 }
 function leerItemsEsq(card) {
   return [...card.querySelectorAll('tbody tr')].map(tr => ({
@@ -105,7 +110,7 @@ function pintarCostosEsq(panel, cfg) {
         <button type="button" class="seg-opt" data-modo="precio" data-edita aria-pressed="${cfg.modoGastos === 'precio'}">Sobre precio · costo ÷ (1 − %)</button>
       </div></div>
     <div class="cfg-grid">
-      ${htmlItemsEsq('gastosVenta', 'Gastos variables', 'Sobre el costo de mercadería, antes del margen de cada canal.', cfg.gastosVenta, vis)}
+      ${htmlItemsEsq('gastosVenta', 'Gastos variables', 'Sobre el costo de mercadería, antes del margen de cada canal.', cfg.gastosVenta, vis, esFraccCfg() ? htmlValorEnergiaEsq(cfg.valorEnergiaKwh) : '')}
       ${htmlItemsEsq('extrasMinorista', 'Costos extras minoristas', 'Markup sobre el neto minorista, antes del IVA (ej. IIBB, débitos y créditos).', cfg.extrasMinorista, vis)}
     </div>
     <div class="cfg-pie mt-4"><span class="esq-msg text-sm" role="status" aria-live="polite"></span>
@@ -129,6 +134,7 @@ function pintarCostosEsq(panel, cfg) {
     guardarBloqueEsq(bloque, urlEsq('/costos'), {
       modoGastos: bloque.querySelector('[data-modo][aria-pressed="true"]').dataset.modo,
       gastosVenta: lista('gastosVenta'), extrasMinorista: lista('extrasMinorista'),
+      ...(esFraccCfg() ? { valorEnergiaKwh: numOrNull(bloque.querySelector('#esqValorEnergia').value) } : {}), // sólo Fraccionado
     }, cargarCostosEsq);
   };
 }
@@ -379,7 +385,7 @@ function pintarMargenesEsq(panel, cfg) {
 }
 
 // Helpers de la tabla manual de Fraccionado para test (puros, y los que leen una tarjeta).
-if (typeof module === 'object' && module.exports) module.exports = { htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
+if (typeof module === 'object' && module.exports) module.exports = { htmlValorEnergiaEsq, htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
   filasConNuevaEsq, filasSinEsq, ordenarFilasEsq, textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq };
 
 // ── Switch Reventa | Fraccionado (#cfgTipo, precios.html) ──

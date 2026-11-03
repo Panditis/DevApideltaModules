@@ -34,7 +34,7 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
     const usos = CF.usosMaquinas(cf);
     const margenes = (f && f.margenes) || {};
     return { costoHora: cf.costoHora, tramosTiempo: cf.tramosTiempo, subrubros: cf.subrubros, porGranel: cf.porGranel, envasePorPeso: cf.envasePorPeso,
-      costoBobinaKg: cf.costoBobinaKg, activoGranel: activoGranel || {},
+      costoBobinaKg: cf.costoBobinaKg, valorEnergiaKwh: cf.valorEnergiaKwh, activoGranel: activoGranel || {},
       maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0 } })), ajustesPeso: margenes.ajustesPeso || null };
   }
 

@@ -18,7 +18,7 @@ const redondear = n => Math.round(n * 1e6) / 1e6;
 
 test('normalizarCosteoFraccionado: defaults y mapas vacíos', () => {
   assert.deepStrictEqual(FC.normalizarCosteoFraccionado(undefined), {
-    costoHora: null, maquinas: [], tramosTiempo: [], subrubros: {}, envasePorPeso: {}, costoBobinaKg: null, porGranel: {},
+    costoHora: null, maquinas: [], tramosTiempo: [], subrubros: {}, envasePorPeso: {}, costoBobinaKg: null, porGranel: {}, valorEnergiaKwh: null,
   });
 });
 

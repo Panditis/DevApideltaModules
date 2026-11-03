@@ -40,6 +40,7 @@ function resumenCosteoFraccMd(p, fuente, costosGranel) {
     insumos,
     subtotalInsumos: insumos.some(l => l.importe == null) ? null : Math.round(insumos.reduce((s, l) => s + l.importe, 0) * 100) / 100,
     mo: lineas.find(l => l.rol === 'mo') || null, maquina: lineas.find(l => l.rol === 'maquina') || null,
+    energia: lineas.find(l => l.rol === 'energia') || null,
     porUnidad: c.porUnidad ?? null, extraKg: c.extraKg ?? null,
     mercaderiaKg: (costosGranel || {})[fuente] ?? null, costoKg: (p.costos || {})[fuente] ?? null,
     mercaderiaUnidad: porUnidad((costosGranel || {})[fuente]), costoUnidad: porUnidad((p.costos || {})[fuente]),
@@ -64,6 +65,7 @@ function formulaMinutosMd(c, minutos, kg) {
 // Línea de MO sin importe: sin min/kg (ni del producto ni del subrubro) o, con min/kg, minutos 0 (min/kg + ajuste del tramo ≤ 0).
 const SIN_MINUTOS_MD = 'sin minutos (cargá el min/kg del subrubro en Configuración › Costeo Fraccionado o el propio del producto acá)';
 const CERO_MINUTOS_MD = 'sin minutos: el min/kg más el ajuste del tramo de peso da 0';
+const SIN_VALOR_ENERGIA_MD = 'la máquina tiene consumo y falta el valor de la energía (cargalo en Costos, Gastos variables, con el switch en Fraccionado)';
 const motivoSinMinutosMd = avisos => ((avisos || []).includes('sinMinutos') ? SIN_MINUTOS_MD : CERO_MINUTOS_MD);
 // "2 min/kg (+3 por tramo) · del subrubro": min/kg con que se costeó la presentación, su ajuste de tramo y de dónde sale (c = costeoPresentacion).
 const ORIGEN_MIN_KG_MD = { granel: 'propio del producto', subrubro: 'del subrubro' };
@@ -234,6 +236,8 @@ function filasCostoPresFraccMd(p, fuente, costosGranel) {
     r.mo ? conMinutos(r.mo, 'Mano de obra', 'cargalo en Costos con el switch en Fraccionado')
       : { op: '+', txt: 'Mano de obra', det: motivoSinMinutosMd(avisos), tipo: 'nd', v: 0 },
     ...(r.maquina ? [conMinutos(r.maquina, `Máquina ${r.maquina.nombre}`, 'cargalo en la máquina')] : []), // sin máquina no hay línea ni aviso: es lo normal
+    ...(r.energia ? [conMinutos(r.energia, 'Energía', 'cargalo en Costos')] // costoUnit = kWh/h × $/kWh, por hora de trabajo
+      : avisos.includes('valorEnergia') ? [{ op: '+', txt: 'Energía', det: SIN_VALOR_ENERGIA_MD, tipo: 'nd', v: 0 }] : []), // sin consumo no hay línea ni aviso
     { op: '=', txt: 'Costo real por unidad', ...(r.porUnidad == null ? { det: 'falta el costo del envase' } : {}), v: r.costoUnidad },
     { op: '÷', txt: 'Peso de la presentación', u: `${kg} kg` },
     { op: '=', txt: 'Costo real $/kg', v: r.costoKg },

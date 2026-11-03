@@ -163,7 +163,8 @@ const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio pl
 // min/kg del subrubro, envase por peso, costo hora; o el min/kg y el envase propios en el modal del granel) y "subrubro · min/kg · máquina · bobina" del granel.
 const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinMinutos: 'sin min/kg (ni del subrubro ni del producto): sin mano de obra ni máquina',
   costoHora: 'sin costo hora de Fraccionado', sinBolsa: 'sin bolsa cargada para su peso: el costo no incluye envase',
-  sinBobina: 'sin peso de bolsa cargado para su peso: el costo no incluye envase' };
+  sinBobina: 'sin peso de bolsa cargado para su peso: el costo no incluye envase',
+  valorEnergia: 'máquina con consumo y sin valor de energía: el costo no incluye la energía' };
 const textoAvisosCosto = avisos => (avisos || []).map(a => TXT_AVISO_COSTO[a] || a);
 // costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS). Sin máquina y con bolsa no se nombran: es el estado normal.
 const numMinLst = n => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n);
