@@ -271,6 +271,13 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return resultado;
   }));
 
+  // Para el cotizador mayorista (routes/rutas_cotizador_mayorista): los tres listados completos con el costeo vigente.
+  router.listadosVigentes = async () => {
+    const costeo = await costeoVigente();
+    const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
+    return { almacen, fraccionado, produccion };
+  };
+
   return router;
 };
 

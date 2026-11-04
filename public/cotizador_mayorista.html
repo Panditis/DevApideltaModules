@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cotizador mayorista · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+  /* Componentes propios de este módulo (colores del theme: verde #405936, borde rgba(26,28,24,.16), ok/warn/crit/gris). Sólo escritorio. */
+  body{min-width:1180px}
+  .hidden{display:none!important}
+  :focus-visible{outline:2px solid #405936;outline-offset:2px}
+  .loading{color:#5c5f52;padding:20px;text-align:center}
+  .empty{color:#5c5f52;padding:16px;text-align:center;font-size:14px}
+  .error{background:#fde7e9;color:#a4262c;border:1px solid #f6c6c2;padding:12px;border-radius:8px}
+  .aviso-amarillo{background:#fff4ce;color:#6b4800;border:1px solid #f0d98a;padding:10px 12px;border-radius:8px}
+  .ok-box{background:#dff6dd;color:#0b5a0b;border:1px solid #b9e3b5;padding:12px;border-radius:8px}
+  .ok-box .acordeon{color:#242423}
+  .lista-msg{margin:4px 0 0 18px;list-style:disc}
+  .subtitulo{font-size:15px;font-weight:700;color:#242423}
+  .card{background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:12px;padding:16px}
+
+  .paso{display:grid;grid-template-columns:36px minmax(0,1fr);column-gap:14px}
+  .paso-n{width:32px;height:32px;border-radius:50%;background:#405936;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .paso-cab{display:flex;align-items:center;gap:12px;margin-bottom:12px;min-height:32px}
+  .paso-cab h2{font-size:18px;font-weight:700;color:#242423}
+  .pasos-lista{margin-left:20px;list-style:decimal;font-size:14px;line-height:1.7}
+
+  .btn-prim,.btn-sec{font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;transition:background-color 140ms ease,border-color 140ms ease}
+  .btn-prim{background:#405936;color:#fff;border:1px solid #405936}
+  .btn-prim:hover:not(:disabled){background:#4f6e42}
+  .btn-sec{background:#fff;color:#242423;border:1px solid rgba(26,28,24,.25)}
+  .btn-sec:hover:not(:disabled){background:#f5f8f1;border-color:#405936}
+  .btn-prim:disabled,.btn-sec:disabled,.btn-icono:disabled{opacity:.45;cursor:not-allowed}
+  .btn-chico{padding:3px 10px;font-size:12px}
+  .btn-icono{width:26px;height:26px;border-radius:6px;border:1px solid rgba(26,28,24,.2);background:#fff;font-size:10px;color:#405936;cursor:pointer;line-height:1}
+  .btn-icono:hover:not(:disabled){background:rgba(64,89,54,.1)}
+  .btn-descarga{display:flex;flex-direction:column;gap:2px;padding:10px 16px;border:1px solid #405936;border-radius:10px;background:rgba(64,89,54,.07);color:#405936;font-size:14px;text-decoration:none}
+  .btn-descarga:hover{background:rgba(64,89,54,.15)}
+  .enlace{color:#405936;text-decoration:underline;font-size:13px}
+
+  .campo{padding:5px 8px;border-radius:8px;border:1px solid rgba(26,28,24,.25);background:#fff;font-size:13px;min-width:0}
+  .campo:hover:not(:disabled){border-color:rgba(26,28,24,.45)}
+  .campo:focus{outline:none;border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  .campo:disabled{background:#f4f5f1;color:#5c5f52;cursor:not-allowed}
+  .campo-etq{display:flex;flex-direction:column;gap:3px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#5c5f52}
+  .check{width:16px;height:16px;accent-color:#405936}
+
+  .fbtn{font-size:13px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid rgba(26,28,24,.16);background:#fff;color:#242423;white-space:nowrap;cursor:pointer}
+  .fbtn:hover{background:#f5f8f1}
+  .fbtn.on{background:rgba(64,89,54,.1);border-color:#405936;color:#405936}
+  .fbtn-n{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:#405936;color:#fff;font-size:11px;line-height:18px;text-align:center;font-variant-numeric:tabular-nums}
+
+  .chip{display:inline-flex;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:600;white-space:nowrap}
+  .chip--ok{background:#dff6dd;color:#0e700e}
+  .chip--warn{background:#fff4ce;color:#8a5d00}
+  .chip--crit{background:#fde7e9;color:#a4262c}
+  .chip--gris{background:#eef1ea;color:#5c5f52}
+
+  .tabla-scroll{max-height:380px;overflow:auto;border:1px solid rgba(26,28,24,.16);border-radius:10px;background:#fff}
+  .tabla-scroll--alta{max-height:calc(100vh - 330px);min-height:260px}
+  .tabla-fija{table-layout:fixed;width:100%;border-collapse:collapse;font-size:13px}
+  .tabla-fija th{position:sticky;top:0;z-index:2;background:#f2f6ec;color:#5c5f52;font-size:11.5px;text-align:left;padding:8px 10px;border-bottom:1px solid rgba(26,28,24,.16)}
+  .tabla-fija td{padding:6px 10px;border-bottom:1px solid rgba(26,28,24,.1);vertical-align:top;overflow-wrap:anywhere}
+  .tabla-fija th.num,.tabla-fija td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tabla-fija tbody tr:hover{background:#f5f8f1}
+  .th-orden{all:unset;cursor:pointer;display:inline-flex;gap:4px;align-items:center;font:inherit;text-transform:inherit;letter-spacing:inherit;color:inherit}
+  .th-orden:hover{color:#4f6e42}
+  .th-orden:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  th[aria-sort="ascending"] .flecha::after{content:"▲";font-size:9px}
+  th[aria-sort="descending"] .flecha::after{content:"▼";font-size:9px}
+  .tabla-edit .fila-seccion td{padding:8px 10px;background:#f2f6ec;cursor:default}
+  .fila-off td:not(:first-child):not(:nth-child(2)){opacity:.55}
+  .fila-aviso{background:#fff9e5}
+  .nota{display:block;font-size:11px;margin-top:2px;line-height:1.3}
+
+  .datos{display:grid;grid-template-columns:max-content 1fr;gap:2px 16px;font-size:14px;margin-top:6px}
+  .datos dt{color:#4a5a43}
+  .mono,code{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+  .cmd{display:flex;align-items:center;gap:10px;background:#242423;color:#f2f6ec;border-radius:8px;padding:8px 10px}
+  .cmd-txt{flex:1;min-width:0;overflow-wrap:anywhere;color:#f2f6ec}
+  .cmd .btn-sec{padding:4px 12px}
+  p code,li code{background:#eef1ea;padding:1px 6px;border-radius:5px}
+  .toast{position:fixed;right:20px;bottom:20px;z-index:60;padding:10px 16px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6.4px 14.4px rgba(26,28,24,.2)}
+  .toast--ok{background:#405936;color:#fff}
+  .toast--crit{background:#a4262c;color:#fff}
+</style>
+</head>
+<body class="text-ink font-body">
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold">COTIZADOR MAYORISTA</h1>
+    <span class="text-sm">Catálogo y precios para el cotizador web</span>
+    <div class="ml-auto flex items-center gap-3">
+      <a href="/precios" class="text-sm">Precios</a>
+      <a href="/" class="text-sm">← Inicio</a>
+    </div>
+  </div>
+  <nav class="flex gap-1 max-w-[1500px] mx-auto px-4" id="tabs" role="tablist" aria-label="Secciones del cotizador mayorista">
+    <button class="navtab on" data-tab="exportar" role="tab" aria-selected="true" aria-controls="panel-exportar">Exportar</button>
+    <button class="navtab" data-tab="productos" role="tab" aria-selected="false" aria-controls="panel-productos">Productos y secciones</button>
+    <button class="navtab" data-tab="historial" role="tab" aria-selected="false" aria-controls="panel-historial">Historial</button>
+    <button class="navtab" data-tab="comparacion" role="tab" aria-selected="false" aria-controls="panel-comparacion">Comparación con la planilla</button>
+  </nav>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+
+  <!-- Exportar: 3 pasos -->
+  <section id="panel-exportar" class="tab-panel space-y-4" role="tabpanel">
+    <div class="card paso">
+      <span class="paso-n" aria-hidden="true">1</span>
+      <div class="min-w-0">
+        <div class="paso-cab"><h2>Revisar la vista previa</h2>
+          <button type="button" id="btnPrevia" class="btn-sec ml-auto">Actualizar vista previa</button></div>
+        <div id="previa" class="space-y-3"></div>
+      </div>
+    </div>
+    <div class="card paso">
+      <span class="paso-n" aria-hidden="true">2</span>
+      <div class="min-w-0">
+        <div class="paso-cab"><h2>Generar la versión</h2></div>
+        <p class="text-sm text-gris mb-3">Crea <code>catalogo.csv</code> y <code>version.json</code> con lo que muestra la vista previa. Todavía no se sube nada al cotizador.</p>
+        <div class="flex items-center gap-3">
+          <button type="button" id="btnGenerar" class="btn-prim" disabled>Generar versión</button>
+          <span id="motivoGenerar" class="text-sm text-gris" aria-live="polite"></span>
+        </div>
+        <div id="resultado" class="mt-3"></div>
+      </div>
+    </div>
+    <div class="card paso">
+      <span class="paso-n" aria-hidden="true">3</span>
+      <div class="min-w-0">
+        <div class="paso-cab"><h2>Descargar y subir por FTP</h2></div>
+        <div id="descarga" class="space-y-4"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Productos y secciones -->
+  <section id="panel-productos" class="tab-panel hidden space-y-3" role="tabpanel">
+    <div class="card space-y-3">
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="campo-etq" for="tablaBuscar">Buscar<input id="tablaBuscar" type="search" class="campo" style="width:16rem" placeholder="Cod, nombre o sección" autocomplete="off"></label>
+        <label class="campo-etq" for="tablaSeccion">Sección<select id="tablaSeccion" class="campo" style="width:14rem"></select></label>
+        <label class="campo-etq" for="tablaEstado">Estado
+          <select id="tablaEstado" class="campo" style="width:12rem">
+            <option value="todos">Todos</option><option value="incluidos">Incluidos</option><option value="excluidos">No incluidos</option>
+            <option value="manuales">Manuales</option><option value="avisos">Con aviso de cantidad</option>
+          </select></label>
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+          <button type="button" id="btnAgregarManual" class="btn-sec" disabled>＋ Fila manual</button>
+          <button type="button" id="btnImportar" class="btn-sec" disabled>Importar Excel…</button>
+          <input type="file" id="importArchivo" accept=".xlsx,.xls" class="hidden" aria-label="Archivo Excel a importar">
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <span id="tablaCuenta" class="text-sm text-gris" aria-live="polite"></span>
+        <span id="tablaSucio" class="chip chip--warn hidden">Cambios sin guardar</span>
+        <span id="tablaMsg" class="text-sm text-crit" role="alert"></span>
+        <div class="ml-auto flex gap-2">
+          <button type="button" id="btnDescartarTabla" class="btn-sec" disabled>Descartar cambios</button>
+          <button type="button" id="btnGuardarTabla" class="btn-prim" disabled>Guardar cambios</button>
+        </div>
+      </div>
+      <p class="text-xs text-gris">Las secciones y los productos se exportan en el orden de esta tabla. Para reordenar quitá la búsqueda y el filtro de estado. Los precios fijos solo se editan en filas manuales (ej. PALLET); el resto toma el precio decidido en Precios.</p>
+    </div>
+    <div id="importResultado"></div>
+    <div id="tablaCont"></div>
+  </section>
+
+  <!-- Historial -->
+  <section id="panel-historial" class="tab-panel hidden space-y-3" role="tabpanel">
+    <div class="flex items-center"><h2 class="subtitulo">Versiones generadas</h2><button type="button" id="btnHistorial" class="btn-sec ml-auto">Actualizar</button></div>
+    <div id="historialCont"></div>
+  </section>
+
+  <!-- Comparación con la planilla -->
+  <section id="panel-comparacion" class="tab-panel hidden space-y-3" role="tabpanel">
+    <div class="flex items-center">
+      <div><h2 class="subtitulo">Comparación con la planilla actual</h2>
+        <p class="text-sm text-gris">Precio de la planilla (Excel importado) contra el del sistema: la decisión vigente o, si no hay, el sugerido.</p></div>
+      <button type="button" id="btnComparar" class="btn-sec ml-auto">Actualizar</button>
+    </div>
+    <div id="cmpResumen"></div>
+    <div class="card flex flex-wrap items-end gap-3">
+      <div id="cmpEstados" class="flex gap-2" role="group" aria-label="Filtrar por estado"></div>
+      <label class="campo-etq" for="cmpTipo">Tipo<select id="cmpTipo" class="campo" style="width:9rem"><option value="">Pack y bulto</option><option value="pack">Pack</option><option value="bulto">Bulto</option></select></label>
+      <label class="campo-etq" for="cmpBuscar">Buscar<input id="cmpBuscar" type="search" class="campo" style="width:14rem" placeholder="Cod o nombre" autocomplete="off"></label>
+      <span id="cmpCuenta" class="text-sm text-gris" aria-live="polite"></span>
+      <button type="button" id="btnCmpCsv" class="btn-sec ml-auto" disabled>Exportar CSV</button>
+    </div>
+    <div id="cmpCont"></div>
+  </section>
+</main>
+
+<script src="/js/apd-dialogo.js"></script>
+<script src="/js/cotizador_mayorista_comun.js"></script>
+<script src="/js/cotizador_mayorista_diff.js"></script>
+<script src="/js/cotizador_mayorista_subida.js"></script>
+<script src="/js/cotizador_mayorista_exportar.js"></script>
+<script src="/js/cotizador_mayorista_tabla.js"></script>
+<script src="/js/cotizador_mayorista_tabla_filas.js"></script>
+<script src="/js/cotizador_mayorista_importar.js"></script>
+<script src="/js/cotizador_mayorista_historial.js"></script>
+<script src="/js/cotizador_mayorista_comparacion.js"></script>
+<script src="/js/cotizador_mayorista_init.js"></script>
+</body>
+</html>
