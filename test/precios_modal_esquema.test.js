@@ -283,8 +283,11 @@ test('opcionesCosto: "Precio fijo" es la quinta card (sólo Reventa): siempre en
   const p = opcionesCosto(filaConPrecio({ minorista: 3999 }), 'almacen').at(-1);
   assert.deepStrictEqual([p.valor, p.texto, p.precio, p.deltaPct, p.estado, p.disponible, p.motivo], ['precio', 'Precio fijo', 3999, 122.2, 'subir', true, null]);
   const con = filaConPrecio({ minorista: 3999 });
-  assert.deepStrictEqual(opcionesCosto(con, 'produccion', { precioSiempre: true }).map(o => o.valor), ['', 'sistema']); // Producción y Fraccionado nunca
-  assert.ok(!opcionesCosto(con, 'fraccionado', { precioSiempre: true }).some(o => o.valor === 'precio'));
+  assert.deepStrictEqual(opcionesCosto(con, 'produccion', { precioSiempre: true }).map(o => o.valor), ['', 'sistema']); // Producción nunca
+  // Fraccionado: el precio fijo es de las presentaciones (no de la fila del granel): en el modal siempre, en el select sólo si alguna lo tiene
+  assert.ok(opcionesCosto(con, 'fraccionado', { precioSiempre: true }).some(o => o.valor === 'precio'));
+  assert.ok(!opcionesCosto(con, 'fraccionado').some(o => o.valor === 'precio'));
+  assert.ok(opcionesCosto({ ...con, precioFijo: null, presentaciones: [{ precioFijo: { minorista: 900 } }] }, 'fraccionado').some(o => o.valor === 'precio'));
 });
 
 test('opcionesCosto: precio fijo guardado pero sin costo para calcular el margen → deshabilitada con su motivo; si es la decisión guardada sigue seleccionable', () => {

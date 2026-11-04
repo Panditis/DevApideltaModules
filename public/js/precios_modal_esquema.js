@@ -77,7 +77,8 @@ function resumenMinorista(fila, fuente) {
 // guardado (o si es la decisión guardada).
 function opcionesCosto(fila, tipo, { manualSiempre = false, precioSiempre = false } = {}) {
   const actual = fila.decision ? fila.decision.fuente : null;
-  const conPrecio = tipo === 'almacen' && (precioSiempre || fila.precioFijo != null || actual === 'precio');
+  const conPrecio = tipo === 'almacen' ? precioSiempre || fila.precioFijo != null || actual === 'precio'
+    : tipo === 'fraccionado' && (precioSiempre || actual === 'precio' || (fila.presentaciones || []).some(p => p.precioFijo != null)); // Fraccionado: el precio fijo es de las presentaciones
   const fuentes = tipo === 'produccion' ? ['sistema']
     : ['sistema', 'ultimaCompra', ...(manualSiempre || fila.costoManual != null || actual === 'manual' ? ['manual'] : []), ...(conPrecio ? ['precio'] : [])];
   const noCambiar = { valor: '', texto: 'No cambiar', costo: null, precio: fila.vigente ?? null, deltaPct: null, estado: null, disponible: true, motivo: null };
@@ -264,7 +265,12 @@ function htmlResumenMd(f, tipo) {
 }
 
 // Avisos: error del motor (márgenes/gastos sin configurar → link a Configuración con el permiso) o producto sin costo.
+const TXT_PRECIO_SIN_VIGENTE = 'La decisión de precio fijo quedó sin presentación vigente (se marcó mayorista). Elegí otra fuente o cargá un precio fijo.';
+const htmlAvisoPrecioSinVigente = f => (f.decisionPrecioSinVigente ? `<div class="md-aviso" role="note">${esc(TXT_PRECIO_SIN_VIGENTE)}</div>` : '');
 function htmlAvisoMd(f, ops) {
+  return htmlAvisoPrecioSinVigente(f) + htmlAvisoMotorMd(f, ops);
+}
+function htmlAvisoMotorMd(f, ops) {
   const err = errorMotor(f);
   if (err === 'margen' || err === 'gastos') {
     const sub = err === 'margen' ? 'margenes' : 'costos';
@@ -281,8 +287,9 @@ function htmlAvisoMd(f, ops) {
 
 // Fraccionado: cuándo conviene cada costo (una línea gris chica en la tarjeta) y el acento de color de cada fuente (clase md-f-*, precios.html).
 const CUANDO_MD = { '': 'Conviene si hoy no querés tocar este producto.', sistema: 'Conviene si el costo cargado en SIGA está al día.',
-  ultimaCompra: 'Conviene si la última compra refleja lo que te cuesta hoy.', manual: 'Conviene si sabés el costo real y SIGA no lo tiene.' };
-const CLASE_FUENTE_MD = { '': 'md-f-ninguna', sistema: 'md-f-sistema', ultimaCompra: 'md-f-ultimaCompra', manual: 'md-f-manual' };
+  ultimaCompra: 'Conviene si la última compra refleja lo que te cuesta hoy.', manual: 'Conviene si sabés el costo real y SIGA no lo tiene.',
+  precio: 'Conviene si querés fijar el precio de la bolsa y ver el margen que deja.' };
+const CLASE_FUENTE_MD = { '': 'md-f-ninguna', sistema: 'md-f-sistema', ultimaCompra: 'md-f-ultimaCompra', manual: 'md-f-manual', precio: 'md-f-precio' };
 const presentacionesMd = n => `${n} ${n === 1 ? 'presentación' : 'presentaciones'}`;
 
 // Una tarjeta por opción: toda la tarjeta es el <label> del radio. Muestra costo, precio nuevo grande y Δ% vs vigente.
@@ -293,7 +300,7 @@ function htmlOpcionMd(o, f, actual) {
   let costo = '';
   if (o.valor === '') costo = fracc ? '' : 'Deja el precio como está';
   else if (o.valor === 'manual' && manualEnTarjetaMd(mdEsq.tipo)) costo = htmlManualDecMd(f);
-  else if (o.valor === 'precio' && mdEsq.tipo === 'almacen') costo = htmlPrecioFijoMd(f);
+  else if (o.valor === 'precio') costo = fracc ? htmlPrecioFijoFraccMd(f) : htmlPrecioFijoMd(f); // htmlPrecioFijoFraccMd: precios_modal_fraccionado.js
   else if (o.costo != null) costo = `Costo <b class="tabular-nums">$ ${fmtMoney(o.costo)}</b>${fracc ? '<span class="md-u">/kg</span>' : ''}`;
   let extra = '';
   if (o.valor === 'ultimaCompra' && f.costoUltimaCompra != null) {
@@ -306,7 +313,7 @@ function htmlOpcionMd(o, f, actual) {
     : `<div class="md-opc-l">Queda en</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta"><span class="md-chip md-chip-0">sin cambio</span></div>`;
   else if (fracc) precio = `<div class="md-opc-l">Cambio promedio en ${presentacionesMd(o.n)}</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.deltaPct > 0 ? 'subir' : o.deltaPct < 0 ? 'bajar' : 'ok')}</div>`;
   else precio = `<div class="md-opc-l">Precio nuevo</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.estado)}</div>`;
-  if (o.valor === 'precio' && !o.motivo) precio += htmlMargenCardMd(f); // Margen X % de las tablas (sólo con el permiso: usa el desglose)
+  if (o.valor === 'precio' && !o.motivo && !fracc) precio += htmlMargenCardMd(f); // Margen X % de las tablas (sólo con el permiso: usa el desglose)
   const cuando = fracc ? `<span class="md-opc-cuando">${esc(CUANDO_MD[o.valor] || '')}</span>` : '';
   return `<label class="md-opc${fracc ? ` ${CLASE_FUENTE_MD[o.valor] || ''}` : ''}${sel ? ' sel' : ''}${o.disponible ? '' : ' off'}">
     <span class="md-opc-cab"><input type="radio" name="mdCosto" value="${esc(o.valor)}"${sel ? ' checked' : ''}${o.disponible ? '' : ' disabled'}>
@@ -421,7 +428,7 @@ async function guardarPrecioFijoMd(precios, usar) {
 }
 function conectarPrecioFijoMd() {
   const usar = document.getElementById('mdPfUsar');
-  if (!usar) return;
+  if (!usar || mdEsq.tipo !== 'almacen') return; // Fraccionado: conectarPrecioFijoFraccMd
   const canales = canalesPrecioFijoMd(mdEsq.fila);
   const campos = canales.map(([c]) => document.getElementById(`mdPf-${c}`));
   const valores = () => Object.fromEntries(canales.map(([c], i) => [c, numOrNull(campos[i].value)]));

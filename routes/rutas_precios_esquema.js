@@ -216,7 +216,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { plu, tipoProveedor: tipo };
   }));
 
-  // Precio fijo de un producto de Reventa (costeo.precioFijo[plu]): body { minorista?, pack?, bulto? } (validarPrecioFijo: > 0 con 2
+  // Precio fijo de un producto de Reventa o de una presentación de Fraccionado (costeo.precioFijo[plu]): body { minorista?, pack?, bulto? } (validarPrecioFijo: > 0 con 2
   // decimales; null/ausente = sin precio en ese canal). Sin ningún canal se borra, y con él la decisión 'precio' del PLU (sin precio fijo
   // nunca exportaría; L.aplicarPrecioFijo). Cualquier usuario del módulo, como el costo manual: no es configuración (no va bajo /config/ y
   // precioFijo no está en CLAVES_OCULTAS: la card lo muestra). Sólo PLUs de Reventa; quitar pasa siempre (limpia PLUs que ya no están).
@@ -226,9 +226,22 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     if (errorPlu) return { error: errorPlu };
     let precios;
     try { precios = validarPrecioFijo(cuerpo(req)); } catch (err) { return { error: err.message }; }
-    if (precios && !(await listado('almacen', leerCosteo())).some(f => f.plu === plu)) return { error: `El PLU ${plu} no es un producto de Reventa` };
+    // Reventa primero; si no, presentación de Fraccionado (sólo minorista = precio de la bolsa con IVA; nunca una mayorista). Al quitar se
+    // busca el granel sólo si el PLU tenía precio fijo y no es de Reventa (para soltar la decisión 'precio' del granel).
+    const mirar = precios != null || L.precioFijoDe(leerCosteo(), plu) != null;
+    const esReventa = mirar && (await listado('almacen', leerCosteo())).some(f => f.plu === plu);
+    let grupo = null;
+    if (mirar && !esReventa) {
+      const g = (await listado('fraccionado', leerCosteo())).find(x => x.plu != null && (x.presentaciones || []).some(p => p.plu === plu));
+      const p = g ? g.presentaciones.find(x => x.plu === plu) : null;
+      if (precios && !p) return { error: `El PLU ${plu} no es un producto de Reventa ni una presentación de Fraccionado` };
+      if (precios && (precios.pack != null || precios.bulto != null)) return { error: 'Una presentación de Fraccionado sólo admite precio minorista' };
+      if (precios && p.mayorista) return { error: 'Una presentación mayorista no admite precio fijo' };
+      if (precios && !(p.pesoG > 0)) return { error: `La presentación ${plu} no tiene el peso en el nombre: no se puede pasar a $/kg` };
+      if (g) grupo = { granel: g.plu, presentaciones: g.presentaciones.map(x => x.plu) };
+    }
     const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
-    guardarJSON(COSTEO_PATH, { ...costeo, ...L.aplicarPrecioFijo(costeo, plu, precios) });
+    guardarJSON(COSTEO_PATH, { ...costeo, ...L.aplicarPrecioFijo(costeo, plu, precios, grupo) });
     return { plu, precioFijo: precios };
   }));
 

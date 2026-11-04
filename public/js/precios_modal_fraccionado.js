@@ -237,10 +237,12 @@ function htmlTarjetaPresentacionFraccMd({ minorista: r, mayoristas, presentacion
   const peso = textoPesoMd(r.pesoG), may = datosMayoristaFraccMd(presentacion, fuente);
   const { precios: pr, detalle } = partesPreciosFraccMd(r);
   const precios = may && !may.fijo ? `${pr} <span class="md-chip-0" title="El sugerido de una presentación mayorista es el precio ${may.tipo === 'pack' ? 'pack' : 'bulto'} sin IVA">sin IVA</span>` : pr;
+  const sp = fuente === 'precio' && presentacion && presentacion.precioFijo ? (presentacion.sugeridos || {}).precio : null;
+  const bolsa = sp && sp.precioPresentacion != null ? `<div class="md-sub">Precio fijo de la bolsa (con IVA): <b>${ESQ_FR_MD.pesosMd(sp.precioPresentacion)}</b></div>` : ''; // tal cual lo tipeado, no recalculado desde $/kg
   const mays = mayoristas.length ? `<div class="md-fr-mays"><div class="md-fr-mays-t">Códigos mayoristas</div>`
     + `${htmlCodigosMayoristasFraccMd(mayoristas, `Códigos mayoristas de ${r.nombre}`)}</div>` : '';
   return `<li class="md-fr-card md-fr-pres"><div class="md-fr-l1"><b>${ESC_FR_MD(r.nombre)}</b>${chipDeltaFrMd(r)}</div>`
-    + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div>${htmlClaseMayoristaFraccMd(presentacion)}<div class="md-fr-l3">${precios}${detalle}</div>${htmlBloqueMayoristaFraccMd(may)}${mays}</li>`;
+    + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div>${htmlClaseMayoristaFraccMd(presentacion)}<div class="md-fr-l3">${precios}${detalle}</div>${bolsa}${htmlBloqueMayoristaFraccMd(may)}${mays}</li>`;
 }
 // Tarjeta de los pack/bulto del granel mismo (no de una presentación); sin ellos no hay tarjeta.
 const htmlTarjetaGranelFraccMd = mayoristas => (!mayoristas.length ? '' : `<li class="md-fr-card md-fr-granel"><h4 class="md-fr-card-t">Mayoristas del granel `
@@ -458,7 +460,7 @@ function htmlDetalleFraccMd(f) {
 // y cómo se conforma el costo y el precio. Derecha (#mDetDerBody): precios de las presentaciones con la fuente elegida (mdFuente).
 function pintarModalFraccionadoMd() {
   const { tipo, fila: f } = mdEsq;
-  const ops = opcionesCosto(f, tipo, { manualSiempre: manualEnTarjetaMd(tipo) }); // precios_modal_esquema.js
+  const ops = opcionesCosto(f, tipo, { manualSiempre: manualEnTarjetaMd(tipo), precioSiempre: true }); // precios_modal_esquema.js
   const abajo = htmlColumnasFraccMd(htmlCostoGranelMd(f), htmlMargenProductoMd(f));
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${abajo}${htmlDetalleFraccMd(f)}`;
   document.getElementById('mDetDerSub').textContent = subtituloPreciosFraccMd(f, mdFuente);
@@ -594,7 +596,74 @@ function conectarDetalleFraccMd() {
     delUsuario = false;
   };
 }
-function conectarModalFraccionadoMd() { conectarCosteoFraccMd(); conectarDetalleFraccMd(); }
+function conectarModalFraccionadoMd() { conectarCosteoFraccMd(); conectarDetalleFraccMd(); conectarPrecioFijoFraccMd(); }
+
+// ── Card "Precio fijo" (costeo.precioFijo[pluPresentación].minorista = precio de la BOLSA con IVA) ──
+// Un campo por presentación no mayorista y con peso; vacío = margen general. "Usar" guarda cada precio (PUT precio-fijo/:plu de la presentación) y
+// elige la decisión 'precio' del granel; "Quitar" borra todos (el server limpia la decisión). Reusa msgDecisionMd, guardarDecision y los
+// ids mdPfUsar / mdPfQuitar de la card de Reventa. El margen en vivo usa el desglose (sólo con precios-config); la bolsa se muestra como se tipeó.
+const presentacionesPfMd = f => (f.presentaciones || []).filter(p => p.plu != null && p.mayorista !== true && p.pesoG > 0);
+const idPfMd = (pre, p) => `${pre}-${String(p.plu).replace(/[^\w-]/g, '_')}`;
+function htmlPrecioFijoFraccMd(f) {
+  const pres = presentacionesPfMd(f);
+  const campos = pres.map(p => {
+    const margen = preciosSinConfig ? '' : `<span id="${idPfMd('mdPfMargen', p)}" class="md-pf-margen tabular-nums"></span>`;
+    const describe = preciosSinConfig ? '' : ` aria-describedby="${idPfMd('mdPfMargen', p)}"`;
+    const valor = (p.precioFijo || {}).minorista;
+    return `<span class="md-pf-campo"><span>${ESC_FR_MD(p.nombre)} <span class="md-sub">· ${textoPesoMd(p.pesoG)}</span></span>
+      ${campoU(`<input type="number" min="0" step="any" id="${idPfMd('mdPf', p)}" class="md-pf-in" value="${ESC_FR_MD(valor ?? '')}" placeholder="general" aria-label="Precio fijo de la bolsa ${ESC_FR_MD(p.nombre)} en pesos"${describe}>`, '$', { pre: true, w: 'w-full' })}${margen}</span>`;
+  }).join('');
+  const sinCosto = fuenteRefMd(f) == null || !pres.length;
+  const hay = pres.some(p => p.precioFijo);
+  return `<span class="md-opc-manual md-opc-pf">${campos || '<span class="md-opc-extra">Sin presentaciones con peso.</span>'}
+    <span class="md-opc-extra">Precio de la bolsa con IVA. Vacío = margen general. El granel y los mayoristas no llevan precio fijo.</span>
+    <span class="flex items-center gap-2"><button type="button" id="mdPfUsar" class="cfg-btn2"${sinCosto ? ' disabled title="Sin costo cargado o sin presentaciones: no se puede calcular el precio"' : ''}>Usar</button>
+    ${hay ? '<button type="button" id="mdPfQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</span></span>`;
+}
+// Margen que deja cada bolsa tipeada: el precio por kg (bolsa ÷ kg) contra el costo de la presentación (margenesDePrecioMd); sólo para el margen, nunca se muestra.
+function pintarMargenesPfFraccMd() {
+  const ref = fuenteRefMd(mdEsq.fila) || 'sistema';
+  for (const p of presentacionesPfMd(mdEsq.fila)) {
+    const s = document.getElementById(idPfMd('mdPfMargen', p));
+    if (!s) continue;
+    const bolsa = numOrNull(document.getElementById(idPfMd('mdPf', p)).value);
+    const m = bolsa > 0 ? margenesDePrecioMd(p, ref, { minorista: Math.round(((bolsa * 1000) / p.pesoG) * 100) / 100 }).minorista : null;
+    s.textContent = m == null ? '' : `Margen ${ESQ_FR_MD.pctMd(m)}`;
+  }
+}
+// Guarda (o borra) cada precio y, con usar, elige la decisión 'precio'; recarga modal y listado. Primero los que se cargan y después los que se vacían.
+async function guardarPrecioFijoFraccMd(cambios, usar) {
+  const { tipo, fila: f } = mdEsq;
+  msgDecisionMd('', '<span class="spin"></span> Guardando…');
+  try {
+    for (const [plu, minorista] of [...cambios].sort((a, b) => (b[1] != null) - (a[1] != null))) {
+      await pedirJson('PUT', `/api/precios/precio-fijo/${encodeURIComponent(plu)}`, { minorista }); // precios_comun.js
+    }
+    if (usar) await guardarDecision(f.plu, 'precio'); // precios_listados.js
+    await abrirModalEsquema(tipo, f.plu, { detalle: mdDetalle });
+    cargarListado(tipo);
+    msgDecisionMd('text-ok', `✓ Guardado · ${esc(estadoDecision(mdEsq.fila, tipo).texto.toLowerCase())}`);
+  } catch (e) { msgDecisionMd('text-crit', `No se pudo guardar: ${esc(e.message)}`); }
+}
+function conectarPrecioFijoFraccMd() {
+  const usar = document.getElementById('mdPfUsar');
+  if (!usar || mdEsq.tipo !== 'fraccionado') return;
+  const pres = presentacionesPfMd(mdEsq.fila);
+  const campo = p => document.getElementById(idPfMd('mdPf', p));
+  pres.forEach(p => {
+    campo(p).oninput = pintarMargenesPfFraccMd;
+    campo(p).onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); usar.click(); } };
+  });
+  usar.onclick = () => {
+    const nuevos = pres.map(p => [p, numOrNull(campo(p).value)]);
+    if (nuevos.every(([, v]) => v == null)) return msgDecisionMd('text-crit', 'Cargá al menos un precio.');
+    const cambios = nuevos.filter(([p, v]) => v !== ((p.precioFijo || {}).minorista ?? null)).map(([p, v]) => [p.plu, v]);
+    return guardarPrecioFijoFraccMd(cambios, true);
+  };
+  const quitar = document.getElementById('mdPfQuitar');
+  if (quitar) quitar.onclick = () => guardarPrecioFijoFraccMd(pres.filter(p => p.precioFijo).map(p => [p.plu, null]), false);
+  pintarMargenesPfFraccMd();
+}
 
 function conectarCosteoFraccMd() {
   if (!document.getElementById('mdFr')) return;

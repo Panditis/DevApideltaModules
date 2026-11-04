@@ -694,7 +694,7 @@ test('precio fijo: PUT guarda por PLU de Reventa, valida los precios y quita (li
   const a = appCon({ ...MIGRADO, precioFijo: { 999: { minorista: 1 } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   const poner = (plu, body) => a.pedir('PUT', `/api/precios/precio-fijo/${plu}`, body);
   try {
-    for (const plu of ['50', '51', '6319', '777']) assert.match((await poner(plu, { minorista: 3999 })).error, /no es un producto de Reventa/, plu);
+    for (const plu of ['50', '6319', '777']) assert.match((await poner(plu, { minorista: 3999 })).error, /no es un producto de Reventa ni una presentación de Fraccionado/, plu);
     assert.match((await poner('1', { minorista: 0 })).error, /precioFijo\.minorista: El precio debe ser mayor a 0/);
     assert.match((await poner('1', { minorista: 3999.999 })).error, /hasta 2 decimales/);
     assert.match((await poner('1', { mayorista: 5 })).error, /canal desconocido/);
@@ -747,6 +747,34 @@ test('precio fijo sin precios-config: la card lo ve (fila.precioFijo, sugeridos.
       for (const clave of ['desglose', 'margenGeneralPct', 'margenProductoModo', '"margenPct"', 'costoConGastos', 'margenProducto"']) assert.ok(!txt.includes(clave), `${ruta} ${clave}`);
     }
     assert.strictEqual((await a.pedir('PUT', '/api/precios/precio-fijo/1', { minorista: 4100 })).precioFijo.minorista, 4100);
+  } finally { a.cerrar(); }
+});
+
+test('precio fijo de Fraccionado: PUT por presentación (sólo minorista, precio de la bolsa), decisión "precio" en el granel, quitar la última la limpia', async () => {
+  const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const poner = (plu, body) => a.pedir('PUT', `/api/precios/precio-fijo/${plu}`, body);
+  try {
+    assert.match((await a.pedir('PUT', '/api/precios/decision/50', { fuente: 'precio' })).error, /no tiene precio fijo cargado/);
+    assert.match((await poner('51', { minorista: 2000, pack: 5 })).error, /Fraccionado sólo admite precio minorista/);
+    assert.ok(!a.leer().precioFijo || !('51' in a.leer().precioFijo));
+    assert.deepStrictEqual(await poner('51', { minorista: 2000 }), { plu: '51', precioFijo: { minorista: 2000 } });
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    const s = det.presentaciones[0].sugeridos.precio;
+    assert.deepStrictEqual([det.presentaciones[0].precioFijo, s.precioPresentacion, s.precioKg, s.minorista.precio], [{ minorista: 2000 }, 2000, 4000, 4000]);
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/50', { fuente: 'precio' })).decision.fuente, 'precio');
+    const { listas } = await a.pedir('GET', '/api/precios/esquema/export');
+    assert.deepStrictEqual(listas.minorista.find(r => r[0] === 51).slice(3), [4000]);
+    assert.strictEqual((await poner('51', {})).precioFijo, null);
+    assert.ok(!('50' in (a.leer().decisiones || {}))); // era la única presentación fija
+  } finally { a.cerrar(); }
+});
+
+test('precio fijo de Fraccionado: una presentación mayorista no lo admite', async () => {
+  const base = migrarConfigFraccionado(MIGRADO).costeo;
+  const a = appCon({ ...base, fraccionado: { ...base.fraccionado, mayorista: { porPlu: { 51: 'bulto' } } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    assert.match((await a.pedir('PUT', '/api/precios/precio-fijo/51', { minorista: 2000 })).error, /Una presentación mayorista no admite precio fijo/);
+    assert.ok(!a.leer().precioFijo || !('51' in a.leer().precioFijo));
   } finally { a.cerrar(); }
 });
 

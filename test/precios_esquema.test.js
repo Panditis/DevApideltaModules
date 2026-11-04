@@ -408,12 +408,13 @@ test('preciosCanales: precio fijo ≤ 0 se ignora (el canal queda con el margen 
   assert.deepStrictEqual(E.preciosCanales({ ...args, margenProducto: { modo: 'precio', minorista: 0, pack: -5 } }), E.preciosCanales(args));
 });
 
-test('preciosCanales: el modo precio sólo vale en Reventa (en Fraccionado/Producción se ignora)', () => {
+test('preciosCanales: el modo precio vale en Reventa y en el minorista de Fraccionado (pack/bulto siguen por descuento); en Producción se ignora', () => {
   const mp = { modo: 'precio', minorista: 3999, pack: 2999.5 };
-  for (const tipo of ['fraccionado', 'produccion']) {
-    const args = { tipo, costo: 2000, pesoG: 100, unidades: { pack: 6 }, cfg: CFG };
-    assert.deepStrictEqual(E.preciosCanales({ ...args, margenProducto: mp }), E.preciosCanales(args), tipo);
-  }
+  const args = { tipo: 'produccion', costo: 2000, pesoG: 100, unidades: { pack: 6 }, cfg: CFG };
+  assert.deepStrictEqual(E.preciosCanales({ ...args, margenProducto: mp }), E.preciosCanales(args));
+  const f = E.preciosCanales({ ...args, tipo: 'fraccionado', margenProducto: mp });
+  assert.deepStrictEqual([f.minorista.precio, f.minorista.margenProductoModo], [3999, 'precio']);
+  assert.strictEqual(f.pack.neto, E.r2(E.r2(f.minorista.conExtras * 0.9) * 6)); // pack = kilo resultante con el descuento (10 %), no el precio fijo
 });
 
 test('preciosCanales: el canal con precio fijo no lleva el descuento distribuidor', () => {

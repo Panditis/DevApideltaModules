@@ -334,8 +334,14 @@ const badgeMargenProducto = f => {
   return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${b.titulo} del producto: ${esc(t)}">${b.marca}</span>`;
 };
 // Precio fijo (Reventa, costeo.precioFijo): público (como el costo manual), lo ve cualquier usuario del módulo.
-const badgePrecioFijo = f => (f.precioFijo
-  ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="Precio fijo del producto: ${esc(textoPrecioFijoLst(f.precioFijo))}">$=</span>` : '');
+// Fraccionado: la presentación con precioFijo (precio de la bolsa) y el granel con decisión 'precio'.
+const badgePrecioFijo = f => {
+  const granelFijo = Array.isArray(f.presentaciones) && f.decision && f.decision.fuente === 'precio';
+  const titulo = f.precioFijo ? `Precio fijo del producto: ${textoPrecioFijoLst(f.precioFijo)}` : granelFijo ? 'Decisión: precio fijo en sus presentaciones' : '';
+  const fijo = titulo ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${esc(titulo)}">$=</span>` : '';
+  const sinVigente = f.decisionPrecioSinVigente ? ' <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="La decisión de precio fijo quedó sin presentación vigente (se marcó mayorista). Elegí otra fuente o cargá un precio fijo.">$= sin vigente</span>' : '';
+  return fijo + sinVigente;
+};
 // Avisos del costeo (⚠ n, detalle en el title) + subrubro · min/kg · máquina del granel. avisosCosto es público; costeoGranel no.
 const badgeAvisosCosto = f => ((f.avisosCosto || []).length
   ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="${ESC_LST(textoAvisosCosto(f.avisosCosto).join('\n'))}">⚠ ${f.avisosCosto.length}</span>` : '')

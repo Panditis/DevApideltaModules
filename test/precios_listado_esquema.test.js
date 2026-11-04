@@ -714,20 +714,20 @@ test('filaPublica: el precio fijo y fuenteRef viajan; el desglose (margenPct, ma
   assert.ok(!JSON.stringify(pub).includes('margenGeneralPct'));
 });
 
-test('validarDecision: "precio" sólo con precio fijo guardado; las demás fuentes no cambian', () => {
+test('validarDecision: "precio" pasa (lo valida contra las filas); las demás fuentes no cambian', () => {
   assert.strictEqual(L.validarDecision('5', 'precio', { precioFijo: { 5: { minorista: 10 } } }), null);
-  assert.match(L.validarDecision('5', 'precio', {}), /precio fijo/);
+  assert.strictEqual(L.validarDecision('5', 'precio', {}), null); // sin precio fijo lo rechaza validarDecisionContraFilas (granel de Fraccionado)
   assert.match(L.validarDecision('5', 'otra', {}), /fuente inválida: sistema, ultimaCompra, manual, precio o null/);
   assert.strictEqual(L.validarDecision('5', 'sistema', {}), null);
 });
 
 test('validarDecisionContraFilas: "precio" sólo en una fila de Reventa con sugeridos.precio (Producción y Fraccionado nunca lo tienen)', () => {
   assert.strictEqual(L.validarDecisionContraFilas({ almacen: [arroz({}, conPrecio())] }, '1', 'precio'), null);
-  assert.match(L.validarDecisionContraFilas({ almacen: [arroz()] }, '1', 'precio'), /no tiene precio sugerido con la fuente precio \(disponibles: sistema\)/);
-  assert.match(L.validarDecisionContraFilas({ almacen: [arroz({ costoSistema: null }, conPrecio())] }, '1', 'precio'), /disponibles: ninguna/); // sin costo de referencia
+  assert.match(L.validarDecisionContraFilas({ almacen: [arroz()] }, '1', 'precio'), /no tiene precio fijo cargado/);
+  assert.match(L.validarDecisionContraFilas({ almacen: [arroz({ costoSistema: null }, conPrecio())] }, '1', 'precio'), /no tiene precio fijo cargado/); // sin costo de referencia
   const [p] = L.listadoProduccion({ presentaciones: [{ plu: '6319', nombre: 'Mezcla', costoUnidad: 1000 }], vigentes: new Map(),
     mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }), costeo: { precioFijo: { 6319: { minorista: 5 } } }, cfg: CFG });
-  assert.match(L.validarDecisionContraFilas({ produccion: [p] }, '6319', 'precio'), /disponibles: sistema/);
+  assert.match(L.validarDecisionContraFilas({ produccion: [p] }, '6319', 'precio'), /no tiene precio fijo cargado/);
 });
 
 test('costoEnSuTab: la decisión "precio" (precio fijo de Reventa) no es un costo: la materia prima queda como sin decisión', () => {
@@ -789,4 +789,78 @@ test('listadoFraccionado con costeoF: granel en bobina → línea _bobina, coste
   assert.strictEqual(g.costeoGranel.envase, 'bobina');
   const pub = require('../lib/precios_permisos').sinClavesOcultas(L.filaPublica(g));
   assert.deepStrictEqual(['costeoGranel' in pub, pub.avisosCosto], [false, ['sinMinutos', 'sinBobina']]);
+});
+
+// ── Precio fijo de Fraccionado (spec precios_fraccionado_precio_fijo_card): precio de la presentación (bolsa) → $/kg ──
+const ALMENDRAS = [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '102', nombre: 'Almendras 1Kg' }, { plu: '101', nombre: 'Almendras 500G' }] }];
+const almendras = (costeo = {}) => L.listadoFraccionado({ grupos: ALMENDRAS, costos: new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000 }]]),
+  vigentes: new Map(), mayoristasDe: () => [], costeo, cfg: CFG })[0];
+
+test('listadoFraccionado: precio fijo de la presentación (bolsa con IVA) → sugeridos.precio en $/kg; las demás con margen general; el granel también trae sugeridos.precio', () => {
+  const sin = almendras();
+  const g = almendras({ precioFijo: { 101: { minorista: 1000 } } });
+  const [p500, p1k] = g.presentaciones;
+  assert.deepStrictEqual(p500.precioFijo, { minorista: 1000 });
+  const s = p500.sugeridos.precio;
+  assert.deepStrictEqual([s.precioPresentacion, s.precioKg, s.minorista.precio, s.minorista.margenTotalPct, s.fuenteRef], [1000, 2000, 2000, 100, 'sistema']);
+  assert.strictEqual(s.desglose.minorista.margenProductoModo, 'precio');
+  assert.deepStrictEqual(p500.sugeridos.sistema, sin.presentaciones[0].sugeridos.sistema); // la fuente de costo no cambia
+  assert.strictEqual(p1k.precioFijo, undefined);
+  assert.strictEqual(p1k.sugeridos.precio.minorista.precio, p1k.sugeridos.sistema.minorista.precio); // sin precio fijo: margen general
+  assert.ok(!('precioPresentacion' in p1k.sugeridos.precio));
+  assert.strictEqual(g.sugeridos.precio.fuenteRef, 'sistema');
+  assert.ok(!('precio' in sin.sugeridos) && sin.presentaciones.every(p => !('precio' in p.sugeridos)));
+  assert.strictEqual(L.filaPublica(g).presentaciones[0].precioFijo.minorista, 1000);
+  assert.ok(!('desglose' in L.filaPublica(g).presentaciones[0].sugeridos.precio));
+});
+
+test('validarDecision / ContraFilas: "precio" en el granel vale si alguna presentación tiene precio fijo; si no, error claro', () => {
+  const con = almendras({ precioFijo: { 101: { minorista: 1000 } } });
+  assert.strictEqual(L.validarDecision('100', 'precio', {}), null); // el precio fijo lo mira contra las filas
+  assert.strictEqual(L.validarDecisionContraFilas({ fraccionado: [con] }, '100', 'precio'), null);
+  assert.match(L.validarDecisionContraFilas({ fraccionado: [almendras()] }, '100', 'precio'), /no tiene precio fijo cargado/);
+});
+
+test('export Fraccionado con decisión "precio": la presentación fija sale a su $/kg, las otras con margen general, Costo = el del granel', () => {
+  const g = { ...almendras({ precioFijo: { 101: { minorista: 1000 } } }), decision: { fuente: 'precio' } };
+  const { items, omitidos } = L.itemsDecididos({ fraccionado: [g] });
+  assert.strictEqual(omitidos, 0);
+  const min = L.listasExport(items).minorista.slice(1);
+  assert.deepStrictEqual(min.find(r => r[0] === 101), [101, 'Almendras 500G', 1000, 2000]);
+  assert.deepStrictEqual(min.find(r => r[0] === 102), [102, 'Almendras 1Kg', 1000, g.presentaciones[1].sugeridos.sistema.minorista.precio]);
+});
+
+test('listadoFraccionado: decisión "precio" sin presentación fija vigente (ej. quedó mayorista) → sin decisión + decisionPrecioSinVigente', () => {
+  const g = almendras({ decisiones: { 100: { fuente: 'precio' } } });
+  assert.strictEqual(g.decision, null);
+  assert.strictEqual(g.decisionPrecioSinVigente, true);
+  assert.strictEqual(almendras({ precioFijo: { 101: { minorista: 1000 } }, decisiones: { 100: { fuente: 'precio' } } }).decisionPrecioSinVigente, undefined);
+  assert.strictEqual(almendras({ decisiones: { 100: { fuente: 'sistema' } } }).decision.fuente, 'sistema');
+});
+
+test('aplicarPrecioFijo con granel: quitar la última presentación fija borra la decisión "precio" del granel; quitar una de varias no', () => {
+  const costeo = { precioFijo: { 101: { minorista: 1 }, 102: { minorista: 2 } }, decisiones: { 100: { fuente: 'precio' } } };
+  assert.deepStrictEqual(L.aplicarPrecioFijo(costeo, '101', null, { granel: '100', presentaciones: ['101', '102'] }), { precioFijo: { 102: { minorista: 2 } } });
+  assert.deepStrictEqual(L.aplicarPrecioFijo({ ...costeo, precioFijo: { 101: { minorista: 1 } } }, '101', null, { granel: '100', presentaciones: ['101', '102'] }),
+    { precioFijo: {}, decisiones: {} });
+});
+
+test('con costeo.fraccionado: presentación fija que queda mayorista (porPlu o pesoMinG) deja "precio" huérfana y el export no la decide; si deja de ser mayorista, vuelve', () => {
+  const base = { precioFijo: { 101: { minorista: 1000 } }, decisiones: { 100: { fuente: 'precio' } } };
+  const conMay = mayorista => L.listadoFraccionado({ grupos: ALMENDRAS, costos: new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000 }]]),
+    vigentes: new Map(), mayoristasDe: () => [], costeo: base, cfg: CFG, costeoF: FCx.normalizarCosteoFraccionado({ mayorista }) })[0];
+  for (const may of [{ porPlu: { 101: 'bulto' } }, { pesoMinG: 500 }]) {
+    const g = conMay(may);
+    assert.strictEqual(g.presentaciones[0].mayorista, true);
+    assert.strictEqual(g.decision, null);
+    assert.strictEqual(g.decisionPrecioSinVigente, true);
+    assert.ok(!('precio' in g.sugeridos));
+    const { items } = L.itemsDecididos({ fraccionado: [g] });
+    assert.strictEqual(items.length, 0);
+  }
+  const vuelve = conMay({ porPlu: { 101: false }, pesoMinG: 500 });
+  assert.strictEqual(vuelve.presentaciones[0].mayorista, false);
+  assert.strictEqual(vuelve.decision.fuente, 'precio');
+  assert.strictEqual(vuelve.decisionPrecioSinVigente, undefined);
+  assert.ok(L.itemsDecididos({ fraccionado: [vuelve] }).items.length > 0);
 });

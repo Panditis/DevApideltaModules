@@ -212,10 +212,10 @@ test('Fraccionado: cada tarjeta de costo lleva su acento, el cuándo conviene y 
   const dom = crearContexto();
   abrir(dom, 'fraccionado', { ...granel({ conPermiso: true }), decision: { fuente: 'sistema' } });
   const tarjetas = [...dom.cuerpo().matchAll(/<label class="md-opc([^"]*)">((?:(?!<\/label>).)*)<\/label>/gs)].map(m => ({ clases: m[1], html: m[2] }));
-  assert.deepStrictEqual(tarjetas.map(t => t.clases.trim().split(' ')[0]), ['md-f-ninguna', 'md-f-sistema', 'md-f-ultimaCompra', 'md-f-manual']);
+  assert.deepStrictEqual(tarjetas.map(t => t.clases.trim().split(' ')[0]), ['md-f-ninguna', 'md-f-sistema', 'md-f-ultimaCompra', 'md-f-manual', 'md-f-precio']); // 5ta: Precio fijo (precioSiempre), acento propio
   for (const t of tarjetas) assert.match(t.html, /<span class="md-opc-cuando">Conviene si /);
   assert.match(tarjetas[1].html, /Costo <b class="tabular-nums">\$ 1\.000,00<\/b><span class="md-u">\/kg<\/span>/);
-  assert.deepStrictEqual(tarjetas.map(t => /✓ Elegida/.test(t.html)), [false, true, false, false]);
+  assert.deepStrictEqual(tarjetas.map(t => /✓ Elegida/.test(t.html)), [false, true, false, false, false]);
   assert.match(tarjetas[1].clases, /\bsel\b/);
   assert.match(tarjetas[1].html, /Cambio promedio en 2 presentaciones/); // el chip no repite "prom." (lo dice la leyenda)
   assert.doesNotMatch(tarjetas[1].html, /prom\./);
@@ -234,7 +234,7 @@ test('Fraccionado con precios-config: la tarjeta "Costo manual" trae el campo y 
   assert.match(tj, /<input id="mdManual" type="number"[^>]*value="1100"/);
   assert.match(tj, /id="mdManualGuardar"[^>]*>Guardar<\/button>/);
   assert.match(tj, /id="mdManualQuitar"/);
-  assert.match(dom.cuerpo(), /id="mdCostos" class="md-opcs" style="--n:4"/);
+  assert.match(dom.cuerpo(), /id="mdCostos" class="md-opcs" style="--n:5"/);
   assert.strictEqual(typeof dom.el('mdManual').onkeydown, 'function'); // Enter guarda
   // Sin costo manual la tarjeta sigue estando (campo vacío para cargarlo), sin Quitar y sin poder elegirse todavía.
   const dom2 = crearContexto();
@@ -244,7 +244,7 @@ test('Fraccionado con precios-config: la tarjeta "Costo manual" trae el campo y 
   assert.match(tj, /id="mdManualGuardar"/);
   assert.doesNotMatch(tj, /mdManualQuitar/);
   assert.match(tj, /<input type="radio" name="mdCosto" value="manual" disabled>/);
-  assert.match(dom2.cuerpo(), /style="--n:4"/);
+  assert.match(dom2.cuerpo(), /style="--n:5"/);
   assert.deepStrictEqual(repetidos(dom2.ids()), []);
   assert.strictEqual(typeof dom2.el('mdManualGuardar').onclick, 'function');
 });
@@ -258,7 +258,7 @@ test('Fraccionado sin precios-config: la tarjeta "Costo manual" no trae el campo
   const sin = crearContexto();
   abrir(sin, 'fraccionado', granel({ conPermiso: false }), { sinConfig: true });
   assert.doesNotMatch(sin.cuerpo(), /value="manual"|id="mdManual/);
-  assert.match(sin.cuerpo(), /style="--n:3"/);
+  assert.match(sin.cuerpo(), /style="--n:4"/);
 });
 
 test('Fraccionado: el acordeón respeta mdDetalle al repintar y lo actualiza al abrirse', () => {
@@ -488,7 +488,7 @@ test('Fraccionado sin precios-config: ni chip ni botones ni pedido del historial
   const pedidos = conHistorial(dom, () => Promise.resolve(historialDe({ 100: { n: 12, mediana: 6.4, p25: 5, p75: 8, subrubroId: '7', pocosDatos: false } })));
   abrir(dom, 'fraccionado', granel({ conPermiso: false }), { sinConfig: true });
   await ESPERAR();
-  assert.doesNotMatch(dom.cuerpo() + dom.cuerpoDer(), /hf-|Historial|mdFrHist|Usar/);
+  assert.doesNotMatch(dom.cuerpo() + dom.cuerpoDer(), /hf-|Historial|mdFrHist/); // 'Usar' suelto no: la card de precio fijo es pública (el del historial es .hf-usar, cubierto por hf-)
   assert.strictEqual(pedidosHistorial(pedidos).length, 0);
   assert.strictEqual(pedidos.length, 0);
 });
@@ -532,4 +532,145 @@ test('repintarModalCompletoFraccMd: repinta las dos tarjetas con el detalle nuev
   assert.equal(dom.el('mDetBody').scrollTop, 120);
   assert.equal(dom.el('mDetDerBody').scrollTop, 40);
   assert.equal(boton.enfocado, true);                                // foco en el botón elegido
+});
+
+// ── Card "Precio fijo" (spec precios_fraccionado_precio_fijo_card): costeo.precioFijo[pluPresentación].minorista = bolsa con IVA ──
+// Granel 100: 500G (101, precio fijo 1199,99 si conPf), 1Kg (102), sin peso (103) y mayorista marcada (104).
+function granelPf({ conPermiso = true, conPf = true } = {}) {
+  const v = new Map([['101', 1950], ['102', 1500], ['103', 900], ['104', 9000]]);
+  const [g] = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' },
+      { plu: '103', nombre: 'Almendras suelta' }, { plu: '104', nombre: 'Almendras 10Kg' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: v, mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: v }),
+    costeo: conPf ? { precioFijo: { 101: { minorista: 1199.99 } }, decisiones: { 100: { fuente: 'precio' } } } : {}, cfg: CFG,
+  });
+  const fila = { ...g, presentaciones: g.presentaciones.map(p => (p.plu === '104' ? { ...p, mayorista: true, mayoristaTipo: 'bulto' } : p)) };
+  return conPermiso ? fila : L.filaPublica(fila);
+}
+const abrirPf = (dom, fila, op) => { abrir(dom, 'fraccionado', fila, op); dom.correr("mdFuente = 'precio'; pintarModalEsquema()"); };
+// fetch que anota cada PUT y responde respuestas[url] (GET del detalle → la misma fila).
+function conPuts(dom, respuestas = {}) {
+  const puts = [];
+  dom.ctx.fetch = (url, opts = {}) => {
+    if (opts.method) puts.push([opts.method, url, JSON.parse(opts.body)]);
+    return Promise.resolve({ json: () => Promise.resolve(respuestas[url] || (opts.method ? {} : dom.ctx.__fila)) });
+  };
+  dom.ctx.abrirModal = () => {};
+  return puts;
+}
+
+test('Precio fijo Fraccionado: un campo por presentación no mayorista con peso; nada para granel, sin peso ni mayorista', () => {
+  const dom = crearContexto();
+  abrirPf(dom, granelPf());
+  const html = dom.cuerpo();
+  assert.match(html, /id="mdPf-101"[^>]*value="1199.99"/);
+  assert.match(html, /id="mdPf-102"[^>]*value=""/);
+  for (const plu of ['100', '103', '104']) assert.ok(!html.includes(`id="mdPf-${plu}"`), plu);
+  assert.match(html, /id="mdPfUsar"/);
+  assert.match(html, /id="mdPfQuitar"/);
+  assert.deepStrictEqual(repetidos(dom.ids()), []);
+});
+
+test('Precio fijo Fraccionado: sin ninguno guardado la card igual está (precioSiempre) y sin Quitar', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', granelPf({ conPf: false }));
+  assert.match(dom.cuerpo(), /id="mdPf-101"[^>]*value=""/);
+  assert.ok(!dom.cuerpo().includes('mdPfQuitar'));
+});
+
+test('Precio fijo Fraccionado: la bolsa se muestra tal cual se tipeó; $/kg = bolsa × 1000 / g', () => {
+  const dom = crearContexto();
+  abrirPf(dom, granelPf());
+  assert.match(dom.cuerpoDer(), /Precio fijo de la bolsa \(con IVA\): <b>\$ 1\.199,99<\/b>/);
+  assert.strictEqual(granelPf().presentaciones.find(x => x.plu === '101').sugeridos.precio.minorista.precio, 2399.98);
+});
+
+test('Precio fijo Fraccionado: margen en vivo sólo con precios-config', () => {
+  const con = crearContexto();
+  abrirPf(con, granelPf());
+  con.el('mdPf-101').value = '1199.99';
+  con.correr('conectarModalFraccionadoMd()');
+  assert.match(con.el('mdPfMargen-101').textContent, /^Margen /);
+  con.el('mdPf-102').value = '2000';
+  con.el('mdPf-102').oninput();
+  assert.match(con.el('mdPfMargen-102').textContent, /^Margen /);
+  const sin = crearContexto();
+  abrirPf(sin, granelPf({ conPermiso: false }), { sinConfig: true });
+  assert.match(sin.cuerpo(), /id="mdPf-101"/); // el campo es público
+  assert.ok(!sin.cuerpo().includes('mdPfMargen'));
+});
+
+test('Precio fijo Fraccionado: Usar guarda sólo lo cambiado por PUT precio-fijo/<plu> y después la decisión precio del granel', async () => {
+  const dom = crearContexto();
+  const puts = conPuts(dom);
+  abrirPf(dom, granelPf());
+  dom.el('mdPf-101').value = '1199.99'; // el stub no lee el value del HTML
+  dom.correr('conectarModalFraccionadoMd()');
+  dom.el('mdPf-102').value = '2500';
+  await dom.el('mdPfUsar').onclick();
+  assert.deepStrictEqual(puts, [['PUT', '/api/precios/precio-fijo/102', { minorista: 2500 }]]);
+  assert.deepStrictEqual(dom.llamadas.at(-1), ['guardarDecision', '100', 'precio']);
+});
+
+test('Precio fijo Fraccionado: vaciar un campo lo borra (null) después de los cargados; todo vacío no guarda nada', async () => {
+  const dom = crearContexto();
+  const puts = conPuts(dom);
+  abrirPf(dom, granelPf());
+  dom.el('mdPf-101').value = '1199.99'; // el stub no lee el value del HTML
+  dom.correr('conectarModalFraccionadoMd()');
+  dom.el('mdPf-101').value = '';
+  dom.el('mdPf-102').value = '2500';
+  await dom.el('mdPfUsar').onclick();
+  assert.deepStrictEqual(puts.map(p => [p[1], p[2]]), [['/api/precios/precio-fijo/102', { minorista: 2500 }], ['/api/precios/precio-fijo/101', { minorista: null }]]);
+  const vacio = crearContexto();
+  const p2 = conPuts(vacio);
+  abrirPf(vacio, granelPf());
+  vacio.el('mdPf-101').value = '1199.99';
+  vacio.correr('conectarModalFraccionadoMd()');
+  vacio.el('mdPf-101').value = '';
+  vacio.el('mdPfUsar').onclick();
+  assert.deepStrictEqual(p2, []);
+  assert.match(vacio.el('mdDecMsg').innerHTML, /Cargá al menos un precio/);
+});
+
+test('Precio fijo Fraccionado: Quitar manda { minorista: null } por cada guardado y no elige decisión', async () => {
+  const dom = crearContexto();
+  const puts = conPuts(dom);
+  abrirPf(dom, granelPf());
+  dom.el('mdPf-101').value = '1199.99'; // el stub no lee el value del HTML
+  dom.correr('conectarModalFraccionadoMd()');
+  await dom.el('mdPfQuitar').onclick();
+  assert.deepStrictEqual(puts, [['PUT', '/api/precios/precio-fijo/101', { minorista: null }]]);
+  assert.ok(!dom.llamadas.some(l => l[0] === 'guardarDecision'));
+});
+
+test('Precio fijo Fraccionado: el {error} del server queda en el mensaje y no se elige la decisión', async () => {
+  const dom = crearContexto();
+  conPuts(dom, { '/api/precios/precio-fijo/102': { error: 'Una presentación mayorista no admite precio fijo' } });
+  abrirPf(dom, granelPf());
+  dom.el('mdPf-101').value = '1199.99'; // el stub no lee el value del HTML
+  dom.correr('conectarModalFraccionadoMd()');
+  dom.el('mdPf-102').value = '2500';
+  await dom.el('mdPfUsar').onclick();
+  assert.match(dom.el('mdDecMsg').innerHTML, /No se pudo guardar: Una presentación mayorista no admite precio fijo/);
+  assert.ok(!dom.llamadas.some(l => l[0] === 'guardarDecision'));
+});
+
+test('Listado: badge $= en la presentación con precio fijo y en el granel con decisión precio; nada sin precio fijo', () => {
+  const dom = crearContexto();
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/js/precios_listados.js'), 'utf8'), dom.ctx, { filename: 'precios_listados.js' });
+  const badge = f => { dom.ctx.__x = f; return dom.correr('badgePrecioFijo(__x)'); };
+  const g = granelPf({ conPermiso: false });
+  assert.match(badge(g), /\$=/);
+  assert.match(badge(g.presentaciones.find(p => p.plu === '101')), /title="Precio fijo del producto: [^"]+">\$=/);
+  assert.strictEqual(badge(g.presentaciones.find(p => p.plu === '102')), '');
+  assert.strictEqual(badge(granelPf({ conPermiso: false, conPf: false })), '');
+});
+
+test('Fraccionado: decisionPrecioSinVigente muestra el aviso (decision null) y sin la marca no hay aviso', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', { ...granel({ conPermiso: true }), decision: null, decisionPrecioSinVigente: true });
+  assert.match(dom.cuerpo(), /<div class="md-aviso" role="note">La decisión de precio fijo quedó sin presentación vigente/);
+  abrir(dom, 'fraccionado', granel({ conPermiso: true }));
+  assert.doesNotMatch(dom.cuerpo(), /sin presentación vigente/);
 });
