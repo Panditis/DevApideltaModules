@@ -96,8 +96,8 @@ test('preciosCanales mayorista: ejemplo de control (defaults 10/10), cadena pack
   const { pack: pk, bulto: bu } = r.minorista.mayorista;
   assert.deepStrictEqual([pk.neto, pk.precio, pk.conIva, pk.margenPct], [1260, 1250, 1500, 26]);
   assert.deepStrictEqual([bu.neto, bu.precio, bu.exactoIva, bu.conIva], [1134, 1150, 1372.14, 1350]);
-  // Alinea contra el vigente pasado a neto: 1391,5 / 1,21 = 1150 → queda 1150; Δ% en el listado, ver abajo.
-  assert.strictEqual(ctrl({ vigentes: { minorista: 1391.5 } }).minorista.vigenteNeto, 1150);
+  // El vigente de SIGA de una mayorista ya está sin IVA: vigenteNeto = vigente tal cual (no se divide por 1,21).
+  assert.strictEqual(ctrl({ vigentes: { minorista: 1391.5 } }).minorista.vigenteNeto, 1391.5);
   assert.deepStrictEqual([r.pack.netoUnidad, r.pack.exactoNeto, r.pack.neto, r.pack.exactoIva, r.pack.conIva], [1260, 31500, 31500, 38115, 38100]);
   assert.deepStrictEqual([r.bulto.netoUnidad, r.bulto.exactoNeto, r.bulto.neto, r.bulto.exactoIva, r.bulto.conIva], [1134, 28350, 28350, 34303.5, 34300]);
   assert.strictEqual(r.pack.margenPct, 26);
@@ -131,7 +131,7 @@ test('preciosCanales tipo pack vs bulto: el sugerido es el pack o el bulto sin I
   assert.deepStrictEqual(pk.mayorista, bu.mayorista);
   assert.deepStrictEqual(ctrl({ variante: 'mayorista' }).minorista, bu);
   assert.strictEqual(ctrl({ variante: 'minorista' }).minorista.tipoMayorista, undefined);
-  assert.strictEqual(ctrl({ variante: 'pack', vigentes: { minorista: 1512.5 } }).minorista.precio, 1250); // alinea al vigente neto
+  assert.strictEqual(ctrl({ variante: 'pack', vigentes: { minorista: 1512.5 } }).minorista.precio, 1250); // alinea al vigente tal cual
 });
 
 test('Fraccionado sin tablas pack/bulto: calcula igual (descuentos × unidades); Reventa sin cambios', () => {
@@ -158,13 +158,13 @@ test('preciosCanales mayorista: margen fijo del minorista gana (sin descuento); 
   assert.notStrictEqual(r.conExtras, 1400); // el ajuste entró
 });
 
-test('fila mayorista: Δ% contra el vigente sin IVA', () => {
+test('fila mayorista: Δ% contra el vigente de SIGA tal cual (ya sin IVA)', () => {
   const fila = L.filaProducto({ plu: '1', nombre: 'X 25Kg', tipo: 'fraccionado', costos: { sistema: 1000, ultimaCompra: null, manual: null },
     vigente: 1210, cfg: CFG_CTRL, variante: 'mayorista' });
   const m = fila.sugeridos.sistema.minorista;
-  assert.strictEqual(m.vigenteNeto, 1000);
+  assert.strictEqual(m.vigenteNeto, 1210);
   assert.strictEqual(m.precio, 1150);
-  assert.strictEqual(m.deltaPct, 15); // 1150 vs 1000, no vs 1210
+  assert.strictEqual(m.deltaPct, -5); // 1150 vs 1210 (−4,96 → −5), sin restar IVA; antes 15 (vs 1000)
 });
 
 test('listadoFraccionado: con config mayorista los precios son idénticos; la fila trae mayorista/mayoristaOrigen', () => {

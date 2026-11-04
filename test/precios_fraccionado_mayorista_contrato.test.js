@@ -31,7 +31,7 @@ test('contrato 2026-11-04: tipoMayorista en minorista y desglose; mayoristaTipo 
   assert.deepStrictEqual([bu.minorista.tipoMayorista, bu.desglose.minorista.tipoMayorista, bu.minorista.precio], ['bulto', 'bulto', 1150]);
   for (const s of [pk, bu]) {
     for (const k of ['pack', 'bulto', 'minoristaOriginal', 'minoristaOriginalNeto', 'vigenteNeto', 'deltaPct', 'estado', 'margenTotalPct']) assert.ok(k in s.minorista, k);
-    assert.strictEqual(s.minorista.vigenteNeto, 1404.96);
+    assert.strictEqual(s.minorista.vigenteNeto, 1700); // vigente de SIGA tal cual (mayorista ya sin IVA)
   }
   assert.strictEqual(filaTipo('minorista').minorista.tipoMayorista, undefined);
   const grupos = [{ plu: '700', nombre: 'G', presentaciones: [{ plu: '701', nombre: 'G 500G' }, { plu: '702', nombre: 'G 5Kg' }] }];
@@ -41,9 +41,9 @@ test('contrato 2026-11-04: tipoMayorista en minorista y desglose; mayoristaTipo 
   assert.deepStrictEqual(pub, [['701', true, 'manual', 'pack'], ['702', true, 'peso', 'bulto']]);
 });
 
-test('BUG modal: fila del minorista mayorista compara contra el vigente sin IVA (filasCanales lee f.vigenteNeto, que no existe)', () => {
+test('modal: fila del minorista mayorista muestra el vigente de SIGA tal cual (sin restar IVA)', () => {
     const r = MD.filasPreciosFraccMd(filaCtrl(), 'sistema')[0];
-    assert.strictEqual(r.vigente, 1404.96); // 1700 / 1,21
+    assert.strictEqual(r.vigente, 1700);
     assert.ok(r.deltaPesos < 0 === r.deltaPct < 0, 'Δ$ y Δ% con el mismo signo');
   });
 
