@@ -251,8 +251,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   router.get('/api/precios/esquema/export', apiRoute(async () => {
     const costeo = await costeoVigente();
     const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
-    const { items, omitidos } = L.itemsDecididos({ almacen, fraccionado, produccion });
-    return { listas: L.listasExport(items), omitidos };
+    const { items, omitidos, omitidosMayorista, omitidosDetalle } = L.itemsDecididos({ almacen, fraccionado, produccion });
+    return { listas: L.listasExport(items), omitidos, omitidosMayorista, omitidosDetalle };
   }));
 
   // "Importar planilla" (Reventa): body { filas: [{ codigo, costo, precio, nombre? }] } (el front lee el Excel que se subió a

@@ -1,6 +1,6 @@
 'use strict';
 // Export a SIGA con una presentación mayorista de Fraccionado: el pack/bulto vinculado sale con el precio por descuento
-// (spec precios_fraccionado_mayorista_activar), y el de una presentación minorista con el de la tabla de márgenes.
+// (spec precios_fraccionado_mayorista_activar); desde 2026-11-04 también el de una presentación minorista (sin tablas pack/bulto).
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
@@ -25,9 +25,50 @@ test('export: presentación mayorista → pack/bulto vinculados con el precio po
   assert.deepStrictEqual([venta(l.bultoNeto, '202'), venta(l.bultoIva, '202')], [28350, 34300]);
 });
 
-test('export: la misma presentación minorista → pack/bulto con la tabla (margen 40 %), minorista igual en ambas', () => {
+test('export: la misma presentación minorista → pack/bulto TAMBIÉN por descuento (tablas pack/bulto ya no se usan); Venta minorista 1700', () => {
   const min = exportar('minorista'), may = exportar('mayorista');
-  assert.strictEqual(venta(min.packNeto, '201'), 35000); // 1400 × 25
-  assert.strictEqual(venta(min.bultoNeto, '202'), 35000);
-  assert.deepStrictEqual(min.minorista, may.minorista);
+  assert.strictEqual(venta(min.packNeto, '201'), 31500); // 1400 × 0,9 × 25 (antes 35000 con la tabla 40 %)
+  assert.strictEqual(venta(min.bultoNeto, '202'), 28350); // 1260 × 0,9 × 25
+  assert.deepStrictEqual([venta(min.packIva, '201'), venta(min.bultoIva, '202')], [venta(may.packIva, '201'), venta(may.bultoIva, '202')]);
+  assert.strictEqual(venta(min.minorista, '101'), 1700);
+  assert.strictEqual(venta(may.minorista, '101'), undefined); // sin IVA: no se exporta (EXPORTAR_MAYORISTA_SIN_IVA)
+  assert.strictEqual(min.minorista.length, may.minorista.length + 1);
+});
+
+// Mayorista con descuento (minorista.sinIva): no sale en el export a SIGA hasta definir la lista (EXPORTAR_MAYORISTA_SIN_IVA).
+test('export: mayorista con descuento → fuera de toda lista, cuenta en omitidosMayorista; vinculados siguen', () => {
+  const granel = { plu: '100', nombre: 'Almendras', costoSistema: 1000, sugeridos: {}, mayoristas: [], presentaciones: [presentacion('mayorista')], decision: { fuente: 'sistema' } };
+  const r = L.itemsDecididos({ fraccionado: [granel] });
+  assert.strictEqual(r.omitidosMayorista, 1);
+  assert.deepStrictEqual(r.omitidosDetalle, [{ plu: '101', nombre: 'Almendras 25Kg', motivo: 'mayoristaSinIva' }]);
+  const l = L.listasExport(r.items);
+  for (const lista of L.LISTAS_EXPORT) assert.strictEqual(venta(l[lista], '101'), undefined, lista);
+  assert.strictEqual(venta(l.packNeto, '201'), 31500);
+  assert.strictEqual(venta(l.bultoIva, '202'), 34300);
+});
+
+test('export: mayorista tipo pack también queda fuera (sinIva); con el flag sale 1250 sin IVA', () => {
+  const granel = { plu: '100', nombre: 'Almendras', costoSistema: 1000, sugeridos: {}, mayoristas: [], presentaciones: [presentacion('pack')], decision: { fuente: 'sistema' } };
+  const r = L.itemsDecididos({ fraccionado: [granel] });
+  assert.strictEqual(r.omitidosMayorista, 1);
+  assert.strictEqual(venta(L.listasExport(r.items).packNeto, '201'), 31500);
+  assert.strictEqual(venta(L.listasExport(L.itemsDecididos({ fraccionado: [granel] }, { exportarMayoristaSinIva: true }).items).minorista, '101'), 1250);
+});
+
+test('export: con exportarMayoristaSinIva=true la mayorista vuelve a salir (1150 sin IVA)', () => {
+  const granel = { plu: '100', nombre: 'Almendras', costoSistema: 1000, sugeridos: {}, mayoristas: [], presentaciones: [presentacion('mayorista')], decision: { fuente: 'sistema' } };
+  const r = L.itemsDecididos({ fraccionado: [granel] }, { exportarMayoristaSinIva: true });
+  assert.strictEqual(r.omitidosMayorista, 0);
+  assert.strictEqual(venta(L.listasExport(r.items).minorista, '101'), 1150);
+});
+
+test('export: mayorista sin sinIva (margen fijo), minorista y granel salen como siempre; contador en 0', () => {
+  const pres = (plu, mayorista) => ({ plu, nombre: 'P' + plu, mayorista, mayoristas: [], sugeridos: { sistema: { minorista: { precio: 2000 }, mayoristas: [] } } });
+  const granel = { plu: '100', nombre: 'Granel', costoSistema: 1000, mayoristas: [], decision: { fuente: 'sistema' },
+    sugeridos: { sistema: { minorista: { precio: 1500 }, mayoristas: [] } }, presentaciones: [pres('110', true), pres('111', false)] };
+  const r = L.itemsDecididos({ fraccionado: [granel] });
+  assert.strictEqual(r.omitidosMayorista, 0);
+  assert.deepStrictEqual(r.omitidosDetalle, []);
+  const l = L.listasExport(r.items);
+  assert.deepStrictEqual(['110', '111', '100'].map(p => venta(l.minorista, p)), [2000, 2000, 1500]);
 });

@@ -192,9 +192,41 @@ test('validarMayoristaEsq: 0 <= x < 100', () => {
 test('tarjeta mayorista: renderiza valores con coma y se lee como números', () => {
   const $ = cheerio.load(htmlMayoristaEsq({ descPackPct: 12.5, descBultoPct: 10 }));
   assert.strictEqual($('#esqMay-descPackPct').attr('value'), '12,5');
-  assert.match($('#esqMayAyuda').text(), /Pack = precio por kg sin IVA menos el descuento pack/);
+  assert.match($('#esqMayAyuda').text(), /Pack = precio por kg minorista sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto. Aplica a las presentaciones mayoristas y a los productos pack y bulto vinculados/);
   const card = nodo($, $('[data-mayorista]').get(0));
   assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: 10 });
   $('#esqMay-descBultoPct').attr('value', 'x');
   assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: null });
+});
+
+// ── Fraccionado sin tablas pack/bulto; Reventa/Producción con las tres ──
+function cargarEsq(tipoGuardado) {
+  const c = vm.createContext({ module: { exports: {} }, esc, fmtMoney, numOrNull, campoU, PreciosEsquema,
+    sessionStorage: { getItem: () => tipoGuardado, setItem() {} },
+    document: { getElementById: () => ({ addEventListener() {}, classList: { toggle() {} } }), querySelectorAll: () => [] } });
+  vm.runInContext(fs.readFileSync(RUTA, 'utf8'), c, { filename: RUTA });
+  return c.module.exports;
+}
+const MARGENES = { minorista: { ...GEN }, pack: { ...GEN }, bulto: { ...GEN }, mayorista: { descPackPct: 10, descBultoPct: 10 } };
+test('Márgenes de Fraccionado: sólo la tabla de minorista (sin pack ni bulto), con la tarjeta de descuentos y su explicación', () => {
+  const E = cargarEsq('fraccionado');
+  const $ = cheerio.load(E.htmlMargenesEsq(MARGENES, {}));
+  assert.deepStrictEqual($('[data-canal]').toArray().map(e => $(e).attr('data-canal')), ['minorista']);
+  assert.doesNotMatch($.text(), /Mayorista pack|Mayorista bulto/);
+  assert.strictEqual($('[data-mayorista]').length, 1);
+  assert.match($('#esqMayAyuda').text(), /Pack = precio por kg minorista sin IVA menos el descuento pack/);
+  assert.strictEqual($('#esqDtoDistrib').length, 0); // el descuento al distribuidor sigue siendo sólo de Reventa
+  assert.deepStrictEqual(plano(E.canalesMargenEsq()), ['minorista']);
+});
+test('Márgenes de Reventa/Producción: siguen las tres tablas (minorista, pack y bulto) y el descuento al distribuidor, sin tarjeta mayorista', () => {
+  const E = cargarEsq('almacen');
+  const $ = cheerio.load(E.htmlMargenesEsq(MARGENES, { fraccionadoMigrado: true }));
+  assert.deepStrictEqual($('[data-canal]').toArray().map(e => $(e).attr('data-canal')), ['minorista', 'pack', 'bulto']);
+  assert.strictEqual($('#esqDtoDistrib').length, 1);
+  assert.strictEqual($('[data-mayorista]').length, 0);
+  assert.deepStrictEqual(plano(E.canalesMargenEsq()), ['minorista', 'pack', 'bulto']);
+});
+test('validarMargenes(fraccionado): pack y bulto son opcionales (sólo minorista y mayorista no es error)', () => {
+  const t = plano(leerTablaEsq(tarjeta(htmlTablaMargenEsq('minorista', { ...GEN, filas: FILAS }, true)).card));
+  assert.doesNotThrow(() => validarMargenes({ minorista: t, mayorista: { descPackPct: 10, descBultoPct: 10 } }, {}, 'fraccionado'));
 });

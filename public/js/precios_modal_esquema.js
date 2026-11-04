@@ -19,7 +19,7 @@ function filasCanales(fila, fuente) {
     const s = (f.sugeridos || {})[fuente];
     const ok = s && !s.error ? s : null;
     if (etiqueta) {
-      filas.push({ canal: etiqueta, tipo: 'minorista', conIva: null, plu: f.plu, nombre: f.nombre, pesoG: f.pesoG ?? null, vigente: f.vigente ?? null,
+      filas.push({ canal: etiqueta, tipo: 'minorista', conIva: null, plu: f.plu, nombre: f.nombre, pesoG: f.pesoG ?? null, vigente: ok && ok.minorista.vigenteNeto != null ? ok.minorista.vigenteNeto : f.vigente ?? null, // mayorista con descuento: el sugerido va sin IVA y el server manda el vigente sin IVA en minorista.vigenteNeto
         sugerido: ok ? ok.minorista.precio : null, deltaPct: ok ? ok.minorista.deltaPct : null, estado: ok ? ok.minorista.estado : null,
         margenTotalPct: ok ? ok.minorista.margenTotalPct : null });
     }

@@ -507,6 +507,23 @@ test('config por tipo: PUT ?tipo=fraccionado guarda en costeo.fraccionado y no t
   } finally { a.cerrar(); }
 });
 
+test('PUT margenes Fraccionado: pack/bulto opcionales (sin ellas no es error y se conservan las guardadas); Reventa las exige', async () => {
+  const a = appCon(CON_FRACC);
+  const url = '/api/precios/config/esquema/margenes';
+  try {
+    const guardadas = a.leer().fraccionado.margenes;
+    const j = await a.pedir('PUT', `${url}?tipo=fraccionado`, { minorista: T_FRACC, mayorista: { descPackPct: 8, descBultoPct: 5 } });
+    assert.strictEqual(j.error, undefined);
+    const d = a.leer().fraccionado.margenes;
+    assert.deepStrictEqual([d.minorista, d.pack, d.bulto, d.mayorista], [T_FRACC, guardadas.pack, guardadas.bulto, { descPackPct: 8, descBultoPct: 5 }]);
+    await a.pedir('PUT', `${url}?tipo=fraccionado`, { minorista: T_FRACC, pack: T_FRACC });
+    assert.deepStrictEqual(a.leer().fraccionado.margenes.pack, T_FRACC); // si viene, se valida y se guarda
+    assert.match((await a.pedir('PUT', `${url}?tipo=fraccionado`, { minorista: T_FRACC, bulto: { minPct: 1 } })).error, /bulto/);
+    assert.match((await a.pedir('PUT', `${url}?tipo=fraccionado`, { pack: T_FRACC })).error, /minorista/);
+    assert.match((await a.pedir('PUT', url, { minorista: T_FRACC })).error, /pack/); // Reventa sin cambios
+  } finally { a.cerrar(); }
+});
+
 test('config por tipo: Fraccionado usa sus márgenes; Reventa y Producción siguen con los de la raíz', async () => {
   const a = appCon(CON_FRACC, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   const precio = async (tipo, plu) => {

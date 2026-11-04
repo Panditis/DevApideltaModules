@@ -198,11 +198,11 @@ test('filasExportListado Fraccionado: una fila por presentación con los costos 
     { plu: null, nombre: 'Sin granel asignado', costoSistema: null, presentaciones: [{ plu: '70', nombre: 'Pasas 1Kg', vigente: 5000, sugeridos: { sistema: null, ultimaCompra: null } }] },
   ], 'fraccionado');
   assert.deepStrictEqual(aoa[0].slice(0, 4), ['PLU', 'Nombre', 'Granel', 'Costo actual (sistema)']);
-  assert.strictEqual(aoa[0].length, 13);
-  assert.strictEqual(aoa[0][12], 'Mayorista'); // columna nueva al final: las 12 de antes no se mueven
-  assert.deepStrictEqual(aoa[1], [51, 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0, 'No']);
-  assert.deepStrictEqual(aoa[2], [60, 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null, null]);
-  assert.deepStrictEqual(aoa[3], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null, 'No']);
+  assert.strictEqual(aoa[0].length, 15);
+  assert.deepStrictEqual(aoa[0].slice(12), ['Mayorista', 'Precio mayorista con IVA', 'Precio minorista anterior']); // columnas nuevas al final: las 12 de antes no se mueven
+  assert.deepStrictEqual(aoa[1], [51, 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0, 'No', null, null]);
+  assert.deepStrictEqual(aoa[2], [60, 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null, null, null, null]);
+  assert.deepStrictEqual(aoa[3], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null, 'No', null, null]);
 });
 
 test('filasExportListado Producción: costo de receta/envasado, sin columnas de última compra', () => {
@@ -405,26 +405,14 @@ test('textoPrecioFijoLst: title del badge "$=" con el precio de cada canal fijad
   assert.strictEqual(textoPrecioFijoLst(undefined), '');
 });
 
-// ── Botón de actividad por granel (Activar / Desactivar / Volver a automático) ──
-const { accionActividadLst, htmlAccionActividadLst, conActividadLst } = require('../public/js/precios_listados.js');
+// ── Actividad por granel (Activar / Desactivar / Volver a automático): botón sólo en el modal; la fila del listado no lo tiene ──
+const { accionActividadLst, conActividadLst } = require('../public/js/precios_listados.js');
 
 test('accionActividadLst: inactivo → Activar (true), activo → Desactivar (false); sin PLU o REEFER, sin botón', () => {
   assert.deepStrictEqual(accionActividadLst({ plu: '5', activo: false }), { activo: false, texto: 'Activar', valor: true, fijado: false });
   assert.deepStrictEqual(accionActividadLst({ plu: '5', activo: true, activoManual: true }), { activo: true, texto: 'Desactivar', valor: false, fijado: true });
   assert.strictEqual(accionActividadLst({ plu: null, activo: true }), null);
   assert.strictEqual(accionActividadLst({ plu: '9', reefer: true, activo: true }), null);
-});
-
-test('htmlAccionActividadLst: automático = un botón; fijado a mano suma el texto y "Volver a automático" (null); escapa el nombre', () => {
-  const auto = htmlAccionActividadLst({ plu: '5', nombre: 'Arroz <b>', activo: false, activoManual: null });
-  assert.match(auto, /class="solo-config /);
-  assert.match(auto, /data-plu="5" data-valor="true" aria-label="Activar el granel Arroz &lt;b&gt;">Activar<\/button>/);
-  assert.doesNotMatch(auto, /Fijado a mano|Volver a automático/);
-  const fijo = htmlAccionActividadLst({ plu: '5', nombre: 'Arroz', activo: false, activoManual: false });
-  assert.match(fijo, /data-valor="true"[^>]*>Activar</);
-  assert.match(fijo, /Fijado a mano/);
-  assert.match(fijo, /data-valor="null"[^>]*>Volver a automático</);
-  assert.strictEqual(htmlAccionActividadLst({ plu: null, nombre: 'x' }), '');
 });
 
 test('conActividadLst: fija true/false o vuelve al automático (según actividad.auto); no muta', () => {
@@ -446,34 +434,44 @@ test('filtrarFilas: siempreVisibles mantiene un granel inactivo aunque "Ver inac
 test('export Fraccionado: "Mayorista" Sí/No al final de cada presentación (true → Sí, false/sin dato → No)', () => {
   const aoa = filasExportListado([{ plu: '50', nombre: 'G', presentaciones: [
     { plu: '51', nombre: 'A 5KG', mayorista: true, sugeridos: {} }, { plu: '52', nombre: 'A 100G', mayorista: false, sugeridos: {} }, { plu: '53', nombre: 'B', sugeridos: {} }] }], 'fraccionado');
-  assert.deepStrictEqual(aoa.slice(1).map(f => f[f.length - 1]), ['Sí', 'No', 'No']);
+  assert.deepStrictEqual(aoa.slice(1).map(f => f[12]), ['Sí', 'No', 'No']);
 });
 
 test('mayorista listado: badge sólo si es mayorista, con el origen en el tooltip', () => {
   assert.strictEqual(htmlBadgeMayoristaLst({ mayorista: false }), '');
-  assert.match(htmlBadgeMayoristaLst({ mayorista: true, mayoristaOrigen: 'peso' }), /title="Por peso">Mayorista</);
-  assert.match(htmlBadgeMayoristaLst({ mayorista: true, mayoristaOrigen: 'manual' }), /title="Marcada a mano">Mayorista</);
+  assert.match(htmlBadgeMayoristaLst({ mayorista: true, mayoristaOrigen: 'peso' }), /title="Por peso">Mayorista · Bulto</); // sin tipo = bulto
+  assert.match(htmlBadgeMayoristaLst({ mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' }), /title="Marcada a mano">Mayorista · Pack</);
+  assert.match(htmlBadgeMayoristaLst({ mayorista: true, mayoristaOrigen: 'peso', mayoristaTipo: 'bulto' }), /Mayorista · Bulto</);
 });
 
-test('mayorista listado: botones = forzar lo contrario + volver a automático sólo si está marcada a mano; solo-config; sin PLU nada', () => {
-  assert.deepStrictEqual(accionesMayoristaLst({ plu: '5', mayorista: false, mayoristaOrigen: null }), [{ texto: 'Marcar mayorista', valor: true }]);
-  assert.deepStrictEqual(accionesMayoristaLst({ plu: '5', mayorista: true, mayoristaOrigen: 'peso' }), [{ texto: 'Marcar minorista', valor: false }]);
-  assert.deepStrictEqual(accionesMayoristaLst({ plu: '5', mayorista: false, mayoristaOrigen: 'manual' }), [{ texto: 'Marcar mayorista', valor: true }, { texto: 'Volver a automático', valor: null }]);
+test('mayorista listado: control de 3 estados (Minorista | Mayorista · Pack | Mayorista · Bulto) con el efectivo presionado; volver a automático sólo si es manual; solo-config; sin PLU nada', () => {
+  const estado = p => accionesMayoristaLst(p).map(a => `${a.texto}=${a.pressed}`).join(' | ');
+  assert.strictEqual(estado({ plu: '5', mayorista: false, mayoristaOrigen: null }), 'Minorista=true | Mayorista · Pack=false | Mayorista · Bulto=false');
+  assert.strictEqual(estado({ plu: '5', mayorista: true, mayoristaOrigen: 'peso', mayoristaTipo: 'bulto' }), 'Minorista=false | Mayorista · Pack=false | Mayorista · Bulto=true');
+  assert.strictEqual(estado({ plu: '5', mayorista: true, mayoristaOrigen: 'peso' }), 'Minorista=false | Mayorista · Pack=false | Mayorista · Bulto=true'); // sin tipo = bulto
+  assert.strictEqual(estado({ plu: '5', mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' }), 'Minorista=false | Mayorista · Pack=true | Mayorista · Bulto=false | Volver a automático=false');
+  assert.deepStrictEqual(accionesMayoristaLst({ plu: '5', mayorista: false, mayoristaOrigen: null }).map(a => a.valor), [false, 'pack', 'bulto']);
   assert.strictEqual(accionesMayoristaLst({ plu: null }), null);
-  const h = htmlAccionMayoristaLst({ plu: '5', nombre: 'A "x"', mayorista: true, mayoristaOrigen: 'manual' });
+  const h = htmlAccionMayoristaLst({ plu: '5', nombre: 'A "x"', mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' });
   assert.match(h, /class="solo-config /);
-  assert.match(h, /data-plu="5" data-valor="false" aria-label="Marcar minorista: A &quot;x&quot;"/);
-  assert.match(h, /data-valor="null"/);
+  assert.match(h, /data-plu="5" data-valor="false" aria-pressed="false" aria-label="Minorista: A &quot;x&quot;"/);
+  assert.match(h, /data-valor="&quot;pack&quot;" aria-pressed="true" aria-label="Mayorista · Pack: /);
+  assert.match(h, /data-valor="&quot;bulto&quot;" aria-pressed="false"/);
+  assert.match(h, /data-valor="null"[^>]*aria-label="Volver a automático: /);
+  assert.doesNotMatch(htmlAccionMayoristaLst({ plu: '5', nombre: 'A', mayorista: false, mayoristaOrigen: null }), /Volver a automático/);
   assert.match(h, /class="lst-may-msg[^"]*" role="alert"/);
   assert.strictEqual(htmlAccionMayoristaLst({ plu: null }), '');
 });
 
-test('conMarcaMayoristaLst: boolean = manual; null vuelve a automático según el umbral y el peso (límite incluido; sin peso o sin umbral, no); no muta', () => {
+test('conMarcaMayoristaLst: false | "pack" | "bulto" (true ≡ bulto) = manual; null vuelve a automático (por peso = bulto; límite incluido; sin peso o sin umbral, no); no muta', () => {
   const p = { plu: '5', pesoG: 5000, mayorista: false, mayoristaOrigen: 'manual' };
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, true, null), { ...p, mayorista: true, mayoristaOrigen: 'manual' });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5000), { ...p, mayorista: true, mayoristaOrigen: 'peso' });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5001), { ...p, mayorista: false, mayoristaOrigen: null });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, null), { ...p, mayorista: false, mayoristaOrigen: null });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, true, null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'bulto' });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, 'bulto', null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'bulto' });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, 'pack', null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' });
+  assert.deepStrictEqual(conMarcaMayoristaLst({ ...p, mayorista: true }, false, 1), { ...p, mayorista: false, mayoristaOrigen: 'manual', mayoristaTipo: null });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5000), { ...p, mayorista: true, mayoristaOrigen: 'peso', mayoristaTipo: 'bulto' });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5001), { ...p, mayorista: false, mayoristaOrigen: null, mayoristaTipo: null });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, null), { ...p, mayorista: false, mayoristaOrigen: null, mayoristaTipo: null });
   assert.strictEqual(conMarcaMayoristaLst({ ...p, pesoG: null }, null, 1).mayorista, false);
   assert.strictEqual(p.mayorista, false);
 });
@@ -520,4 +518,77 @@ test('granelDePresentacionLst: devuelve el PLU del granel que contiene la presen
   const { granelDePresentacionLst } = require('../public/js/precios_listados.js');
   assert.equal(granelDePresentacionLst([filaGr(1)], 101), '100');
   assert.equal(granelDePresentacionLst([filaGr(1)], '999'), null);
+});
+
+// ── Detalle mayorista (sugerido = bulto SIN IVA; antes y pack aparte) ──
+const MIN_MAY = { precio: 1300, margenTotalPct: 18.2, deltaPct: -0.05, estado: 'bajar', minoristaOriginal: 2000, minoristaOriginalNeto: 1652.89,
+  pack: { neto: 1487.6, conIva: 1800, margenPct: 31.4 }, bulto: { neto: 1300, conIva: 1573, margenPct: 18.2 } };
+test('detalleMayoristaLst: mayorista con descuento → rótulo "Bulto s/IVA", pack c/IVA, antes y tooltip con márgenes; minorista o sin precio → null', () => {
+  const { detalleMayoristaLst, htmlDetalleMayoristaLst } = require('../public/js/precios_listados.js');
+  const d = detalleMayoristaLst({ mayorista: true }, { minorista: MIN_MAY });
+  assert.deepStrictEqual([d.fijo, d.antes, d.packIva, d.packNeto, d.bultoIva], [false, 2000, 1800, 1487.6, 1573]);
+  assert.match(d.titulo, /bulto SIN IVA.*Margen efectivo del bulto 18,2 %.*pack 31,4 %/);
+  assert.strictEqual(detalleMayoristaLst({ mayorista: false }, { minorista: MIN_MAY }), null);
+  assert.strictEqual(detalleMayoristaLst({ mayorista: true }, { error: 'costo' }), null);
+  assert.strictEqual(detalleMayoristaLst({ mayorista: true }, undefined), null);
+  assert.match(htmlDetalleMayoristaLst({ mayorista: true }, { minorista: MIN_MAY }), /Bulto s\/IVA<\/span> · Pack \$ 1\.800 c\/IVA · antes <s>\$ 2\.000<\/s>/);
+});
+test('detalleMayoristaLst: tipo pack → rótulo "Pack s/IVA" y el bulto c/IVA como dato secundario; el tipo del sugerido manda sobre la marca de la fila', () => {
+  const { detalleMayoristaLst, htmlDetalleMayoristaLst } = require('../public/js/precios_listados.js');
+  const minPack = { ...MIN_MAY, precio: 1487.6, tipoMayorista: 'pack' };
+  const d = detalleMayoristaLst({ mayorista: true, mayoristaTipo: 'pack' }, { minorista: minPack });
+  assert.deepStrictEqual([d.tipo, d.etiqueta, d.otroEtiqueta, d.otroIva], ['pack', 'Pack s/IVA', 'Bulto', 1573]);
+  assert.match(d.titulo, /Precio sugerido = pack SIN IVA/);
+  assert.match(htmlDetalleMayoristaLst({ mayorista: true, mayoristaTipo: 'pack' }, { minorista: minPack }), /Pack s\/IVA<\/span> · Bulto \$ 1\.573 c\/IVA · antes <s>\$ 2\.000<\/s>/);
+  assert.strictEqual(detalleMayoristaLst({ mayorista: true, mayoristaTipo: 'bulto' }, { minorista: minPack }).tipo, 'pack'); // el server dice pack
+  assert.strictEqual(detalleMayoristaLst({ mayorista: true, mayoristaTipo: 'pack' }, { minorista: MIN_MAY }).tipo, 'pack'); // sin tipoMayorista en el sugerido: la marca de la fila
+});
+test('aviso de exportación: omitidosMayorista > 0 → texto aparte con la cantidad; el diálogo lo muestra y sin omitidos no', () => {
+  const { textoOmitidosMayoristaLst } = require('../public/js/precios_listados.js');
+  assert.strictEqual(textoOmitidosMayoristaLst(3), '3 presentaciones mayoristas no se exportaron: precio sin IVA, falta definir a qué lista de SIGA va.');
+  const abrir = (omitidos, omitidosMay) => {
+    const d = { style: {}, classList: { add() {}, remove() {}, toggle() {} }, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], showModal() {}, close() {} };
+    const ctx = vmLst.createContext({ console, fetch: () => Promise.resolve({ json: () => Promise.resolve({}) }), document: { getElementById: () => d, createElement: () => d, body: { appendChild() {} }, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} } });
+    ctx.self = ctx;
+    vmLst.runInContext(fsLst.readFileSync(pathLst.join(__dirname, '..', 'lib/precios_esquema.js'), 'utf8'), ctx);
+    for (const f of ['precios_comun.js', 'precios_listados.js']) vmLst.runInContext(fsLst.readFileSync(pathLst.join(__dirname, '..', 'public/js', f), 'utf8'), ctx);
+    vmLst.runInContext(`dialogoExport([{ lista: 'minorista', etiqueta: 'Minorista', filas: 2 }], () => {}, ${omitidos}, ${omitidosMay})`, ctx);
+    return d.innerHTML;
+  };
+  assert.match(abrir(1, 4), /4 presentaciones mayoristas no se exportaron: precio sin IVA, falta definir a qué lista de SIGA va\./);
+  assert.match(abrir(1, 4), /1 producto\(s\) decidido\(s\) sin precio con la fuente elegida/); // el aviso de siempre no cambia
+  assert.doesNotMatch(abrir(0, 0), /mayoristas no se exportaron/);
+  assert.doesNotMatch(abrir(2, undefined), /mayoristas no se exportaron/);
+});
+test('detalleMayoristaLst: mayorista sin los campos (margen fijo del producto) → texto "sin dto. mayorista" con tooltip', () => {
+  const { detalleMayoristaLst, htmlDetalleMayoristaLst } = require('../public/js/precios_listados.js');
+  assert.strictEqual(detalleMayoristaLst({ mayorista: true }, { minorista: { precio: 1800 } }).fijo, true);
+  assert.match(htmlDetalleMayoristaLst({ mayorista: true }, { minorista: { precio: 1800 } }), /title="Margen fijo del producto: sin descuento mayorista">margen fijo · sin dto\. mayorista/);
+  assert.strictEqual(htmlDetalleMayoristaLst({ mayorista: false }, { minorista: { precio: 1800 } }), '');
+});
+test('filasExportListado Fraccionado: columnas nuevas AL FINAL (mayorista con IVA y minorista anterior con costo actual); las existentes no se mueven', () => {
+  const g = { plu: '50', nombre: 'Almendra', presentaciones: [
+    { plu: '51', nombre: 'A 500G', mayorista: true, sugeridos: { sistema: { minorista: MIN_MAY } } },
+    { plu: '52', nombre: 'A 1Kg', mayorista: false, sugeridos: { sistema: { minorista: { precio: 3000 } } } }] };
+  const aoa = filasExportListado([g], 'fraccionado');
+  assert.deepStrictEqual(aoa[0].slice(-3), ['Mayorista', 'Precio mayorista con IVA', 'Precio minorista anterior']);
+  assert.strictEqual(aoa[0].length, 15);
+  assert.deepStrictEqual(aoa[1].slice(-3), ['Sí', 1573, 2000]);
+  assert.strictEqual(aoa[1][aoa[0].indexOf('Precio nuevo con costo actual')], 1300); // el sugerido exportado es el bulto sin IVA
+  assert.deepStrictEqual(aoa[2].slice(-3), ['No', null, null]);
+  assert.ok(aoa.every(f => f.length === 15));
+});
+test('filasExportListado Fraccionado: "Precio mayorista con IVA" sigue el tipo del sugerido (pack → pack con IVA, bulto → bulto con IVA)', () => {
+  const fila = min => filasExportListado([{ plu: '50', nombre: 'A', presentaciones: [{ plu: '51', nombre: 'P', mayorista: true, sugeridos: { sistema: { minorista: min } } }] }], 'fraccionado')[1];
+  assert.strictEqual(fila({ ...MIN_MAY, precio: 1487.6, tipoMayorista: 'pack' }).slice(-2)[0], 1800);
+  assert.strictEqual(fila({ ...MIN_MAY, tipoMayorista: 'bulto' }).slice(-2)[0], 1573);
+});
+
+test('export xlsx: Δ% de una mayorista con descuento compara contra vigenteNeto, como el listado', () => {
+  const { filasExportListado } = require('../public/js/precios_listados.js');
+  const min = { precio: 10700, deltaPct: -0.0273, vigenteNeto: 11000 / 1.21 };
+  const g = { plu: '9', nombre: 'G', presentaciones: [{ plu: '90993', nombre: 'P', vigente: 11000, mayorista: true, sugeridos: { sistema: { minorista: min } } }] };
+  const fila = filasExportListado([g], 'fraccionado')[1];
+  const i = filasExportListado([g], 'fraccionado')[0].indexOf('Δ% (vs precio actual)');
+  assert.ok(fila[i] > 0.17 && fila[i] < 0.19, `Δ% ${fila[i]}`);
 });

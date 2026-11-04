@@ -83,6 +83,7 @@ function htmlCanalesSim(s) {
     ${simPaso('=', 'Sin IVA redondeado', c.neto, true)}
     ${simPaso('×', 'IVA', c.exactoIva)}
     ${simPaso('=', 'Con IVA redondeado', c.conIva, true)}</div>`;
+  if (s.fracc) return `<div class="grid grid-cols-3 gap-3">${minorista}</div><p class="text-xs text-gris mt-3">Pack y bulto de Fraccionado no tienen tabla de margen: salen del precio minorista por kg sin IVA menos los descuentos mayoristas (Configuración › Márgenes).</p>`;
   return `<div class="grid grid-cols-3 gap-3">${minorista}${mayorista('Mayorista pack', r.pack)}${mayorista('Mayorista bulto', r.bulto)}</div>`;
 }
 

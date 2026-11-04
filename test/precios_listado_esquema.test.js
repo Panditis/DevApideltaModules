@@ -121,7 +121,7 @@ test('listadoFraccionado: costo $/kg del granel en todas sus presentaciones, aju
   const mayoristasDe = L.crearMayoristasDe({ vigentes, vinculos: [{ plu: '60', nombre: 'Almendras 1Kg Pack', basePlu: '102', cantidad: 10, tipo: 'pack' }] });
   const [g, sin] = L.listadoFraccionado({ grupos, costos, vigentes, mayoristasDe, costeo: { decisiones: { 100: { fuente: 'sistema', fecha: 'x' } } }, cfg: CFG });
   assert.deepStrictEqual(g.presentaciones.map(p => [p.plu, p.pesoG, p.sugeridos.sistema.minorista.precio]), [['101', 500, 1950], ['102', 1000, 1800]]);
-  assert.strictEqual(g.presentaciones[1].sugeridos.sistema.mayoristas[0].conIva, 1750); // pack por kg: unidades 1
+  assert.strictEqual(g.presentaciones[1].sugeridos.sistema.mayoristas[0].conIva, 1650); // pack por kg (1501,5 × 0,9 desc. pack, con IVA): unidades 1
   assert.deepStrictEqual(g.decision, { fuente: 'sistema', fecha: 'x' });
   assert.strictEqual(g.costoSistema, 1000);
   assert.deepStrictEqual([sin.plu, sin.decision, sin.presentaciones[0].sugeridos], [null, null, {}]);
@@ -307,9 +307,9 @@ test('listasExport Reventa: Costo y Venta de la fuente decidida (sistema 1000, �
 
 test('listasExport Fraccionado: la decisión del granel pone su costo $/kg de esa fuente en cada presentación y en los pack/bulto (pesable por paquete × kg)', () => {
   const esperado = { // [Costo minorista, Venta 500G, Venta 1Kg, pack s/IVA, pack c/IVA]
-    sistema: [1000, 1950, 1800, [1000, 1430], [1000, 1750]],
-    ultimaCompra: [1500, 2950, 2750, [1500, 2145], [1500, 2600]],
-    manual: [800, 1550, 1450, [800, 1144], [800, 1400]],
+    sistema: [1000, 1950, 1800, [1000, 1351.35], [1000, 1650]], // pack = $/kg minorista sin IVA × 0,9 (descuento, 2026-11-04)
+    ultimaCompra: [1500, 2950, 2750, [1500, 2027.03], [1500, 2450]],
+    manual: [800, 1550, 1450, [800, 1081.08], [800, 1300]],
   };
   for (const [fuente, [costoMin, venta500, venta1k, packNeto, packIva]] of Object.entries(esperado)) {
     const fraccionado = L.listadoFraccionado({

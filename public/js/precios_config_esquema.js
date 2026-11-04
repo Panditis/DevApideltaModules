@@ -178,12 +178,14 @@ function pintarPrecioEsq(panel, cfg) {
   }, cargarPrecioEsq);
 }
 
-// ── Márgenes: 3 tablas (una por canal, para los tres tipos) + rango desde SIGA ──
+// ── Márgenes: tablas por canal (Reventa/Producción: 3; Fraccionado: sólo minorista) + rango desde SIGA ──
 // Reventa/Producción: generador (máx/mín/escalones/rango) + grilla de quiebres en vivo, de sólo lectura. Fraccionado: filas editables
 // (corte y margen) y el generador aparte, que las llena. Una tarjeta de Fraccionado es manual (data-manual: sus filas se guardan tal
 // cual, `filas` en la tabla) o automática (las filas siguen al generador y se guardan sin `filas`).
 // (El ajuste por peso de Fraccionado se edita en Costeo Fraccionado: precios_config_fraccionado.js.)
 const CANALES_ESQ = { minorista: 'Minorista', pack: 'Mayorista pack', bulto: 'Mayorista bulto' };
+// Fraccionado sólo tiene la tabla del minorista: pack y bulto salen de los descuentos mayoristas (las tablas pack/bulto guardadas no se tocan).
+const canalesMargenEsq = () => (esFraccCfg() ? ['minorista'] : Object.keys(CANALES_ESQ));
 const cargarMargenesEsq = () => cargarPanelEsq('panel-margenes', pintarMargenesEsq);
 const chipEsq = (txt, title = '', cls = 'bg-warn/15 text-warn') => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold ${cls}"${title ? ` title="${esc(title)}"` : ''}>${esc(txt)}</span>`;
 const CHIP_MANUAL_ESQ = chipEsq('Tabla manual', 'Las filas se guardan tal cual; el generador no las toca hasta que toques Generar', 'bg-verde/10 text-verde');
@@ -290,10 +292,10 @@ function pintarQuiebresEsq(card) {
         <td class="text-right tabular-nums">${pctEsq(q.margenPct)}</td></tr>`).join('')}</tbody></table>`;
 }
 
-// Mayorista: descuentos de Fraccionado (sólo ese tipo). Pack = $/kg sin IVA − descPackPct; bulto = pack − descBultoPct. Texto con coma o punto.
+// Mayorista: descuentos de Fraccionado (sólo ese tipo). Pack = minorista $/kg sin IVA − descPackPct; bulto = pack − descBultoPct. Texto con coma o punto.
 const DESC_MAYORISTA_DEF = { descPackPct: 10, descBultoPct: 10 }; // ausente en la respuesta = 10 y 10
 const CAMPOS_MAYORISTA_ESQ = { descPackPct: 'Descuento precio pack', descBultoPct: 'Descuento precio bulto' };
-const AYUDA_MAYORISTA_ESQ = 'Aplica a los pack y bulto vinculados a presentaciones mayoristas. Pack = precio por kg sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto.';
+const AYUDA_MAYORISTA_ESQ = 'Pack = precio por kg minorista sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto. Aplica a las presentaciones mayoristas y a los productos pack y bulto vinculados.';
 function pctDeTextoEsq(txt) { // "10,5" / "10.5" → 10.5; vacío o inválido → null
   const s = String(txt ?? '').trim().replace(',', '.');
   return /^\d+(\.\d+)?$/.test(s) ? Number(s) : null;
@@ -326,7 +328,7 @@ function pintarMayoristaEsq(card) {
   return err;
 }
 
-// Reventa: descuento al distribuidor. Fraccionado: las tres tablas y los descuentos mayoristas (sin descuento al distribuidor).
+// Reventa/Producción: las tres tablas y el descuento al distribuidor. Fraccionado: la tabla del minorista y los descuentos mayoristas (sin descuento al distribuidor).
 function htmlMargenesEsq(m, cfg) {
   const tituloRango = esFraccCfg()
     ? 'Percentiles 5 y 95 de los costos $/kg de los graneles de Fraccionado (consulta SIGA; no guarda)'
@@ -336,7 +338,7 @@ function htmlMargenesEsq(m, cfg) {
       <button type="button" class="esq-rango cfg-btn2" title="${esc(tituloRango)}">Recalcular rango</button>
       <span class="esq-msg text-sm" role="status" aria-live="polite"></span>
       <button type="button" class="esq-guardar cfg-btn ml-auto">Guardar márgenes</button></div>
-    <div class="grid grid-cols-3 gap-4">${Object.keys(CANALES_ESQ).map(c => htmlTablaMargenEsq(c, m[c] || {}, esFraccCfg())).join('')}</div>
+    <div class="grid ${esFraccCfg() ? 'grid-cols-1 max-w-xl' : 'grid-cols-3'} gap-4">${canalesMargenEsq().map(c => htmlTablaMargenEsq(c, m[c] || {}, esFraccCfg())).join('')}</div>
     ${esFraccCfg() ? '' : `<div class="cfg-card mt-4">
       <div class="cfg-campo"><label for="esqDtoDistrib">Descuento al margen para distribuidores</label>
         ${campoU(`<input id="esqDtoDistrib" type="number" step="any" min="0" max="99" value="${esc(m.descuentoDistribuidorPct ?? '')}" placeholder="0">`, 'puntos %', { w: 'w-28' })}</div>
@@ -399,7 +401,7 @@ function clickFilasEsq(sec, e) {
 
 function pintarMargenesEsq(panel, cfg) {
   const cab = esFraccCfg()
-    ? '<b>Márgenes de Fraccionado</b> — una tabla por canal sobre el costo $/kg: cada fila es el margen de los costos menores a su corte y la última vale en adelante. Editá cortes y márgenes a mano, o generá la tabla desde el máximo, el mínimo, los escalones y el rango. El ajuste por peso de la presentación se configura en Costeo Fraccionado.'
+    ? '<b>Márgenes de Fraccionado</b> — la tabla del minorista sobre el costo $/kg: cada fila es el margen de los costos menores a su corte y la última vale en adelante. Editá cortes y márgenes a mano, o generá la tabla desde el máximo, el mínimo, los escalones y el rango. Pack y bulto no tienen tabla: salen de los descuentos mayoristas sobre el precio minorista. El ajuste por peso de la presentación se configura en Costeo Fraccionado.'
     : '<b>Márgenes de Reventa y Producción</b> — una tabla por canal. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. Pack y bulto no son descuentos del minorista: cada canal tiene su margen.';
   panel.innerHTML = `<p class="cfg-cab">${cab}</p>
     ${htmlMargenesEsq(cfg.margenes || {}, cfg)}`;
@@ -427,9 +429,9 @@ function pintarMargenesEsq(panel, cfg) {
 }
 
 // Helpers de la tabla manual de Fraccionado para test (puros, y los que leen una tarjeta).
-if (typeof module === 'object' && module.exports) module.exports = { htmlValorEnergiaEsq, htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
+if (typeof module === 'object' && module.exports) module.exports = { htmlMargenesEsq, htmlValorEnergiaEsq, htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
   filasConNuevaEsq, filasSinEsq, ordenarFilasEsq, textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq,
-  pctDeTextoEsq, mayoristaEfectivoEsq, validarMayoristaEsq, leerMayoristaEsq, htmlMayoristaEsq };
+  canalesMargenEsq, pctDeTextoEsq, mayoristaEfectivoEsq, validarMayoristaEsq, leerMayoristaEsq, htmlMayoristaEsq };
 
 // ── Switch Reventa | Fraccionado (#cfgTipo, precios.html) ──
 // Cambiar de tipo con cambios sin guardar pregunta (puedeSalirConfig) y recarga el sub-tab visible con los valores del tipo.

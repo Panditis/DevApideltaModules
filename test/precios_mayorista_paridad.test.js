@@ -10,11 +10,11 @@ const L = require('../lib/precios_listado_esquema');
 test('paridad front/back: misma clasificación para pesos, umbrales y marcas', () => {
   for (const pesoG of [null, 0, 1, 499, 500, 501, 5000])
     for (const pesoMinG of [null, 1, 500, 5000])
-      for (const marca of [undefined, true, false]) {
+      for (const marca of [undefined, true, false, 'pack', 'bulto']) {
         const porPlu = marca === undefined ? {} : { 7: marca };
         const back = esMayoristaPresentacion(pesoG, '7', { pesoMinG, porPlu });
         const front = conMarcaMayoristaLst({ plu: '7', pesoG }, marca === undefined ? null : marca, pesoMinG);
-        assert.deepStrictEqual({ mayorista: front.mayorista, origen: front.mayoristaOrigen }, back, JSON.stringify({ pesoG, pesoMinG, marca }));
+        assert.deepStrictEqual({ mayorista: front.mayorista, origen: front.mayoristaOrigen, tipo: front.mayoristaTipo }, back, JSON.stringify({ pesoG, pesoMinG, marca }));
       }
 });
 

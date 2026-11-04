@@ -97,7 +97,7 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: tampoco se valida que el peso tenga presentaciones (sería pedir SIGA); Configuración lo marca "sin presentaciones".
   router.put(`${BASE}/envase`, guardarFracc((req, cf) => CF.aplicarEnvase(cf, cuerpo(req))));
-  // Presentaciones mayoristas: body { pesoMinG?, porPlu?: { [plu]: true|false|null } }. ponytail: no se valida que el PLU sea una
+  // Presentaciones mayoristas: body { pesoMinG?, porPlu?: { [plu]: 'pack'|'bulto'|true(≡bulto)|false|null } }. ponytail: no se valida que el PLU sea una
   // presentación del listado (sería pedir SIGA); una marca de un PLU que no está no clasifica nada.
   router.put(`${BASE}/mayorista`, guardarFracc((req, cf) => CF.aplicarMayorista(cf.mayorista, cuerpo(req))));
   // Ajuste por peso del margen (antes en Márgenes): body { ajustesPeso: { tramosG, puntos } | null }. Va en margenes.ajustesPeso

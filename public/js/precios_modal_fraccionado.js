@@ -27,7 +27,7 @@ const NODE_FR_MD = typeof module === 'object' && module.exports;
 const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { esc, fmtMoney, claseDelta };
 const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD } = FMT_FR_MD;
 // Estado del granel (activo / inactivo): las mismas funciones del listado (precios_listados.js, que se carga antes).
-const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, conActividadLst, conMarcaMayoristaLst }); // al llamar: el orden de los scripts no importa
+const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }); // al llamar: el orden de los scripts no importa
 const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
@@ -174,29 +174,73 @@ const htmlCodigoMayoristaFraccMd = m => `<li class="md-fr-cod"><div class="md-fr
   + `<span class="md-sub">PLU ${ESC_FR_MD(m.plu)}${m.unidades ? ` · × ${ESC_FR_MD(m.unidades)}` : ''}</span>${ESQ_FR_MD.avisosCanalMd(m.filas[0])}</div>`
   + `${m.nombre ? `<div class="md-fr-cod-nom">${ESC_FR_MD(m.nombre)}</div>` : ''}${m.filas.map(htmlFilaPreciosFraccMd).join('')}</li>`;
 const htmlCodigosMayoristasFraccMd = (mayoristas, etiqueta) => `<ul class="md-fr-cods" aria-label="${ESC_FR_MD(etiqueta)}">${mayoristas.map(htmlCodigoMayoristaFraccMd).join('')}</ul>`;
+// Bloque "Precio mayorista" de una presentación mayorista (p = la del listado; fuente = la del modal). El sugerido de la fila pública es el precio BULTO SIN IVA
+// (minorista.precio); el pack (neto y con IVA) es el paso intermedio. Con desglose (permiso de Configuración): base, descuentos y netos de pack y bulto; sin él,
+// sólo lo público (pack, bulto, antes y márgenes). { fijo: true } = mayorista con margen fijo del producto (sin descuento); null = no es mayorista o no hay precio.
+function datosMayoristaFraccMd(p, fuente) {
+  const s = p && p.mayorista === true ? (p.sugeridos || {})[fuente] : null;
+  if (!s || s.error || !s.minorista) return null;
+  const m = s.minorista, may = s.desglose && s.desglose.minorista ? s.desglose.minorista.mayorista : null;
+  if (!may && m.minoristaOriginal == null && !m.pack && !m.bulto) return { fijo: true };
+  const pk = m.pack || {}, b = m.bulto || {};
+  const tipo = [m.tipoMayorista, may && may.tipoMayorista, p.mayoristaTipo].find(t => t === 'pack' || t === 'bulto') || 'bulto'; // sin dato = bulto (el default)
+  return { fijo: false, tipo, conDesglose: !!may, base: may ? may.base : null, descPackPct: may ? may.descPackPct : null, descBultoPct: may ? may.descBultoPct : null,
+    packNeto: tipo === 'pack' ? m.precio : (pk.neto ?? (may ? may.pack.precio : null)), packIva: pk.conIva ?? (may ? may.pack.conIva : null), packMargenPct: pk.margenPct ?? (may ? may.pack.margenPct : null),
+    bultoNeto: tipo === 'bulto' ? m.precio : (b.neto ?? (may ? may.bulto.precio : null)), bultoIva: b.conIva ?? (may ? may.bulto.conIva : null), bultoMargenPct: b.margenPct ?? m.margenTotalPct ?? (may ? may.bulto.margenPct : null),
+    antes: m.minoristaOriginal ?? null };
+}
+const TEXTO_FIJO_FR_MD = 'Margen fijo del producto: sin descuento mayorista.';
+function htmlBloqueMayoristaFraccMd(d) {
+  if (!d) return '';
+  const cab = '<div class="md-fr-mays-t">Precio mayorista</div>';
+  if (d.fijo) return `<div class="md-fr-may-bloque">${cab}<p class="md-sub">${TEXTO_FIJO_FR_MD}</p></div>`;
+  const pc = n => (n == null ? '—' : ESQ_FR_MD.pctMd(n)), peso = n => ESQ_FR_MD.pesosMd(n);
+  const fila = (txt, v, det = '') => `<div class="flex flex-wrap items-baseline justify-between gap-x-3"><span>${txt}</span><span class="text-right">${v}${det ? ` <span class="md-sub">${det}</span>` : ''}</span></div>`;
+  const det = (...xs) => xs.filter(Boolean).join(' · ');
+  const margen = n => (n == null ? '' : `margen ${pc(n)}`);
+  const esPack = d.tipo === 'pack';
+  const principal = n => `<b class="md-nuevo">${peso(n)}</b>`;
+  const filaPack = esPack
+    ? fila(d.descPackPct == null ? 'Pack sin IVA (sugerido)' : `Pack sin IVA (sugerido, −${pc(d.descPackPct)} sobre el minorista)`, principal(d.packNeto), det(d.packIva == null ? '' : `con IVA ${ESQ_FR_MD.fmtSug(d.packIva)}`, margen(d.packMargenPct)))
+    : fila(d.descPackPct == null ? 'Pack' : `Pack (−${pc(d.descPackPct)})`, peso(d.packIva), det('con IVA', d.packNeto == null ? '' : `sin IVA ${ESQ_FR_MD.fmtSug(d.packNeto)}`, margen(d.packMargenPct)));
+  const filaBulto = esPack
+    ? fila(d.descBultoPct == null ? 'Bulto' : `Bulto (−${pc(d.descBultoPct)} sobre el pack)`, peso(d.bultoIva), det('con IVA', d.bultoNeto == null ? '' : `sin IVA ${ESQ_FR_MD.fmtSug(d.bultoNeto)}`, margen(d.bultoMargenPct)))
+    : fila(d.descBultoPct == null ? 'Bulto sin IVA (sugerido)' : `Bulto sin IVA (sugerido, −${pc(d.descBultoPct)} sobre el pack)`, principal(d.bultoNeto), det(d.bultoIva == null ? '' : `con IVA ${ESQ_FR_MD.fmtSug(d.bultoIva)}`, margen(d.bultoMargenPct)));
+  const filas = [
+    d.base == null ? '' : fila('Minorista por kg, sin IVA (base)', peso(d.base)),
+    filaPack, filaBulto,
+    d.antes == null ? '' : fila('Minorista anterior (con IVA)', `<s>${peso(d.antes)}</s>`),
+  ].filter(Boolean).join('');
+  return `<div class="md-fr-may-bloque">${cab}<div class="md-sub flex flex-col gap-0.5">${filas}</div></div>`;
+}
 // Tarjeta de una presentación: nombre y Δ % arriba, PLU y peso, precios y, si tiene pack/bulto, su sub-bloque "Códigos mayoristas" adentro.
 // Clasificación mayorista/minorista de la presentación (p = la presentación del listado, con mayorista y mayoristaOrigen): sólo lectura. '' sin dato.
 // Con permiso de Configuración (.solo-config) lleva el toggle Minorista | Mayorista (aria-pressed) y, si la marca es manual, "Volver a automático";
 // se guarda en pintarMarcasMayoristaFraccMd. Sin PLU, sin toggle.
 const htmlClaseMayoristaFraccMd = p => {
   if (!p || typeof p.mayorista !== 'boolean') return '';
-  const texto = p.mayorista ? `Mayorista (${p.mayoristaOrigen === 'manual' ? 'marcada a mano' : 'por peso'})` : 'Minorista';
-  if (p.plu == null) return `<div class="md-sub">${texto}</div>`;
+  const origen = p.mayoristaOrigen === 'manual' ? 'marcada a mano' : 'por peso';
+  const texto = p.mayorista ? `Mayorista · ${p.mayoristaTipo === 'pack' ? 'Pack' : 'Bulto'} (${origen})` : 'Minorista';
+  const acciones = ACT_FR_MD().accionesMayoristaLst(p); // null = sin PLU: sólo lectura
+  if (!acciones) return `<div class="md-sub">${texto}</div>`;
   const plu = ESC_FR_MD(p.plu), nom = ESC_FR_MD(p.nombre);
   const cls = 'md-may whitespace-nowrap px-2 py-0.5 border border-borde text-xs font-semibold';
-  const seg = (valor, t) => `<button type="button" class="${cls} ${p.mayorista === valor ? 'bg-ink text-white' : 'text-gris hover:bg-white'}" data-plu="${plu}" data-valor="${valor}" aria-pressed="${p.mayorista === valor}" aria-label="${t}: ${nom}">${t}</button>`;
+  const btn = (a, extra) => `<button type="button" class="${cls} ${extra}" data-plu="${plu}" data-valor="${ESC_FR_MD(JSON.stringify(a.valor))}" ${a.valor === null ? '' : `aria-pressed="${a.pressed}" `}aria-label="${a.texto}: ${nom}">${a.texto}</button>`;
+  const segs = acciones.filter(a => a.valor !== null).map(a => btn(a, a.pressed ? 'bg-ink text-white' : 'text-gris hover:bg-white')).join('');
+  const auto = acciones.find(a => a.valor === null);
   return `<div class="md-sub md-may-fila flex flex-wrap items-center gap-2" data-plu="${plu}"><span>${texto}</span><span class="solo-config inline-flex flex-wrap items-center gap-2">`
-    + `<span role="group" class="inline-flex rounded overflow-hidden" aria-label="Clasificación de ${nom}">${seg(false, 'Minorista')}${seg(true, 'Mayorista')}</span>`
-    + (p.mayoristaOrigen === 'manual' ? `<button type="button" class="${cls} rounded" data-plu="${plu}" data-valor="null" aria-label="Volver a automático la clasificación de ${nom}">Volver a automático</button>` : '')
+    + `<span role="group" class="inline-flex rounded overflow-hidden" aria-label="Clasificación de ${nom}">${segs}</span>`
+    + (auto ? btn({ ...auto, texto: 'Volver a automático' }, 'rounded').replace(/ aria-label="[^"]*"/, ` aria-label="Volver a automático la clasificación de ${nom}"`) : '')
     + `<span class="md-may-msg text-xs" role="alert"></span></span></div>`;
 };
-function htmlTarjetaPresentacionFraccMd({ minorista: r, mayoristas, presentacion }) {
-  const peso = textoPesoMd(r.pesoG);
-  const { precios, detalle } = partesPreciosFraccMd(r);
+function htmlTarjetaPresentacionFraccMd({ minorista: r, mayoristas, presentacion, fuente }) {
+  const peso = textoPesoMd(r.pesoG), may = datosMayoristaFraccMd(presentacion, fuente);
+  const { precios: pr, detalle } = partesPreciosFraccMd(r);
+  const precios = may && !may.fijo ? `${pr} <span class="md-chip-0" title="El sugerido de una presentación mayorista es el precio ${may.tipo === 'pack' ? 'pack' : 'bulto'} sin IVA">sin IVA</span>` : pr;
   const mays = mayoristas.length ? `<div class="md-fr-mays"><div class="md-fr-mays-t">Códigos mayoristas</div>`
     + `${htmlCodigosMayoristasFraccMd(mayoristas, `Códigos mayoristas de ${r.nombre}`)}</div>` : '';
   return `<li class="md-fr-card md-fr-pres"><div class="md-fr-l1"><b>${ESC_FR_MD(r.nombre)}</b>${chipDeltaFrMd(r)}</div>`
-    + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div>${htmlClaseMayoristaFraccMd(presentacion)}<div class="md-fr-l3">${precios}${detalle}</div>${mays}</li>`;
+    + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div>${htmlClaseMayoristaFraccMd(presentacion)}<div class="md-fr-l3">${precios}${detalle}</div>${htmlBloqueMayoristaFraccMd(may)}${mays}</li>`;
 }
 // Tarjeta de los pack/bulto del granel mismo (no de una presentación); sin ellos no hay tarjeta.
 const htmlTarjetaGranelFraccMd = mayoristas => (!mayoristas.length ? '' : `<li class="md-fr-card md-fr-granel"><h4 class="md-fr-card-t">Mayoristas del granel `
@@ -212,7 +256,7 @@ function htmlPreciosFraccMd(f, fuente) {
   if (!filas.length) return `${cab}<p class="text-gris">Sin precios para mostrar.</p>`;
   const { granel, presentaciones } = agruparPreciosFraccMd(filas);
   const porPlu = Object.fromEntries((f.presentaciones || []).map(p => [String(p.plu), p]));
-  return `${cab}<ul class="md-fr-lista">${presentaciones.map(x => htmlTarjetaPresentacionFraccMd({ ...x, presentacion: porPlu[String(x.minorista.plu)] })).join('')}${htmlTarjetaGranelFraccMd(granel)}</ul>`;
+  return `${cab}<ul class="md-fr-lista">${presentaciones.map(x => htmlTarjetaPresentacionFraccMd({ ...x, presentacion: porPlu[String(x.minorista.plu)], fuente })).join('')}${htmlTarjetaGranelFraccMd(granel)}</ul>`;
 }
 // Debajo de las tarjetas de costo: un bloque por columna cuando hay dos; con uno solo (sin configuración sólo queda el margen) a ancho completo.
 function htmlColumnasFraccMd(...bloques) {
@@ -268,12 +312,30 @@ function filasCostoPresFraccMd(p, fuente, costosGranel) {
 const filaDePasoMd = ([op, txt, v], i) => (i > 0 && !op && v == null ? { tipo: 'nota', txt } : { ...(op ? { op } : {}), txt, v: v ?? null });
 // Cuentas del precio de una fila (presentación o granel) con la fuente elegida: el minorista (el granel no lo tiene: { minorista: false }) y cada
 // pack/bulto con su desglose. Sin desglose de la fuente → null.
+// Pasos del precio minorista. Presentación mayorista con descuento (d.minorista.mayorista): la base de la cuenta (margen de tabla, extras, IVA) es el minorista
+// de antes (minoristaOriginal) y de ahí salen el pack (descuento sobre ese precio) y el bulto sin IVA (sobre el pack; es el sugerido); el margen de tabla no se muestra
+// como aplicado: el efectivo del pack y del bulto van en notas. Sin descuento (minorista o margen fijo) = la cuenta de siempre.
+function pasosMinoristaFraccMd(d, costoTxt) {
+  const m = d.minorista, may = m.mayorista, o = m.minoristaOriginal;
+  if (!may || !o) return ESQ_FR_MD.pasosMinoristaMd(d, costoTxt);
+  const pasos = ESQ_FR_MD.pasosMinoristaMd({ ...d, minorista: { ...m, margenPct: o.margenPct, exacto: o.exacto, precio: o.precio } }, costoTxt);
+  pasos[pasos.length - 1] = ['', 'Precio minorista de antes, con IVA (redondeado)', o.precio];
+  const pc = ESQ_FR_MD.pctMd;
+  const tipo = [m.tipoMayorista, may.tipoMayorista].find(t => t === 'pack' || t === 'bulto') || 'bulto';
+  const hastaPack = [...pasos, ['×', `Descuento pack −${pc(may.descPackPct)}`, may.pack.exactoIva], ['=', 'Precio pack con IVA', may.pack.conIva]];
+  if (tipo === 'pack') { // el pack es el resultado: sin IVA (÷ IVA) y sin aplicar el descuento de bulto
+    return [...hastaPack, ['÷', `IVA ${pc(m.ivaPct)}`, may.pack.neto], ['=', 'Precio pack sin IVA (sugerido)', may.pack.precio], ['', `Margen efectivo del pack ${pc(may.pack.margenPct)}`, null]];
+  }
+  return [...hastaPack, ['', `Margen efectivo del pack ${pc(may.pack.margenPct)} (sin IVA ${ESQ_FR_MD.fmtSug(may.pack.precio)} por kg)`, null],
+    ['×', `Descuento bulto −${pc(may.descBultoPct)} sobre el pack`, may.bulto.exactoIva], ['÷', `IVA ${pc(m.ivaPct)}`, may.bulto.neto],
+    ['=', 'Precio bulto sin IVA (sugerido)', may.bulto.precio], ['', `Margen efectivo del bulto ${pc(may.bulto.margenPct)}`, null]];
+}
 function cuentasPrecioFraccMd(fila, fuente, { minorista = true } = {}) {
   const s = (fila.sugeridos || {})[fuente];
   if (!s || !s.desglose) return null;
   const d = s.desglose, porVinculo = d.porVinculo || {};
   return {
-    minorista: minorista ? ESQ_FR_MD.pasosMinoristaMd(d, fila.componentesCosto ? 'Costo real' : 'Costo de mercadería').map(filaDePasoMd) : null, // presentación costeada = mercadería + envase + MO + máquina
+    minorista: minorista ? pasosMinoristaFraccMd(d, fila.componentesCosto ? 'Costo real' : 'Costo de mercadería').map(filaDePasoMd) : null, // presentación costeada = mercadería + envase + MO + máquina
     mayoristas: (fila.mayoristas || []).filter(v => porVinculo[v.plu]).map(v => ({ tipo: v.tipo, plu: v.plu, nombre: v.nombre, unidades: porVinculo[v.plu].unidades,
       filas: ESQ_FR_MD.pasosMayoristaMd(d, porVinculo[v.plu]).map(filaDePasoMd) })),
   };
@@ -343,7 +405,7 @@ function htmlActividadFraccMd(f) {
 }
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlActividadFraccMd, resumenCosteoFraccMd, opcionesMaquinaMd, opcionesEnvaseMd, formulaMinutosMd, textoElegidoMd, textosMinKgMd, bodyGranelMd,
-  deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, agruparPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd,
+  deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, agruparPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd, datosMayoristaFraccMd, htmlBloqueMayoristaFraccMd, pasosMinoristaFraccMd,
   motivoSinMinutosMd, filasCostoPresFraccMd, cuentasPrecioFraccMd, htmlCuentaFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd, htmlCuerpoDetalleFraccMd };
 
 // ── DOM ──

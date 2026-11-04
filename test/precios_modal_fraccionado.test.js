@@ -124,8 +124,8 @@ test('filasPreciosFraccMd: filas por canal con el peso de la presentación y el 
   assert.deepStrictEqual(filas.map(r => [r.canal, r.plu, r.pesoG ?? null, r.vigente, r.sugerido, r.deltaPesos, r.deltaPct]), [
     ['Minorista · Almendras 250G', '103', 250, null, 1950, null, null],       // sin vigente: sin Δ
     ['Minorista · Almendras 500G', '101', 500, 1950, 1950, 0, 0],
-    ['Bulto sin IVA', '201', null, 9000, 1540, -7460, -82.9],                 // el Δ vs vigente va en la fila sin IVA
-    ['Bulto con IVA', '201', null, null, 1850, null, null],                   // con IVA no tiene vigente: sin Δ
+    ['Bulto sin IVA', '201', null, 9000, 1309.77, -7690.23, -85.4],               // el Δ vs vigente va en la fila sin IVA
+    ['Bulto con IVA', '201', null, null, 1600, null, null],                   // con IVA no tiene vigente: sin Δ
     ['Minorista · Almendras 1Kg', '102', 1000, 1500, 1800, 300, 20]]);
 });
 
@@ -221,10 +221,10 @@ test('htmlPreciosFraccMd: los pack/bulto van DENTRO de la tarjeta de su presenta
   assert.match(codigo, /<span class="md-warn" title="[^"]*">revisar unidad<\/span>/);       // el aviso queda junto al código
   assert.match(codigo, /<div class="md-fr-cod-nom">Almendras Bulto x6<\/div>/);
   const sinIva = codigo.match(/<div class="md-fr-fila"><span class="md-fr-iva">Sin IVA<\/span>.*?<\/div>(?=<div class="md-fr-fila">|<\/li>)/s)[0];
-  assert.match(sinIva, /<span class="font-semibold text-warn">-\$ 7\.460<\/span>/);
-  assert.match(sinIva, /sem-bajar md-chip"><span aria-hidden="true">▼<\/span>-82\.9%/);
+  assert.match(sinIva, /<span class="font-semibold text-warn">-\$ 7\.690,23<\/span>/); // bulto por descuento (2026-11-04)
+  assert.match(sinIva, /sem-bajar md-chip"><span aria-hidden="true">▼<\/span>-85\.4%/);
   const conIva = codigo.match(/<div class="md-fr-fila"><span class="md-fr-iva">Con IVA<\/span>.*?<\/div>/s)[0];
-  assert.match(conIva, /\$ 1\.850/);
+  assert.match(conIva, /\$ 1\.600/);
   assert.doesNotMatch(conIva, /text-crit|text-warn|text-gris|md-chip/);                      // sin vigente ni Δ
   assert.ok(html.indexOf('PLU 201') < html.indexOf('Almendras 1Kg'));                        // el bulto de la 500G está en su tarjeta, antes que la 1Kg
 });
@@ -446,8 +446,10 @@ test('htmlPreciosFraccMd: cada tarjeta de presentación dice Mayorista (por peso
   const g = granelPrecios();
   const marcas = { 101: { mayorista: true, mayoristaOrigen: 'peso' }, 102: { mayorista: true, mayoristaOrigen: 'manual' }, 103: { mayorista: false, mayoristaOrigen: null } };
   const html = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, ...marcas[p.plu] })) }, 'sistema');
-  assert.match(cartaPres(html, 'Almendras 500G'), /Mayorista \(por peso\)/);
-  assert.match(cartaPres(html, 'Almendras 1Kg'), /Mayorista \(marcada a mano\)/);
+  assert.match(cartaPres(html, 'Almendras 500G'), /Mayorista · Bulto \(por peso\)/); // sin mayoristaTipo = bulto
+  assert.match(cartaPres(html, 'Almendras 1Kg'), /Mayorista · Bulto \(marcada a mano\)/);
+  const pack = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' })) }, 'sistema');
+  assert.match(cartaPres(pack, 'Almendras 500G'), /Mayorista · Pack \(marcada a mano\)/);
   assert.match(cartaPres(html, 'Almendras 250G'), /<span>Minorista<\/span>/);
   const sin = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(({ mayorista, mayoristaOrigen, ...p }) => p) }, 'sistema');
   assert.doesNotMatch(sin, />Minorista<|Mayorista \(/);
@@ -465,16 +467,112 @@ test('htmlActividadFraccMd: estado y botón según actividad; sin botón en REEF
   assert.strictEqual(htmlActividadFraccMd({ ...base, plu: null }), '');
 });
 
-test('htmlPreciosFraccMd: toggle Minorista | Mayorista con el estado efectivo; "Volver a automático" sólo si la marca es manual; sin PLU no hay toggle', () => {
+test('htmlPreciosFraccMd: control Minorista | Mayorista · Pack | Mayorista · Bulto con el estado efectivo; "Volver a automático" sólo si la marca es manual; sin PLU no hay toggle', () => {
   const g = granelPrecios();
   const marcas = { 101: { mayorista: true, mayoristaOrigen: 'peso' }, 102: { mayorista: true, mayoristaOrigen: 'manual' }, 103: { mayorista: false, mayoristaOrigen: null } };
   const html = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, ...marcas[p.plu] })) }, 'sistema');
   const peso = cartaPres(html, 'Almendras 500G'), manual = cartaPres(html, 'Almendras 1Kg'), minor = cartaPres(html, 'Almendras 250G');
   assert.match(peso, /solo-config/);
-  assert.match(peso, /aria-pressed="true"[^>]*aria-label="Mayorista: /); assert.match(peso, /data-valor="false" aria-pressed="false"/);
+  assert.match(peso, /data-valor="&quot;bulto&quot;" aria-pressed="true" aria-label="Mayorista · Bulto: /); assert.match(peso, /data-valor="&quot;pack&quot;" aria-pressed="false"/); assert.match(peso, /data-valor="false" aria-pressed="false"/);
   assert.doesNotMatch(peso, /Volver a automático/);
   assert.match(manual, /data-valor="null"[^>]*>Volver a automático/);
-  assert.match(minor, /data-valor="false" aria-pressed="true"/); assert.match(minor, /data-valor="true" aria-pressed="false"/);
+  assert.match(minor, /data-valor="false" aria-pressed="true"/); assert.match(minor, /data-valor="&quot;pack&quot;" aria-pressed="false"/); assert.match(minor, /data-valor="&quot;bulto&quot;" aria-pressed="false"/);
+  const esPack = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' })) }, 'sistema');
+  assert.match(cartaPres(esPack, 'Almendras 500G'), /data-valor="&quot;pack&quot;" aria-pressed="true"/);
   const sinPlu = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, plu: p.plu, mayorista: true, mayoristaOrigen: 'peso' })) }, 'sistema');
   assert.ok(sinPlu.includes('md-may'));
+});
+
+// ── Precio mayorista en la card de la presentación y en "Cómo se conforma" (sugerido = bulto SIN IVA) ──
+const { datosMayoristaFraccMd, htmlBloqueMayoristaFraccMd, pasosMinoristaFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+const MIN_MAY_MD = { precio: 1300, margenTotalPct: 18.2, deltaPct: -0.05, estado: 'bajar', minoristaOriginal: 2000, minoristaOriginalNeto: 1652.89,
+  pack: { neto: 1487.6, conIva: 1800, margenPct: 31.4 }, bulto: { neto: 1300, conIva: 1573, margenPct: 18.2 } };
+const MAYORISTA_DESGLOSE = { base: 1652.89, descPackPct: 10, descBultoPct: 10,
+  pack: { descuentoMayoristaPct: 10, neto: 1487.6, precio: 1487.6, exactoIva: 1800, conIva: 1800, margenPct: 31.4 }, bulto: { descuentoMayoristaPct: 19, neto: 1300, precio: 1300, exactoIva: 1573, conIva: 1573, margenPct: 18.2 } };
+const DESGLOSE_MAY = { costo: 1000, gastosPct: 5, costoConGastos: 1050, porVinculo: {}, minorista: { margenPct: 18.2, neto: 1652.89, extrasPct: 0, conExtras: 1652.89, ivaPct: 21, exacto: 1300, precio: 1300, sinIva: true,
+  minoristaOriginal: { margenPct: 57.4, exacto: 2000, precio: 2000 }, mayorista: MAYORISTA_DESGLOSE, calculoMayorista: 'descuento' } };
+const presMay = (extra = {}, sug = {}) => ({ plu: '51', nombre: 'A 500G', mayorista: true, sugeridos: { sistema: { minorista: MIN_MAY_MD, ...sug } }, ...extra });
+
+test('datosMayoristaFraccMd: sin desglose, sólo lo público (bulto sin IVA = sugerido, pack, antes, márgenes); con desglose suma base y descuentos', () => {
+  const pub = datosMayoristaFraccMd(presMay(), 'sistema');
+  assert.deepStrictEqual([pub.conDesglose, pub.base, pub.bultoNeto, pub.bultoIva, pub.packIva, pub.packNeto, pub.antes, pub.packMargenPct, pub.bultoMargenPct], [false, null, 1300, 1573, 1800, 1487.6, 2000, 31.4, 18.2]);
+  const full = datosMayoristaFraccMd(presMay({}, { desglose: DESGLOSE_MAY }), 'sistema');
+  assert.deepStrictEqual([full.conDesglose, full.base, full.descPackPct, full.descBultoPct], [true, 1652.89, 10, 10]);
+});
+test('datosMayoristaFraccMd: minorista, sin precio → null; mayorista sin descuento (margen fijo) → { fijo }', () => {
+  assert.strictEqual(datosMayoristaFraccMd({ ...presMay(), mayorista: false }, 'sistema'), null);
+  assert.strictEqual(datosMayoristaFraccMd(presMay(), 'ultimaCompra'), null);
+  assert.strictEqual(datosMayoristaFraccMd({ mayorista: true, sugeridos: { sistema: { error: 'margen' } } }, 'sistema'), null);
+  assert.deepStrictEqual(datosMayoristaFraccMd({ mayorista: true, sugeridos: { sistema: { minorista: { precio: 1800 } } } }, 'sistema'), { fijo: true });
+});
+test('htmlBloqueMayoristaFraccMd: el bulto sin IVA es el resultado (negrita); con y sin desglose, margen fijo y vacío; la tarjeta lo incluye sólo si es mayorista', () => {
+  const full = htmlBloqueMayoristaFraccMd(datosMayoristaFraccMd(presMay({}, { desglose: DESGLOSE_MAY }), 'sistema'));
+  for (const re of [/Precio mayorista/, /Minorista por kg, sin IVA \(base\)/, /Pack \(−10 %\)/, /Bulto sin IVA \(sugerido, −10 % sobre el pack\)/, /<b class="md-nuevo">\$ 1\.300<\/b>/,
+    /margen 31,4 %/, /margen 18,2 %/, /Minorista anterior \(con IVA\)/, /<s>\$ 2\.000<\/s>/]) assert.match(full, re);
+  const pub = htmlBloqueMayoristaFraccMd(datosMayoristaFraccMd(presMay(), 'sistema'));
+  assert.doesNotMatch(pub, /\(base\)|Pack \(−/); assert.match(pub, /Bulto sin IVA \(sugerido\)/); assert.match(pub, /con IVA 1\.573/);
+  assert.match(htmlBloqueMayoristaFraccMd({ fijo: true }), /Margen fijo del producto: sin descuento mayorista/);
+  assert.strictEqual(htmlBloqueMayoristaFraccMd(null), '');
+  const g = { plu: '50', nombre: 'Almendra', presentaciones: [presMay({ mayoristas: [] })], mayoristas: [] };
+  const html = htmlPreciosFraccMd(g, 'sistema');
+  assert.match(html, /Precio mayorista/); assert.match(html, /title="El sugerido de una presentación mayorista es el precio bulto sin IVA">sin IVA/);
+  assert.doesNotMatch(htmlPreciosFraccMd({ ...g, presentaciones: [presMay({ mayorista: false, mayoristas: [] })] }, 'sistema'), /Precio mayorista|sin IVA<\/span>/);
+});
+test('pasosMinoristaFraccMd: mayorista con descuento parte del minorista de antes, pasa por el pack y termina en el bulto sin IVA (sugerido); sin descuento = cuenta de siempre', () => {
+  const pasos = pasosMinoristaFraccMd(DESGLOSE_MAY, 'Costo de mercadería');
+  const txt = pasos.map(p => p[1]);
+  assert.ok(txt.includes('Margen 57,4 %')); assert.ok(!txt.some(t => /^Margen 18,2/.test(t)));   // el margen de tabla no se muestra como aplicado
+  assert.deepStrictEqual(pasos.filter(p => p[0] === '=').map(p => [p[1], p[2]]), [['Precio pack con IVA', 1800], ['Precio bulto sin IVA (sugerido)', 1300]]); // el último "=" (total) es el bulto neto
+  assert.ok(txt.some(t => /Margen efectivo del pack 31,4 %/.test(t)) && txt.some(t => /Margen efectivo del bulto 18,2 %/.test(t)));
+  const plano = { ...DESGLOSE_MAY, minorista: { ...DESGLOSE_MAY.minorista, mayorista: undefined, minoristaOriginal: undefined, margenPct: 40 } };
+  assert.ok(pasosMinoristaFraccMd(plano, 'Costo').some(p => p[1] === 'Margen 40 %'));
+});
+test('filasPreciosFraccMd: presentación mayorista con vigenteNeto compara el sugerido (sin IVA) con el vigente sin IVA; sin vigenteNeto, el vigente de siempre', () => {
+  const { filasPreciosFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+  const r = p => filasPreciosFraccMd({ plu: '50', nombre: 'G', presentaciones: [p], mayoristas: [] }, 'sistema').find(x => x.tipo === 'minorista');
+  const conVn = (vn, extra = {}) => ({ ...presMay(extra, {}), vigente: 1950, sugeridos: { sistema: { minorista: { ...MIN_MAY_MD, ...(vn != null ? { vigenteNeto: vn } : {}) } } } });
+  assert.strictEqual(r(conVn(1611.57)).vigente, 1611.57); // el server manda vigenteNeto en sugeridos[fuente].minorista, no en la fila
+  assert.strictEqual(r(conVn(null)).vigente, 1950);
+  assert.strictEqual(r(conVn(1611.57, { mayorista: false })).vigente, 1611.57);
+  assert.strictEqual(r({ ...conVn(null), vigenteNeto: 1611.57 }).vigente, 1950); // un vigenteNeto suelto en la fila no cuenta
+  const x = r(conVn(1611.57)); assert.ok((x.deltaPct < 0) === (x.sugerido - x.vigente < 0), 'Δ$ y Δ% con el mismo signo');
+});
+test('pasosMinoristaFraccMd: con el contrato real del server (pack/bulto sin exacto), cada × lleva importe y el pack con IVA es conIva', () => {
+  const pasos = pasosMinoristaFraccMd(DESGLOSE_MAY, 'Costo');
+  assert.ok(pasos.every(p => p[0] !== '×' || p[2] != null));
+  assert.strictEqual(pasos.find(p => p[1] === 'Precio pack con IVA')[2], 1800);
+  assert.strictEqual(pasos.find(p => p[1].startsWith('Descuento bulto'))[2], 1573);
+});
+test('datosMayoristaFraccMd: sin pack/bulto públicos, el fallback del desglose usa conIva', () => {
+  const p = presMay({}, { desglose: DESGLOSE_MAY });
+  const d = datosMayoristaFraccMd({ ...p, sugeridos: { sistema: { minorista: { precio: 1300, margenTotalPct: 18.2 }, desglose: DESGLOSE_MAY } } }, 'sistema');
+  assert.strictEqual(d.packIva, 1800); assert.strictEqual(d.bultoIva, 1573);
+});
+
+// ── Tipo pack: el sugerido es el pack SIN IVA (el bulto pasa a dato secundario) ──
+const MIN_PACK_MD = { ...MIN_MAY_MD, precio: 1487.6, margenTotalPct: 31.4, tipoMayorista: 'pack' };
+const DESGLOSE_PACK = { ...DESGLOSE_MAY, minorista: { ...DESGLOSE_MAY.minorista, precio: 1487.6, tipoMayorista: 'pack', mayorista: { ...MAYORISTA_DESGLOSE, tipoMayorista: 'pack' } } };
+const presPack = (extra = {}, sug = {}) => ({ plu: '51', nombre: 'A 500G', mayorista: true, mayoristaTipo: 'pack', sugeridos: { sistema: { minorista: MIN_PACK_MD, ...sug } }, ...extra });
+
+test('datosMayoristaFraccMd / htmlBloqueMayoristaFraccMd: tipo pack → "Pack sin IVA (sugerido)" en negrita y el bulto como dato secundario', () => {
+  const d = datosMayoristaFraccMd(presPack({}, { desglose: DESGLOSE_PACK }), 'sistema');
+  assert.strictEqual(d.tipo, 'pack'); assert.strictEqual(d.packNeto, 1487.6); assert.strictEqual(d.bultoNeto, 1300);
+  const html = htmlBloqueMayoristaFraccMd(d);
+  assert.match(html, /Pack sin IVA \(sugerido, −10 % sobre el minorista\)/);
+  assert.match(html, /<b class="md-nuevo">\$ 1\.487,6<\/b>|<b class="md-nuevo">\$ 1\.488<\/b>|<b class="md-nuevo">[^<]*1\.48/);
+  assert.doesNotMatch(html, /Bulto sin IVA \(sugerido/);
+  assert.match(html, /Bulto \(−10 % sobre el pack\)/);
+  const bulto = htmlBloqueMayoristaFraccMd(datosMayoristaFraccMd(presMay({}, { desglose: DESGLOSE_MAY }), 'sistema'));
+  assert.match(bulto, /Bulto sin IVA \(sugerido/); assert.doesNotMatch(bulto, /Pack sin IVA \(sugerido/);
+  const tipoPorFila = datosMayoristaFraccMd({ ...presMay(), mayoristaTipo: 'pack' }, 'sistema'); // sin tipoMayorista en el sugerido: manda la marca de la fila
+  assert.strictEqual(tipoPorFila.tipo, 'pack');
+  const tarjeta = htmlPreciosFraccMd({ plu: '50', nombre: 'G', presentaciones: [presPack({ mayoristas: [] })], mayoristas: [] }, 'sistema');
+  assert.match(tarjeta, /es el precio pack sin IVA/);
+});
+test('pasosMinoristaFraccMd: tipo pack termina en "Precio pack sin IVA (sugerido)" sin aplicar el descuento de bulto', () => {
+  const pasos = pasosMinoristaFraccMd(DESGLOSE_PACK, 'Costo');
+  const txt = pasos.map(p => p[1]);
+  assert.deepStrictEqual(pasos.filter(p => p[0] === '=').map(p => p[1]), ['Precio pack con IVA', 'Precio pack sin IVA (sugerido)']);
+  assert.strictEqual(pasos[pasos.length - 2][2], 1487.6); // el último "=" es el pack neto
+  assert.ok(!txt.some(t => /bulto/i.test(t)));
 });
