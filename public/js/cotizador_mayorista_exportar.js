@@ -1,6 +1,6 @@
 'use strict';
 // ── Cotizador mayorista · pestaña Exportar, pasos 1 (vista previa) y 2 (generar versión) ──
-// GET /preview, POST /exportar. El paso 3 (descarga + subida FTP) vive en cotizador_mayorista_subida.js.
+// GET /preview, POST /exportar. Publicar por FTP: cotizador_mayorista_publicar.js; descarga y subida a mano: cotizador_mayorista_subida.js.
 
 const exp = { previa: null, version: null, diff: null, revisar: null };
 
@@ -86,6 +86,8 @@ async function actualizarBotonGenerar(hayErrores, nFilas) {
   boton.disabled = !!motivo || generando;
   boton.title = motivo;
   $('motivoGenerar').textContent = motivo;
+  pub.motivoGenerar = motivo;
+  refrescarBotonesPublicar();
 }
 
 async function cargarPrevia() {
@@ -124,11 +126,13 @@ async function generarVersion() {
     const r = await apiJson('/exportar', 'POST', {});
     exp.version = r.version;
     pintarResultado(r);
-    toast(`Versión v${r.version} generada. Falta subirla por FTP (paso 3).`);
+    toast(`Versión v${r.version} generada.`);
     renderDescarga(r.version);
     cargarPrevia();
+    return r.version;
   } catch (err) {
     estadoError($('resultado'), err);
+    return null;
   } finally {
     generando = false;
     boton.textContent = 'Generar versión';
@@ -141,4 +145,5 @@ function iniciarExportar() {
   $('btnGenerar').addEventListener('click', generarVersion);
   cargarPrevia().then(() => { if (exp.previa && exp.version == null) renderDescarga(exp.previa.ultimaVersion); });
   iniciarSubida();
+  iniciarPublicar();
 }

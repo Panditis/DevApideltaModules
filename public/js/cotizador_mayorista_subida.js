@@ -87,8 +87,11 @@ function renderDescarga(version) {
   const cont = $('descarga');
   if (subida.error) return estadoError(cont, subida.error);
   if (!subida.datos) return estadoCarga(cont);
-  return montar(cont, bloqueArchivos(), bloqueInstrucciones(), bloqueComandos(), bloqueWinscp(), formularioSubida(),
-    h('p', { class: 'aviso-amarillo text-sm' }, NOTA_SEGURIDAD));
+  return montar(cont, bloqueArchivos(), h('details', { class: 'acordeon' },
+    h('summary', { class: 'acordeon-sum' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▶'), 'Subir a mano'),
+    h('div', { class: 'p-3 space-y-4' }, h('p', { class: 'text-sm text-gris' }, 'Respaldo por si la publicación automática no anda. Solo hace falta si no usaste el botón Publicar.'),
+      bloqueInstrucciones(), bloqueComandos(), bloqueWinscp(), formularioSubida(),
+      h('p', { class: 'aviso-amarillo text-sm' }, NOTA_SEGURIDAD))));
 }
 
 async function iniciarSubida() {

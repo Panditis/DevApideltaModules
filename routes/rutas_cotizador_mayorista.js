@@ -1,6 +1,9 @@
 'use strict';
 // ── Cotizador mayorista · exportación de precios (spec docs/specs/2026-11-03-cotizador-mayorista-exportacion-design.md) ──
-// Genera catalogo.csv + version.json para que el usuario los suba A MANO por FTP (no sube nada, no guarda contraseñas).
+// Genera catalogo.csv + version.json y los publica por FTP (POST .../publicar) o a mano con los comandos curl (respaldo).
+// Config FTP: data/cotizador_ftp.json (ignorado por git), lo edita el usuario a mano; si no existe se crea con esta plantilla:
+//   { "host": "srva103.controlvps.com", "puerto": 21, "usuario": "Apdftp", "password": "", "rutaRemota": "/web/cotizador", "secure": false }
+//   secure: false = FTP común, true = FTPS explícito. La password nunca sale por API, logs, meta.json ni mensajes de error.
 // Lógica pura en lib/cotizador_mayorista.js. Precios = listados del módulo Precios (listadosVigentes, del router de
 // rutas_precios_esquema). Acceso: módulo 'precios' (lib/auth CATALOGO_MODULOS); escrituras además 'precios-config'.
 // Datos: data/cotizador_mayorista.json (tabla + subida) y data/cotizador_publicaciones/vNNN/{catalogo.csv,version.json,meta.json}.
@@ -18,7 +21,15 @@
 //        ultimaVersion: number|null, productos }
 //        origen: 'decision' | 'manual' | 'respaldo' (último exportado o planilla) | null (columna vacía)
 //   POST /api/cotizador-mayorista/exportar     → { version, generado, sha256, productos, diff, revisar }   (errores → { error })
-//   GET  /api/cotizador-mayorista/historial    → [{ version, generado, usuario, productos, sha256, nuevos, quitados, cambiados }]
+//   GET  /api/cotizador-mayorista/historial    → [{ version, generado, usuario, productos, sha256, nuevos, quitados, cambiados,
+//        publicado: { fecha, ok, error? } | null, metaIlegible? }]   (meta.json corrupto → fila con nulls y metaIlegible: true)
+//   GET  /api/cotizador-mayorista/publicar/config → { host, puerto, usuario, rutaRemota, secure, tienePassword, aviso? }
+//        (aviso si recién se creó el archivo con la plantilla)
+//   POST /api/cotizador-mayorista/publicaciones/:version/publicar  (permiso precios-config)
+//        → 200 { ok: true, version, subidos: ['catalogo.csv','version.json'], publicadoEn }
+//        → 200 { error, version, subidos } si falla la subida (sin password, no conecta, login, carpeta, tamaño); { error } si falta password
+//        → 400 versión inválida · 404 versión inexistente · 409 ya hay una publicación en curso · 403 sin permiso
+//        Sube catalogo.csv y después version.json, cada uno como .tmp + verificación de tamaño + rename. Resultado en meta.json.publicado.
 //   GET  /api/cotizador-mayorista/publicaciones/:version/catalogo.csv | version.json → descarga (attachment)
 //   GET  /api/cotizador-mayorista/comparacion  → { iguales, difieren, sinDato, conDecision, detalle: [...] } (sistema vs planilla)
 const express = require('express');
@@ -31,8 +42,13 @@ const C = require('../lib/cotizador_mayorista');
 const PERMISO = 'precios-config';
 const HOJA = 'apidelta_precios';
 
-module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, listadosVigentes, tienePermiso }) {
+const FTP_TIMEOUT_MS = 30000;
+
+module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, listadosVigentes, tienePermiso,
+  // ponytail: basic-ftp 5.x a propósito; el aviso de npm audit (DoS en Client.list()) no aplica, no usamos list()
+  crearClienteFtp = () => new (require('basic-ftp').Client)(FTP_TIMEOUT_MS) }) {
   const router = express.Router();
+  const FTP_PATH = path.join(DATA_DIR, 'cotizador_ftp.json');
   const TABLA_PATH = path.join(DATA_DIR, 'cotizador_mayorista.json');
   const PUB_DIR = path.join(DATA_DIR, 'cotizador_publicaciones');
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -148,12 +164,102 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
     return { version, generado: ver.generado, sha256: ver.sha256, productos: ver.productos, diff: p.diff, revisar: p.revisar };
   })));
 
+  // meta.json corrupto o ausente → null (no rompe el historial).
+  const leerMeta = v => {
+    try { return JSON.parse(fs.readFileSync(path.join(dirVersion(v), 'meta.json'), 'utf8')); } catch (err) {
+      console.error('[cotizador-mayorista] meta.json v%d ilegible:', v, err.message);
+      return null;
+    }
+  };
+  const guardarMeta = (v, meta) => {
+    const ruta = path.join(dirVersion(v), 'meta.json'), tmp = `${ruta}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(meta, null, 2), 'utf8');
+    fs.renameSync(tmp, ruta);
+  };
+
   router.get('/api/cotizador-mayorista/historial', apiRoute(async () => versiones().reverse().map(v => {
-    const m = JSON.parse(fs.readFileSync(path.join(dirVersion(v), 'meta.json'), 'utf8'));
+    const m = leerMeta(v);
+    if (!m) return { version: v, generado: null, usuario: null, productos: null, sha256: null, nuevos: 0, quitados: 0, cambiados: 0,
+      publicado: null, metaIlegible: true };
     const d = m.diff || {};
     return { version: m.version, generado: m.generado, usuario: m.usuario, productos: m.productos, sha256: m.sha256,
-      nuevos: (d.nuevos || []).length, quitados: (d.quitados || []).length, cambiados: (d.cambiados || []).length };
+      nuevos: (d.nuevos || []).length, quitados: (d.quitados || []).length, cambiados: (d.cambiados || []).length,
+      publicado: m.publicado || null };
   })));
+
+  // ── Publicar por FTP ──
+  const leerFtp = () => {
+    if (!fs.existsSync(FTP_PATH)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(FTP_PATH, JSON.stringify(C.FTP_PLANTILLA, null, 2) + '\n', 'utf8');
+      return { cfg: C.normalizarFtp(C.FTP_PLANTILLA), creado: true };
+    }
+    try { return { cfg: C.normalizarFtp(JSON.parse(fs.readFileSync(FTP_PATH, 'utf8'))), creado: false }; } catch {
+      throw new Error('data/cotizador_ftp.json no es un JSON válido: corregilo a mano');
+    }
+  };
+  const AVISO_SIN_PASSWORD = 'Falta la contraseña del FTP: escribila en "password" de data/cotizador_ftp.json (en la carpeta del subsistema) y volvé a publicar';
+
+  router.get('/api/cotizador-mayorista/publicar/config', apiRoute(async () => {
+    const { cfg, creado } = leerFtp();
+    return { ...C.ftpPublico(cfg), ...(creado ? { aviso: 'Se creó data/cotizador_ftp.json con la plantilla; completá la contraseña' } : {}) };
+  }));
+
+  let publicando = false; // ponytail: lock en memoria, alcanza con un solo proceso Node
+  router.post('/api/cotizador-mayorista/publicaciones/:version/publicar', conPermiso(async (req, res) => {
+    const v = Number(req.params.version);
+    if (!Number.isInteger(v) || v < 1) return res.status(400).json({ error: 'Versión inválida' });
+    const dir = dirVersion(v);
+    if (!fs.existsSync(path.join(dir, 'catalogo.csv')) || !fs.existsSync(path.join(dir, 'version.json'))) return res.status(404).json({ error: `No existe la versión ${v}` });
+    if (publicando) return res.status(409).json({ error: 'Ya hay una publicación en curso; esperá a que termine' });
+    let cfg;
+    try { cfg = leerFtp().cfg; } catch (err) { return res.json({ error: err.message }); }
+    if (!cfg.password) return res.json({ error: AVISO_SIN_PASSWORD });
+    publicando = true;
+    const subidos = [];
+    let error = null;
+    let client = null;
+    let tmpPendiente = null; // .tmp remoto subido y todavía sin renombrar
+    const limpiarTmp = () => tmpPendiente && client.remove(tmpPendiente, true).catch(() => {});
+    try {
+      client = crearClienteFtp();
+      await client.access({ host: cfg.host, port: cfg.puerto, user: cfg.usuario, password: cfg.password, secure: cfg.secure });
+      await client.cd(cfg.rutaRemota);
+      for (const archivo of ['catalogo.csv', 'version.json']) { // csv primero: el navegador nunca ve versión sin catálogo
+        const local = path.join(dir, archivo), tmp = `${archivo}.tmp`;
+        const tamano = fs.statSync(local).size;
+        tmpPendiente = tmp;
+        await client.uploadFrom(local, tmp);
+        const remoto = await client.size(tmp);
+        if (remoto !== tamano) {
+          error = `El tamaño subido de ${archivo} no coincide (${remoto} de ${tamano} bytes); reintentá`;
+          await limpiarTmp();
+          break;
+        }
+        try { await client.rename(tmp, archivo); } catch {
+          await client.remove(archivo, true); // hay servidores que no renombran sobre un archivo existente
+          await client.rename(tmp, archivo);
+        }
+        tmpPendiente = null;
+        subidos.push(archivo);
+      }
+    } catch (err) {
+      console.error('[cotizador-mayorista] publicar v%d:', v, C.redactar(err && err.message, cfg));
+      error = C.mensajeFtp(err);
+      if (client) await limpiarTmp();
+    } finally {
+      if (client) client.close();
+      publicando = false;
+    }
+    const publicadoEn = C.isoLocal();
+    const meta = leerMeta(v);
+    if (meta) {
+      try { guardarMeta(v, { ...meta, publicado: { fecha: publicadoEn, ok: !error, ...(error ? { error } : {}) } }); } catch (err) {
+        console.error('[cotizador-mayorista] meta.json v%d no se pudo actualizar:', v, err.message);
+      }
+    }
+    return res.json(error ? { error, version: v, subidos } : { ok: true, version: v, subidos, publicadoEn });
+  }));
 
   router.get('/api/cotizador-mayorista/publicaciones/:version/:archivo', (req, res) => {
     const v = Number(req.params.version), archivo = req.params.archivo;

@@ -121,19 +121,22 @@
     <div class="card paso">
       <span class="paso-n" aria-hidden="true">2</span>
       <div class="min-w-0">
-        <div class="paso-cab"><h2>Generar la versión</h2></div>
-        <p class="text-sm text-gris mb-3">Crea <code>catalogo.csv</code> y <code>version.json</code> con lo que muestra la vista previa. Todavía no se sube nada al cotizador.</p>
+        <div class="paso-cab"><h2>Generar y publicar</h2></div>
+        <p class="text-sm text-gris mb-3">Crea <code>catalogo.csv</code> y <code>version.json</code> con lo que muestra la vista previa. <strong>Publicar</strong> además los sube al cotizador por FTP; <strong>Generar versión</strong> solo los crea, sin subir nada.</p>
+        <div id="publicarDestino" class="space-y-2 mb-3"></div>
         <div class="flex items-center gap-3">
-          <button type="button" id="btnGenerar" class="btn-prim" disabled>Generar versión</button>
+          <button type="button" id="btnPublicar" class="btn-prim js-publicar" data-extra="generar" disabled>Publicar</button>
+          <button type="button" id="btnGenerar" class="btn-sec" disabled>Generar versión</button>
           <span id="motivoGenerar" class="text-sm text-gris" aria-live="polite"></span>
         </div>
+        <div id="publicarEstado" class="mt-3" aria-live="polite"></div>
         <div id="resultado" class="mt-3"></div>
       </div>
     </div>
     <div class="card paso">
       <span class="paso-n" aria-hidden="true">3</span>
       <div class="min-w-0">
-        <div class="paso-cab"><h2>Descargar y subir por FTP</h2></div>
+        <div class="paso-cab"><h2>Descargar los archivos</h2></div>
         <div id="descarga" class="space-y-4"></div>
       </div>
     </div>
@@ -200,6 +203,7 @@
 <script src="/js/cotizador_mayorista_comun.js"></script>
 <script src="/js/cotizador_mayorista_diff.js"></script>
 <script src="/js/cotizador_mayorista_subida.js"></script>
+<script src="/js/cotizador_mayorista_publicar.js"></script>
 <script src="/js/cotizador_mayorista_exportar.js"></script>
 <script src="/js/cotizador_mayorista_tabla.js"></script>
 <script src="/js/cotizador_mayorista_tabla_filas.js"></script>

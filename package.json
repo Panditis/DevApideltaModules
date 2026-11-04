@@ -11,6 +11,7 @@
     "validar:paridad": "node test/validar_paridad_entornos.js --tab=ambos"
   },
   "dependencies": {
+    "basic-ftp": "^5.3.1",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
