@@ -12,14 +12,27 @@
 //   GET  /api/cotizador-mayorista/tabla        → { filas: [Fila], subida: { host, usuario, ruta }, comandos: [string] }
 //        Fila = { cod, seccion, nombre, packQty, bultoQty, incluido, packPlu?, bultoPlu?, manual?, packPrice?, bultoPrice?, planilla? }
 //        (orden del array = orden del catálogo; packPlu/bultoPlu vacíos = vínculo automático de SIGA)
+//        Fila no manual suma modoPack: 'plu' | 'descuento' | 'ninguno' (ausente en filas viejas = 'plu') y, sólo en 'descuento',
+//        descuentoPack: number (0 < x < 100). packQty = cantidad mínima del pack: en 'plu' como siempre, en 'descuento' la carga
+//        el usuario (requerida), en 'ninguno' se ignora. Las filas manuales no llevan modoPack (precios fijos).
 //   PUT  /api/cotizador-mayorista/tabla        body { filas: [Fila] } → { filas }      (reemplaza la tabla entera)
+//        modoPack ausente/'' → 'plu'; otro valor → { error: 'Fila N: modoPack inválido (plu, descuento o ninguno)' };
+//        descuentoPack acepta número o texto con coma ("12,5"); vacío, ≤0, ≥100 o no numérico → { error: 'Fila N: descuentoPack inválido (...)' }
 //   PUT  /api/cotizador-mayorista/subida       body { host, usuario, ruta } → { subida, comandos }
 //   POST /api/cotizador-mayorista/importar     multipart 'file' (.xlsx, hoja apidelta_precios) → { filas, secciones, manuales,
 //        descartadas: [nroFila], vinculos: { vinculados, sinVincular: [{ cod, nombre, faltan }], manuales } | null, aviso? }
 //   GET  /api/cotizador-mayorista/preview      → { filas: [FilaCsv + origen { pack, bulto }], revisar: [{ cod, nombre, motivos, respaldo }],
 //        avisos: [string], errores: [string], diff: { nuevos, quitados, cambiados: [{ cod, nombre, campo, antes, despues, pct }] },
 //        ultimaVersion: number|null, productos }
-//        origen: 'decision' | 'manual' | 'respaldo' (último exportado o planilla) | null (columna vacía)
+//        origen: 'decision' | 'manual' | 'descuento' (sólo pack) | 'respaldo' (último exportado o planilla) | null (columna vacía)
+//        Cada fila armada trae además modoPack ('plu'|'descuento'|'ninguno') y, en 'descuento',
+//        descuento: { pct, minoristaFinal, ivaPct, minoristaNeto, pack } (pack = Math.round(minoristaNeto × (1 − pct/100)),
+//        minoristaNeto = minoristaFinal / (1 + ivaPct/100), minorista con la decisión vigente del producto). Filas que salen del
+//        respaldo completo (cantidad no reconocida) no traen esos campos. 'descuento' sin packQty o sin minorista decidido →
+//        mensaje en errores (bloquea exportar). 'ninguno' → pack_qty/pack_price '' sin aviso ni revisar.
+//        El CSV exportado no cambia: sólo cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price.
+//        importar: fila no manual sin 'Codigo Pack' ni pack_price → modoPack 'ninguno'; si no, 'plu' (nunca 'descuento').
+//        comparacion: pack en 'ninguno' no figura; en 'descuento' sistema = pack calculado, origen 'descuento', plu null.
 //   POST /api/cotizador-mayorista/exportar     → { version, generado, sha256, productos, diff, revisar }   (errores → { error })
 //   GET  /api/cotizador-mayorista/historial    → [{ version, generado, usuario, productos, sha256, nuevos, quitados, cambiados,
 //        publicado: { fecha, ok, error? } | null, metaIlegible? }]   (meta.json corrupto → fila con nulls y metaIlegible: true)

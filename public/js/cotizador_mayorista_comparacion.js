@@ -15,7 +15,7 @@ const cmpTabla = crearTabla({
     { key: 'tipo', titulo: 'Tipo', ancho: '76px', valor: f => f.tipo, celda: f => cmpTipoTxt(f.tipo) },
     { key: 'excel', titulo: 'Excel', ancho: '96px', num: true, valor: f => f.excel, celda: f => fmtPrecio(f.excel) },
     { key: 'sistema', titulo: 'Sistema', ancho: '96px', num: true, valor: f => f.sistema, celda: f => fmtPrecio(f.sistema) },
-    { key: 'origen', titulo: 'Origen', ancho: '170px', valor: f => f.origen || '', celda: f => f.origen || '—' },
+    { key: 'origen', titulo: 'Origen', ancho: '170px', valor: f => f.origen || '', celda: f => (f.origen === 'descuento' ? chip('Descuento', 'warn') : f.origen || '—') },
     { key: 'pct', titulo: '%', ancho: '80px', num: true, valor: f => f.pct, celda: f => h('span', { class: diffClasePct(f.pct) }, fmtPct(f.pct)) },
     { key: 'estado', titulo: 'Estado', ancho: '92px', valor: f => f.estado, celda: f => chip(f.estado === 'igual' ? 'Igual' : f.estado === 'difiere' ? 'Difiere' : 'Sin dato', CMP_TONO[f.estado]) },
   ],

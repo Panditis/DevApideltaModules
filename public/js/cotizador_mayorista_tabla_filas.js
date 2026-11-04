@@ -4,8 +4,8 @@
 
 const NUEVA_SECCION = '__nueva__';
 const COLUMNAS_TABLA = [
-  ['Orden', '62px'], ['Incl.', '48px'], ['Cod', '104px'], ['Nombre', 'auto'], ['Sección', '210px'],
-  ['Cantidad pack', '124px'], ['Cantidad bulto', '124px'], ['PLU / precio pack', '116px'], ['PLU / precio bulto', '116px'], ['Tipo', '104px'],
+  ['Orden', '62px'], ['Incl.', '48px'], ['Cod', '104px'], ['Nombre', 'auto'], ['Sección', '180px'],
+  ['Cantidad pack', '124px'], ['Cantidad bulto', '124px'], ['Pack (PLU / descuento / precio)', '232px'], ['PLU / precio bulto', '116px'], ['Tipo', '104px'],
 ];
 
 const etiquetaFila = f => f.cod || 'fila nueva';
@@ -25,16 +25,54 @@ function notaCantidad(valor) {
   return h('span', { class: 'nota text-gris' }, 'Se exporta: ', h('b', { class: 'text-ink' }, n.valor));
 }
 function celdaCantidad(f, campo, etiqueta) {
+  if (campo === 'packQty' && modoDe(f) === 'ninguno') return h('td', { class: 'text-gris' }, '—');
   const nota = h('div', null, notaCantidad(f[campo]));
   const alCambiar = el => {
     montar(nota, notaCantidad(el.value));
-    el.closest('tr').classList.toggle('fila-aviso', filaConAviso({ packQty: f.packQty, bultoQty: f.bultoQty, [campo]: el.value }));
+    el.closest('tr').classList.toggle('fila-aviso', filaConAviso(tp.filas.find(x => x._id === f._id)));
   };
-  return h('td', null, entrada(f, campo, { etiqueta, alCambiar }), nota);
+  const placeholder = campo === 'packQty' && modoDe(f) === 'descuento' ? 'obligatoria, ej. 12u' : null;
+  return h('td', null, entrada(f, campo, { etiqueta, alCambiar, placeholder }), nota);
 }
 function celdaPluOPrecio(f, tipo) {
   if (f.manual) return h('td', null, entrada(f, `${tipo}Price`, { num: true, etiqueta: `Precio fijo ${tipo}`, placeholder: 'Precio $' }));
   return h('td', null, entrada(f, `${tipo}Plu`, { num: true, etiqueta: `PLU ${tipo}`, placeholder: 'automático' }));
+}
+
+// ── Pack de filas no manuales: modo (PLU / descuento / ninguno) ──
+const MODOS_PACK = [['plu', 'PLU pack'], ['descuento', 'Descuento sobre minorista'], ['ninguno', 'Sin precio pack']];
+function cambiarModoPack(f, modo) {
+  actualizarFila(f._id, { modoPack: modo });
+  pintarFilas();
+  actualizarBarra();
+  const sel = document.querySelector(`[data-fila="${f._id}"] select[data-campo="modoPack"]`);
+  if (sel) sel.focus();
+}
+// Pack calculado que trajo la vista previa, sólo si corresponde al descuento tal como está cargado.
+function packDeReferencia(f) {
+  const r = exp.previa && (exp.previa.filas || []).find(x => x.cod === f.cod);
+  const d = r && r.modoPack === 'descuento' ? r.descuento : null;
+  return d && Number(d.pct) === parseDescuento(f.descuentoPack) && d.pack != null ? d.pack : null;
+}
+function notaDescuento(f) {
+  if (!descuentoValido(f.descuentoPack)) return h('span', { class: 'nota text-crit font-semibold' }, '⚠ El descuento tiene que ser mayor que 0 y menor que 100');
+  const ref = packDeReferencia(f);
+  return h('span', { class: 'nota text-gris' }, ref != null ? ['Pack calculado: ', h('b', { class: 'text-ink' }, fmtPrecio(ref)), ' (vista previa)'] : 'Se calcula en la vista previa');
+}
+function celdaPack(f) {
+  const modo = modoDe(f);
+  const sel = h('select', { class: 'campo w-full', 'data-campo': 'modoPack', 'aria-label': `Precio pack de ${etiquetaFila(f)}`, disabled: !tp.puede,
+    onchange: () => cambiarModoPack(f, sel.value) }, MODOS_PACK.map(([v, t]) => h('option', { value: v }, t)));
+  sel.value = modo;
+  if (modo === 'ninguno') return h('td', null, sel, h('span', { class: 'nota text-gris' }, 'Sin precio pack'));
+  if (modo === 'plu') return h('td', null, sel, h('div', { class: 'mt-1' }, entrada(f, 'packPlu', { num: true, etiqueta: 'PLU pack', placeholder: 'automático' })));
+  const nota = h('div', null, notaDescuento(f));
+  const alCambiar = el => {
+    const actual = tp.filas.find(x => x._id === f._id);
+    montar(nota, notaDescuento(actual));
+    el.closest('tr').classList.toggle('fila-aviso', filaConAviso(actual));
+  };
+  return h('td', null, sel, h('div', { class: 'mt-1' }, entrada(f, 'descuentoPack', { num: true, etiqueta: '% de descuento', placeholder: '% de descuento', alCambiar })), nota);
 }
 
 async function elegirSeccion(f, select) {
@@ -79,7 +117,7 @@ function filaTabla(f, nombres, pos) {
     f.manual ? h('td', null, entrada(f, 'cod', { etiqueta: 'Código' })) : h('td', { class: 'font-semibold tabular-nums' }, f.cod),
     h('td', null, entrada(f, 'nombre', { etiqueta: 'Nombre' })), celdaSeccion(f, nombres),
     celdaCantidad(f, 'packQty', 'Cantidad pack'), celdaCantidad(f, 'bultoQty', 'Cantidad bulto'),
-    celdaPluOPrecio(f, 'pack'), celdaPluOPrecio(f, 'bulto'), celdaTipo(f));
+    f.manual ? celdaPluOPrecio(f, 'pack') : celdaPack(f), celdaPluOPrecio(f, 'bulto'), celdaTipo(f));
 }
 
 function filaSeccion(g, indice, total) {

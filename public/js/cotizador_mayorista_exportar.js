@@ -60,6 +60,27 @@ function bloqueRevisar(revisar) {
   return h('details', { class: 'acordeon', open: true }, h('summary', { class: 'acordeon-sum' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▶'), `A revisar (${fmtNum(revisar.length)})`), h('div', { class: 'p-3' }, tabla.el));
 }
 
+// Insignia del modo del pack: nada en 'plu' (el caso normal).
+const insigniaModoPack = f => (f.modoPack === 'descuento' ? chip(f.descuento ? `Descuento ${String(f.descuento.pct).replace(".", ",")}%` : 'Descuento', 'warn')
+  : f.modoPack === 'ninguno' ? chip('Sin pack') : null);
+
+function bloqueModosPack(filas) {
+  const lista = filas.filter(f => f.modoPack === 'descuento' || f.modoPack === 'ninguno');
+  if (!lista.length) return null;
+  const tabla = crearTabla({
+    cols: [
+      { key: 'cod', titulo: 'Cod', ancho: '90px', valor: f => f.cod },
+      { key: 'nombre', titulo: 'Nombre', ancho: 'auto', valor: f => f.nombre },
+      { key: 'modo', titulo: 'Pack', ancho: '150px', valor: f => f.modoPack, celda: insigniaModoPack },
+      { key: 'minorista', titulo: 'Minorista', ancho: '96px', num: true, valor: f => (f.descuento ? f.descuento.minoristaFinal : null), celda: f => fmtPrecio(f.descuento && f.descuento.minoristaFinal) },
+      { key: 'pack', titulo: 'Precio pack', ancho: '96px', num: true, valor: f => (f.descuento ? f.descuento.pack : null), celda: f => (f.modoPack === 'ninguno' ? '—' : fmtPrecio(f.descuento && f.descuento.pack)) },
+    ],
+  });
+  tabla.el.classList.add('max-h-[300px]');
+  tabla.set(lista);
+  return h('details', { class: 'acordeon' }, h('summary', { class: 'acordeon-sum' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▶'), `Packs por descuento o sin pack (${fmtNum(lista.length)})`), h('div', { class: 'p-3' }, tabla.el));
+}
+
 const diffVista = crearDiff();
 
 function pintarPrevia(p) {
@@ -73,6 +94,7 @@ function pintarPrevia(p) {
       h('p', { class: 'text-sm text-gris' }, 'Solo informativo: no hace falta confirmar nada. Sirve para detectar subas o bajas raras antes de subir.'),
       p.ultimaVersion == null ? h('div', { class: 'empty' }, 'Todavía no hay una versión publicada para comparar: todo va a figurar como nuevo.') : null,
       diffVista.el),
+    bloqueModosPack(p.filas || []),
     bloqueRevisar(p.revisar || []));
   diffVista.set(p.diff);
   actualizarBotonGenerar(hayErrores, (p.filas || []).length);

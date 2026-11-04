@@ -7,7 +7,7 @@
 const tp = { filas: [], base: '', puede: false, q: '', seccion: '', estado: 'todos', cargada: false, sig: 1 };
 
 const sinId = ({ _id, ...f }) => f;
-const claveGuardable = filas => JSON.stringify(filas.map(sinId));
+const claveGuardable = filas => JSON.stringify(filas.map(filaParaGuardar));
 const hayCambios = () => tp.cargada && claveGuardable(tp.filas) !== tp.base;
 const filtrando = () => !!(tp.q.trim() || tp.estado !== 'todos');
 
@@ -22,7 +22,18 @@ function normalizarCantidad(t) {
   if (!(Number(n) > 0)) return { valor: null, aviso: 'Cantidad en cero' };
   return { valor: `${Number(n)}${unidad}` };
 }
-const filaConAviso = f => ['packQty', 'bultoQty'].some(c => normalizarCantidad(f[c]).valor === null);
+// Pack de fila no manual: 'plu' (por defecto) | 'descuento' (% sobre el minorista + cantidad mínima) | 'ninguno'.
+const modoDe = f => (f.manual ? 'plu' : f.modoPack || 'plu');
+// '12,5' -> 12.5; lo que no es número -> NaN. Válido: mayor que 0 y menor que 100 (misma regla que el backend).
+const parseDescuento = v => { const s = String(v ?? '').trim().replace(',', '.'); return /^\d+(\.\d+)?$/.test(s) ? Number(s) : NaN; };
+const descuentoValido = v => { const n = parseDescuento(v); return n > 0 && n < 100; };
+function errorPack(f) {
+  if (modoDe(f) !== 'descuento') return '';
+  if (!descuentoValido(f.descuentoPack)) return 'El descuento tiene que ser mayor que 0 y menor que 100';
+  return normalizarCantidad(f.packQty).valor === '' ? 'Falta la cantidad mínima del pack' : '';
+}
+const cantidadInvalida = (f, c) => !(c === 'packQty' && modoDe(f) === 'ninguno') && normalizarCantidad(f[c]).valor === null;
+const filaConAviso = f => ['packQty', 'bultoQty'].some(c => cantidadInvalida(f, c)) || !!errorPack(f);
 
 // ── Operaciones (devuelven la lista nueva) ──
 function agrupar(filas) {
@@ -82,7 +93,7 @@ function pasaFiltro(f) {
 
 // ── Carga y guardado ──
 function adoptarFilas(filas) {
-  tp.filas = aplanar(agrupar(filas.map(f => ({ ...f, _id: tp.sig++ })))); // agrupado = el orden en que se exporta
+  tp.filas = aplanar(agrupar(filas.map(f => ({ ...f, ...(f.manual ? {} : { modoPack: f.modoPack || 'plu' }), _id: tp.sig++ })))); // agrupado = el orden en que se exporta
   tp.base = claveGuardable(tp.filas);
   tp.cargada = true;
 }
@@ -103,11 +114,20 @@ async function cargarTabla() {
 const precioParaGuardar = v => (v === '' || v == null ? null : Number(v));
 function filaParaGuardar(f) {
   const base = sinId(f);
-  if (!f.manual) return base;
+  if (!f.manual) { // lo cargado en otro modo se conserva en la fila, pero sólo viaja lo del modo activo
+    const { descuentoPack, ...resto } = base;
+    return modoDe(f) === 'descuento' ? { ...resto, descuentoPack: parseDescuento(descuentoPack) } : resto;
+  }
   return { ...base, packPrice: precioParaGuardar(f.packPrice), bultoPrice: precioParaGuardar(f.bultoPrice) };
 }
 async function guardarTabla() {
   const boton = $('btnGuardarTabla');
+  const mala = tp.filas.find(f => errorPack(f));
+  if (mala) {
+    $('tablaMsg').textContent = `No se guardó: ${etiquetaFila(mala)}: ${errorPack(mala)}`;
+    return;
+  }
+  $('tablaMsg').textContent = '';
   boton.disabled = true;
   boton.textContent = 'Guardando…';
   try {
