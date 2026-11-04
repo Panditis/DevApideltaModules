@@ -53,25 +53,51 @@ test('aplicarMayorista: mezcla, null saca, vacío borra la config, inválidos ti
   assert.deepStrictEqual(previo, { pesoMinG: 5000, porPlu: { 1: true } });
 });
 
-test('margenes.mayorista: reservado; se valida si viene, ausente conserva lo guardado, null saca; Reventa lo ignora', () => {
+test('margenes.mayorista: descuentos validados, ausente conserva lo guardado o default, null = default, Reventa lo ignora', () => {
   const body = { minorista: T, pack: T, bulto: T };
-  const guardado = cfgEsq.validarMargenes({ ...body, mayorista: { minorista: T } }, {}, 'fraccionado');
-  assert.deepStrictEqual(guardado.mayorista, { minorista: { minPct: 30, maxPct: 30, escalones: 1, rango: { desde: 1, hasta: 2 } } });
+  const guardado = cfgEsq.validarMargenes({ ...body, mayorista: { descPackPct: 12.5, descBultoPct: 0 } }, {}, 'fraccionado');
+  assert.deepStrictEqual(guardado.mayorista, { descPackPct: 12.5, descBultoPct: 0 });
   assert.deepStrictEqual(cfgEsq.validarMargenes(body, guardado, 'fraccionado').mayorista, guardado.mayorista);
-  assert.strictEqual('mayorista' in cfgEsq.validarMargenes({ ...body, mayorista: null }, guardado, 'fraccionado'), false);
-  assert.strictEqual('mayorista' in cfgEsq.validarMargenes({ ...body, mayorista: { minorista: T } }, {}, 'almacen'), false);
-  assert.throws(() => cfgEsq.validarMargenes({ ...body, mayorista: { minorista: { minPct: 'x' } } }, {}, 'fraccionado'), /mayorista\.minorista/);
-  assert.throws(() => cfgEsq.validarMargenes({ ...body, mayorista: { otro: T } }, {}, 'fraccionado'), /canal otro/);
+  assert.deepStrictEqual(cfgEsq.validarMargenes(body, {}, 'fraccionado').mayorista, { descPackPct: 10, descBultoPct: 10 });
+  assert.deepStrictEqual(cfgEsq.validarMargenes({ ...body, mayorista: null }, guardado, 'fraccionado').mayorista, { descPackPct: 10, descBultoPct: 10 });
+  assert.strictEqual('mayorista' in cfgEsq.validarMargenes({ ...body, mayorista: { descPackPct: 5, descBultoPct: 5 } }, {}, 'almacen'), false);
+  for (const v of [-1, 100, NaN, Infinity, '10', null]) {
+    assert.throws(() => cfgEsq.validarMargenes({ ...body, mayorista: { descPackPct: v, descBultoPct: 10 } }, {}, 'fraccionado'), /mayorista\.descPackPct/, String(v));
+    assert.throws(() => cfgEsq.validarMargenes({ ...body, mayorista: { descPackPct: 10, descBultoPct: v } }, {}, 'fraccionado'), /mayorista\.descBultoPct/, String(v));
+  }
+  assert.throws(() => cfgEsq.validarMargenes({ ...body, mayorista: [] }, {}, 'fraccionado'), /mayorista/);
+  assert.deepStrictEqual(cfgEsq.configEsquemaDe({ fraccionado: { margenes: body } }, 'fraccionado').margenes.mayorista, { descPackPct: 10, descBultoPct: 10 });
 });
 
-test('preciosCanales: variante mayorista da exactamente lo mismo que minorista (y que sin variante)', () => {
-  const cfg = { ...CFG, margenes: { ...CFG.margenes, ajustesPeso: { tramosG: [500, 5000], puntos: [5, -3] } } };
-  for (const pesoG of [null, 250, 500, 5000, 25000]) {
-    const base = { tipo: 'fraccionado', costo: 1234.5, pesoG, unidades: { pack: 10, bulto: 25 }, vigentes: { minorista: 2000 }, cfg };
-    const sin = E.preciosCanales(base);
-    assert.deepStrictEqual(E.preciosCanales({ ...base, variante: 'mayorista' }), sin);
-    assert.deepStrictEqual(E.preciosCanales({ ...base, variante: 'minorista' }), sin);
-  }
+// Ejemplo de control de la spec: costoCG 1000, margen 40 %, extras 0, IVA 21 %, redondeo 50.
+const T40 = { minPct: 40, maxPct: 40, escalones: 1, rango: { desde: 1, hasta: 2 } };
+const CFG_CTRL = { ivaVentaPct: 21, toleranciaPct: 5, modoGastos: 'costo', gastosVenta: [], extrasMinorista: [],
+  margenes: { minorista: T40, pack: T40, bulto: T40 }, redondeo: { minorista: 50, packNeto: 50, packIva: 50, bultoNeto: 50, bultoIva: 50 } };
+const ctrl = (extra = {}) => E.preciosCanales({ tipo: 'fraccionado', costo: 1000, unidades: { pack: 25, bulto: 25 }, cfg: CFG_CTRL, variante: 'mayorista', ...extra });
+
+test('preciosCanales mayorista: ejemplo de control (defaults 10/10), cadena pack→bulto y redondeo', () => {
+  const r = ctrl();
+  assert.strictEqual(r.minorista.conExtras, 1400);
+  assert.strictEqual(r.minorista.precio, 1700);
+  assert.deepStrictEqual([r.pack.netoUnidad, r.pack.exactoNeto, r.pack.neto, r.pack.exactoIva, r.pack.conIva], [1260, 31500, 31500, 38115, 38100]);
+  assert.deepStrictEqual([r.bulto.netoUnidad, r.bulto.exactoNeto, r.bulto.neto, r.bulto.exactoIva, r.bulto.conIva], [1134, 28350, 28350, 34303.5, 34300]);
+  assert.strictEqual(r.pack.margenPct, 26);
+  assert.strictEqual(r.pack.descuentoMayoristaPct, 10);
+  const m = d => ({ cfg: { ...CFG_CTRL, margenes: { ...CFG_CTRL.margenes, mayorista: d } } });
+  const r15 = ctrl(m({ descPackPct: 15, descBultoPct: 10 }));
+  assert.strictEqual(r15.pack.netoUnidad, 1190);
+  assert.strictEqual(r15.bulto.netoUnidad, 1071); // 1400 × 0,85 × 0,9: del pack exacto
+  assert.strictEqual(ctrl(m({ descPackPct: 0, descBultoPct: 0 })).pack.netoUnidad, 1400);
+  assert.deepStrictEqual(r.minorista, E.preciosCanales({ tipo: 'fraccionado', costo: 1000, cfg: CFG_CTRL }).minorista);
+});
+
+test('preciosCanales mayorista: margenProducto fijo del canal gana; minorista/otro tipo no cambian', () => {
+  const r = ctrl({ margenProducto: { modo: 'fijo', pack: 50 } });
+  assert.strictEqual(r.pack.netoUnidad, 1500);
+  assert.strictEqual(r.bulto.netoUnidad, 1134);
+  const base = { tipo: 'fraccionado', costo: 1000, unidades: { pack: 25, bulto: 25 }, cfg: CFG_CTRL };
+  assert.strictEqual(E.preciosCanales(base).pack.netoUnidad, 1400);
+  assert.deepStrictEqual(E.preciosCanales({ ...base, tipo: 'almacen', variante: 'mayorista' }), E.preciosCanales({ ...base, tipo: 'almacen' }));
 });
 
 test('listadoFraccionado: con config mayorista los precios son idénticos; la fila trae mayorista/mayoristaOrigen', () => {
@@ -84,13 +110,38 @@ test('listadoFraccionado: con config mayorista los precios son idénticos; la fi
   const antes = listar({ costoHora: 6000 });
   const despues = listar({ costoHora: 6000, mayorista: { pesoMinG: 5000, porPlu: { 704: false } } });
   const sinCampos = fila => fila.presentaciones.map(({ mayorista: _m, mayoristaOrigen: _o, ...p }) => p);
-  assert.deepStrictEqual(sinCampos(despues), sinCampos(antes));
+  // Regresión: sin umbral ni marcas en true, precios idénticos a hoy.
+  assert.deepStrictEqual(sinCampos(listar({ costoHora: 6000, mayorista: { pesoMinG: null, porPlu: { 704: false } } })), sinCampos(antes));
+  // Las minoristas no cambian; la mayorista (702) conserva su minorista.
+  const por = (fila, plu) => fila.presentaciones.find(p => p.plu === plu);
+  for (const plu of ['701', '703', '704']) assert.deepStrictEqual(por(despues, plu).sugeridos, por(antes, plu).sugeridos);
+  assert.deepStrictEqual(por(despues, '702').sugeridos.sistema.minorista, por(antes, '702').sugeridos.sistema.minorista);
   assert.ok(despues.presentaciones.some(p => p.sugeridos.sistema)); // hay precios que comparar
   const porPlu = Object.fromEntries(despues.presentaciones.map(p => [p.plu, [p.mayorista, p.mayoristaOrigen]]));
   assert.deepStrictEqual(porPlu, { 701: [false, null], 702: [true, 'peso'], 703: [false, null], 704: [false, 'manual'] });
   assert.ok(antes.presentaciones.every(p => p.mayorista === false && p.mayoristaOrigen === null));
   assert.ok(listar(null).presentaciones.every(p => p.mayorista === false && p.mayoristaOrigen === null)); // sin migrar
   assert.strictEqual(L.filaPublica(despues).presentaciones.find(p => p.plu === '702').mayorista, true); // viaja público
+});
+
+test('listadoFraccionado con vínculos: sólo el pack/bulto de la presentación mayorista usa los descuentos', () => {
+  const presentaciones = [{ plu: '701', nombre: 'Chia 500G' }, { plu: '702', nombre: 'Chia 5Kg' }];
+  const costos = new Map([['700', { nombre: 'Chia granel', costoSistema: 1000 }]]);
+  const grupos = [{ plu: '700', nombre: 'Chia granel', subrubroId: null, subrubro: null, presentaciones }];
+  const vinculos = ['700', '701', '702'].map((b, i) => ({ plu: `9${i}`, nombre: `Pack ${b}`, basePlu: b, cantidad: 1, tipo: 'pack' }));
+  const mayoristasDe = L.crearMayoristasDe({ vinculos, vigentes: new Map() });
+  const listar = may => L.listadoFraccionado({ grupos, costos, vigentes: new Map(), costeo: {}, cfg: CFG,
+    costeoF: FC.normalizarCosteoFraccionado({ costoHora: 6000, ...(may ? { mayorista: may } : {}) }), mayoristasDe })[0];
+  const antes = listar(null), despues = listar({ pesoMinG: 5000, porPlu: {} });
+  const sug = (fila, plu) => (plu === '700' ? fila : fila.presentaciones.find(p => p.plu === plu)).sugeridos.sistema;
+  assert.deepStrictEqual(sug(despues, '700'), sug(antes, '700')); // vinculado al granel: igual
+  assert.deepStrictEqual(sug(despues, '701'), sug(antes, '701')); // presentación minorista: igual
+  const d = sug(despues, '702');
+  assert.deepStrictEqual(d.minorista, sug(antes, '702').minorista);
+  const pack = d.desglose.porVinculo['92'];
+  assert.strictEqual(pack.descuentoMayoristaPct, 10);
+  assert.strictEqual(pack.netoUnidad, Math.round(d.desglose.minorista.conExtras * 0.9 * 100) / 100);
+  assert.notDeepStrictEqual(d.mayoristas, sug(antes, '702').mayoristas);
 });
 
 function appCon(costeo) {

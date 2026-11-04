@@ -448,7 +448,33 @@ test('htmlPreciosFraccMd: cada tarjeta de presentación dice Mayorista (por peso
   const html = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, ...marcas[p.plu] })) }, 'sistema');
   assert.match(cartaPres(html, 'Almendras 500G'), /Mayorista \(por peso\)/);
   assert.match(cartaPres(html, 'Almendras 1Kg'), /Mayorista \(marcada a mano\)/);
-  assert.match(cartaPres(html, 'Almendras 250G'), /<div class="md-sub">Minorista<\/div>/);
+  assert.match(cartaPres(html, 'Almendras 250G'), /<span>Minorista<\/span>/);
   const sin = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(({ mayorista, mayoristaOrigen, ...p }) => p) }, 'sistema');
   assert.doesNotMatch(sin, />Minorista<|Mayorista \(/);
+});
+
+test('htmlActividadFraccMd: estado y botón según actividad; sin botón en REEFER y sin granel', () => {
+  const { htmlActividadFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+  const base = { plu: '100', nombre: 'Almendras', reefer: false, actividad: { auto: 'activo', motivos: [] } };
+  const activo = htmlActividadFraccMd({ ...base, activo: true, activoManual: null });
+  assert.match(activo, />Activo</); assert.match(activo, /Automático/); assert.match(activo, /data-valor="false"[^>]*>Desactivar/); assert.doesNotMatch(activo, /Volver a automático/);
+  assert.match(activo, /solo-config/);
+  const inactivo = htmlActividadFraccMd({ ...base, activo: false, activoManual: false });
+  assert.match(inactivo, />Inactivo</); assert.match(inactivo, /Fijado a mano/); assert.match(inactivo, /data-valor="true"[^>]*>Activar/); assert.match(inactivo, /data-valor="null"[^>]*>Volver a automático/);
+  assert.strictEqual(htmlActividadFraccMd({ ...base, reefer: true, activo: true }), '');
+  assert.strictEqual(htmlActividadFraccMd({ ...base, plu: null }), '');
+});
+
+test('htmlPreciosFraccMd: toggle Minorista | Mayorista con el estado efectivo; "Volver a automático" sólo si la marca es manual; sin PLU no hay toggle', () => {
+  const g = granelPrecios();
+  const marcas = { 101: { mayorista: true, mayoristaOrigen: 'peso' }, 102: { mayorista: true, mayoristaOrigen: 'manual' }, 103: { mayorista: false, mayoristaOrigen: null } };
+  const html = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, ...marcas[p.plu] })) }, 'sistema');
+  const peso = cartaPres(html, 'Almendras 500G'), manual = cartaPres(html, 'Almendras 1Kg'), minor = cartaPres(html, 'Almendras 250G');
+  assert.match(peso, /solo-config/);
+  assert.match(peso, /aria-pressed="true"[^>]*aria-label="Mayorista: /); assert.match(peso, /data-valor="false" aria-pressed="false"/);
+  assert.doesNotMatch(peso, /Volver a automático/);
+  assert.match(manual, /data-valor="null"[^>]*>Volver a automático/);
+  assert.match(minor, /data-valor="false" aria-pressed="true"/); assert.match(minor, /data-valor="true" aria-pressed="false"/);
+  const sinPlu = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, plu: p.plu, mayorista: true, mayoristaOrigen: 'peso' })) }, 'sistema');
+  assert.ok(sinPlu.includes('md-may'));
 });

@@ -1,6 +1,6 @@
 'use strict';
 // ── Simula precios de Fraccionado con un costo nuevo por granel (planilla del usuario). SOLO LECTURA ──
-//   node scripts/simular_costo_granel.js <costos.xlsx> [--salida <resultado.xlsx>] [--copia <planilla_con_precio.xlsx>]
+//   node scripts/simular_costo_granel.js <costos.xlsx> [--salida <resultado.xlsx>] [--copia <planilla_con_precio.xlsx>] [--datos <carpeta data>]
 // Planilla: hoja 1, columnas PLU, Nombre, Granel ("7000 · nombre"), Costo nuevo ($/kg del granel). Arma el listado de Fraccionado
 // igual que GET /api/precios/esquema/listado (mismo motor, SIGA con el usuario de lectura, data/costeo.json sin escribir) poniendo
 // el costo nuevo como costo de "última compra" del granel: sugeridos.sistema = precio con costo actual, sugeridos.ultimaCompra =
@@ -17,7 +17,6 @@ const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { normalizarCosteoFraccionado, plusInsumos } = require('../lib/precios_fraccionado_costo');
 const { formulasPesables } = require('../lib/formulas_pesables');
 
-const DATA = path.join(__dirname, '..', 'data');
 const FORMULA_ACTIVA_SQL = `pc.IdFormula = COALESCE(
     (SELECT TOP 1 fa.IdFormula FROM dbo.ProductosComponentes fa
        INNER JOIN dbo.Productos fp ON fp.IdProducto = fa.IdProducto
@@ -56,7 +55,9 @@ function leerPlanilla(rows) {
 
 async function main(argv) {
   const val = k => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
-  const entrada = argv.find(a => !a.startsWith('--') && a !== val('--salida') && a !== val('--copia'));
+  const entrada = argv.find(a => !a.startsWith('--') && a !== val('--salida') && a !== val('--copia') && a !== val('--datos'));
+  const DATA = val('--datos') || path.join(__dirname, '..', 'data'); // --datos: leer data/ de otro worktree (p. ej. produccion), solo lectura
+  if (!fs.existsSync(path.join(DATA, 'costeo.json'))) throw new Error(`no existe ${path.join(DATA, 'costeo.json')}`);
   if (!entrada || !fs.existsSync(entrada)) throw new Error(`no existe la planilla ${entrada || '(falta la ruta)'}`);
   const hoy = new Date().toISOString().slice(0, 10);
   const salida = val('--salida') || path.join(require('os').homedir(), 'Desktop', `precios_costo_nuevo_${hoy}.xlsx`);

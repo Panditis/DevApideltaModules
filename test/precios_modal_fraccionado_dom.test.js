@@ -28,7 +28,7 @@ function crearContexto() {
     }
     return elementos.get(id);
   };
-  const FIJOS = ['mDet', 'mDetPar', 'mDetCaja', 'mDetTitulo', 'mDetSub', 'mDetBody', 'mDetX', 'mDetDer', 'mDetDerTitulo', 'mDetDerSub', 'mDetDerBody'];
+  const FIJOS = ['mDet', 'mDetPar', 'mDetCaja', 'mDetTitulo', 'mDetSub', 'mDetAct', 'mDetBody', 'mDetX', 'mDetDer', 'mDetDerTitulo', 'mDetDerSub', 'mDetDerBody'];
   const cuerpo = () => el('mDetBody').innerHTML;
   const cuerpoDer = () => el('mDetDerBody').innerHTML;
   const ids = () => [...(cuerpo() + cuerpoDer()).matchAll(/\sid="([^"]+)"/g)].map(m => m[1]);
@@ -46,6 +46,9 @@ function crearContexto() {
     getJson: () => Promise.resolve({ maquinas: [] }), API_FR: '/api/precios/config/esquema/fraccionado',
     campoU: input => input, textoMotivosActividad: m => (m || []).join('; '),
     guardarDecision: (...a) => { llamadas.push(['guardarDecision', ...a]); return Promise.resolve(null); },
+    ...(({ accionActividadLst, textoInactivoLst, conActividadLst, conMarcaMayoristaLst }) => ({ accionActividadLst, textoInactivoLst, conActividadLst, conMarcaMayoristaLst }))(require('../public/js/precios_listados.js')), // las del listado (globales en el navegador)
+    guardarMarcaMayoristaLst: (...a) => { llamadas.push(['guardarMarcaMayoristaLst', ...a]); return Promise.resolve(700); },
+    guardarActividadLst: (...a) => { llamadas.push(['guardarActividadLst', ...a]); return Promise.resolve(); },
     renderListado() {}, cargarListado() {}, refrescarAlertasProduccion() {}, salirDeProduccion() {}, activarTab() {},
     guardarTipoProveedor: () => Promise.resolve(),
   });
@@ -502,4 +505,31 @@ test('Fraccionado con precios-config: granel en bobina → el select viene en Bo
   // Assert
   assert.match(html, /<option value="bobina" selected>Bobina<\/option>/);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(enviados))[0][1], { minKg: null, maquinaId: null, envase: 'bobina' });
+});
+
+test('repintarModalCompletoFraccMd: repinta las dos tarjetas con el detalle nuevo, conserva el borrador sin guardar, el scroll y el foco en el botón elegido', () => {
+  const dom = crearContexto();
+  dom.ctx.Event = Event;
+  const eventos = [];
+  const campo = (id, value, defaultValue) => Object.assign(dom.el(id), { type: 'text', value, defaultValue, dispatchEvent: e => eventos.push([id, e.type]) });
+  dom.el('mDetBody').innerHTML = '<input id="mdManual"><input id="mdIntacto">';
+  const manual = campo('mdManual', '55', '10'), intacto = campo('mdIntacto', 'a', 'a'); // 55 sin guardar, el otro como vino
+  dom.el('mDetBody').querySelectorAll = () => [manual, intacto];
+  dom.el('mDetBody').scrollTop = 120; dom.el('mDetDerBody').scrollTop = 40;
+  const boton = { focus() { this.enfocado = true; }, enfocado: false };
+  dom.el('mDetDerBody').contains = () => true;
+  dom.ctx.document.activeElement = { id: '' };
+  const fila = { dataset: { plu: '101' }, querySelector: sel => (sel.startsWith('.md-may[data-valor') ? boton : null) };
+  dom.ctx.document.querySelectorAll = sel => (sel === '#mDetDerBody .md-may-fila' ? [fila] : []);
+  dom.el('mDetBody').contains = () => false;
+  let repintados = 0;
+  dom.ctx.pintarModalFraccionadoMd = () => { repintados++; Object.assign(manual, { value: '10' }); dom.el('mDetBody').scrollTop = 0; dom.el('mDetDerBody').scrollTop = 0; }; // detalle nuevo: el valor vuelve al del server
+  dom.correr("repintarModalCompletoFraccMd('101', true)");
+  assert.equal(repintados, 1);
+  assert.equal(manual.value, '55');                                  // borrador conservado
+  assert.equal(intacto.value, 'a');
+  assert.deepEqual(eventos, [['mdManual', 'input']]);                // sólo el sucio se avisa
+  assert.equal(dom.el('mDetBody').scrollTop, 120);
+  assert.equal(dom.el('mDetDerBody').scrollTop, 40);
+  assert.equal(boton.enfocado, true);                                // foco en el botón elegido
 });

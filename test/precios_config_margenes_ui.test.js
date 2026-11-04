@@ -24,7 +24,8 @@ const ctx = vm.createContext({ module: { exports: {} }, esc, fmtMoney, numOrNull
   document: { getElementById: () => ({ addEventListener() {}, classList: { toggle() {} } }), querySelectorAll: () => [] } });
 vm.runInContext(fs.readFileSync(RUTA, 'utf8'), ctx, { filename: RUTA });
 const { htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq, filasConNuevaEsq, filasSinEsq, ordenarFilasEsq,
-  textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq } = ctx.module.exports;
+  textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq,
+  pctDeTextoEsq, mayoristaEfectivoEsq, validarMayoristaEsq, leerMayoristaEsq, htmlMayoristaEsq } = ctx.module.exports;
 const plano = x => JSON.parse(JSON.stringify(x)); // objetos del vm → del realm del test (deepStrictEqual compara prototipos)
 
 const GEN = { minPct: 20, maxPct: 50, escalones: 3, rango: { desde: 100, hasta: 10000 } };
@@ -170,4 +171,30 @@ test('fila inválida leída de la tarjeta: validarTablaMargen da el error y vali
   assert.match(PreciosEsquema.validarTablaMargen(t), /Fila 2/);
   const ok = { ...GEN, filas: FILAS };
   assert.throws(() => validarMargenes({ minorista: ok, pack: ok, bulto: t }, {}, 'fraccionado'), /bulto: .*Fila 2/);
+});
+
+// ── Mayorista: descuentos (Fraccionado) ──
+test('pctDeTextoEsq: coma o punto; vacío o inválido es null', () => {
+  assert.strictEqual(pctDeTextoEsq('10,5'), 10.5);
+  assert.strictEqual(pctDeTextoEsq(' 7.25 '), 7.25);
+  assert.strictEqual(pctDeTextoEsq('0'), 0);
+  for (const x of ['', '  ', 'abc', '-1', '1e2', '1,2,3', null]) assert.strictEqual(pctDeTextoEsq(x), null, String(x));
+});
+test('mayoristaEfectivoEsq: ausente o incompleto = 10 y 10', () => {
+  assert.deepStrictEqual(plano(mayoristaEfectivoEsq(undefined)), { descPackPct: 10, descBultoPct: 10 });
+  assert.deepStrictEqual(plano(mayoristaEfectivoEsq({ descPackPct: 5 })), { descPackPct: 5, descBultoPct: 10 });
+});
+test('validarMayoristaEsq: 0 <= x < 100', () => {
+  assert.strictEqual(validarMayoristaEsq({ descPackPct: 0, descBultoPct: 99.9 }), '');
+  assert.match(validarMayoristaEsq({ descPackPct: 100, descBultoPct: 10 }), /pack.*menor a 100/);
+  assert.match(validarMayoristaEsq({ descPackPct: 10, descBultoPct: null }), /bulto.*número/);
+});
+test('tarjeta mayorista: renderiza valores con coma y se lee como números', () => {
+  const $ = cheerio.load(htmlMayoristaEsq({ descPackPct: 12.5, descBultoPct: 10 }));
+  assert.strictEqual($('#esqMay-descPackPct').attr('value'), '12,5');
+  assert.match($('#esqMayAyuda').text(), /Pack = precio por kg sin IVA menos el descuento pack/);
+  const card = nodo($, $('[data-mayorista]').get(0));
+  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: 10 });
+  $('#esqMay-descBultoPct').attr('value', 'x');
+  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: null });
 });

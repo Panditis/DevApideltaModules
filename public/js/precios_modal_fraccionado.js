@@ -21,10 +21,13 @@
 // pasosMayoristaMd (precios_modal_esquema.js), API_FR
 // (precios_config_fraccionado.js), getJson (precios_produccion.js), conectarProductoHf (precios_fraccionado_historial.js: el chip del historial
 // de ESTE producto junto a su min/kg propio, sólo en el bloque de precios-config).
-// El estado del granel en el listado (automático / activo / inactivo) ya no se elige acá: está en Configuración › Costeo Fraccionado › Subrubros.
+// El estado del granel en el listado (automático / activo / inactivo) se ve y se cambia en el header de la tarjeta principal (#mDetAct, con permiso de
+// Configuración) y también en Configuración › Costeo Fraccionado › Subrubros y en el botón de la fila del listado.
 const NODE_FR_MD = typeof module === 'object' && module.exports;
 const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { esc, fmtMoney, claseDelta };
 const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD } = FMT_FR_MD;
+// Estado del granel (activo / inactivo): las mismas funciones del listado (precios_listados.js, que se carga antes).
+const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, conActividadLst, conMarcaMayoristaLst }); // al llamar: el orden de los scripts no importa
 const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
@@ -173,8 +176,20 @@ const htmlCodigoMayoristaFraccMd = m => `<li class="md-fr-cod"><div class="md-fr
 const htmlCodigosMayoristasFraccMd = (mayoristas, etiqueta) => `<ul class="md-fr-cods" aria-label="${ESC_FR_MD(etiqueta)}">${mayoristas.map(htmlCodigoMayoristaFraccMd).join('')}</ul>`;
 // Tarjeta de una presentación: nombre y Δ % arriba, PLU y peso, precios y, si tiene pack/bulto, su sub-bloque "Códigos mayoristas" adentro.
 // Clasificación mayorista/minorista de la presentación (p = la presentación del listado, con mayorista y mayoristaOrigen): sólo lectura. '' sin dato.
-const htmlClaseMayoristaFraccMd = p => (!p || typeof p.mayorista !== 'boolean' ? ''
-  : `<div class="md-sub">${p.mayorista ? `Mayorista (${p.mayoristaOrigen === 'manual' ? 'marcada a mano' : 'por peso'})` : 'Minorista'}</div>`);
+// Con permiso de Configuración (.solo-config) lleva el toggle Minorista | Mayorista (aria-pressed) y, si la marca es manual, "Volver a automático";
+// se guarda en pintarMarcasMayoristaFraccMd. Sin PLU, sin toggle.
+const htmlClaseMayoristaFraccMd = p => {
+  if (!p || typeof p.mayorista !== 'boolean') return '';
+  const texto = p.mayorista ? `Mayorista (${p.mayoristaOrigen === 'manual' ? 'marcada a mano' : 'por peso'})` : 'Minorista';
+  if (p.plu == null) return `<div class="md-sub">${texto}</div>`;
+  const plu = ESC_FR_MD(p.plu), nom = ESC_FR_MD(p.nombre);
+  const cls = 'md-may whitespace-nowrap px-2 py-0.5 border border-borde text-xs font-semibold';
+  const seg = (valor, t) => `<button type="button" class="${cls} ${p.mayorista === valor ? 'bg-ink text-white' : 'text-gris hover:bg-white'}" data-plu="${plu}" data-valor="${valor}" aria-pressed="${p.mayorista === valor}" aria-label="${t}: ${nom}">${t}</button>`;
+  return `<div class="md-sub md-may-fila flex flex-wrap items-center gap-2" data-plu="${plu}"><span>${texto}</span><span class="solo-config inline-flex flex-wrap items-center gap-2">`
+    + `<span role="group" class="inline-flex rounded overflow-hidden" aria-label="Clasificación de ${nom}">${seg(false, 'Minorista')}${seg(true, 'Mayorista')}</span>`
+    + (p.mayoristaOrigen === 'manual' ? `<button type="button" class="${cls} rounded" data-plu="${plu}" data-valor="null" aria-label="Volver a automático la clasificación de ${nom}">Volver a automático</button>` : '')
+    + `<span class="md-may-msg text-xs" role="alert"></span></span></div>`;
+};
 function htmlTarjetaPresentacionFraccMd({ minorista: r, mayoristas, presentacion }) {
   const peso = textoPesoMd(r.pesoG);
   const { precios, detalle } = partesPreciosFraccMd(r);
@@ -312,7 +327,22 @@ function htmlCuerpoDetalleFraccMd(f, fuente) {
       precio ? `<ul class="md-dt-lista">${precio}</ul>` : `<p class="md-dt-vacio">${SIN_DESGLOSE_FR_MD}</p>`);
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, opcionesEnvaseMd, formulaMinutosMd, textoElegidoMd, textosMinKgMd, bodyGranelMd,
+// Estado del granel en el header de la tarjeta principal: badge Activo / Inactivo con su origen (a mano / automático) y, sólo con permiso de
+// Configuración (.solo-config), el botón según estado (+ "Volver a automático" si está fijado a mano). Sin botón ni estado en REEFER y "sin granel".
+function htmlActividadFraccMd(f) {
+  const a = ACT_FR_MD().accionActividadLst(f);
+  if (!a) return '';
+  const cls = 'whitespace-nowrap px-2 py-0.5 rounded border border-borde text-xs font-semibold hover:bg-white';
+  const nom = ESC_FR_MD(f.nombre), titulo = a.activo ? (a.fijado ? 'Fijado a mano como activo' : 'Activo según los movimientos de stock') : ACT_FR_MD().textoInactivoLst(f);
+  return `<span class="inline-flex flex-wrap items-center gap-2 text-xs"><span class="font-semibold text-ink" title="${ESC_FR_MD(titulo)}">${a.activo ? 'Activo' : 'Inactivo'}</span>`
+    + `<span class="text-gris">${a.fijado ? 'Fijado a mano' : 'Automático'}</span>`
+    + `<span class="solo-config inline-flex flex-wrap items-center gap-1">`
+    + `<button type="button" class="md-act ${cls}" data-valor="${a.valor}" aria-label="${a.texto} el granel ${nom}">${a.texto}</button>`
+    + (a.fijado ? `<button type="button" class="md-act ${cls}" data-valor="null" aria-label="Volver a automático el estado del granel ${nom}">Volver a automático</button>` : '')
+    + `</span></span><span class="md-act-msg text-xs text-crit" role="alert"></span>`;
+}
+
+if (typeof module === 'object' && module.exports) module.exports = { htmlActividadFraccMd, resumenCosteoFraccMd, opcionesMaquinaMd, opcionesEnvaseMd, formulaMinutosMd, textoElegidoMd, textosMinKgMd, bodyGranelMd,
   deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, agruparPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd,
   motivoSinMinutosMd, filasCostoPresFraccMd, cuentasPrecioFraccMd, htmlCuentaFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd, htmlCuerpoDetalleFraccMd };
 
@@ -372,6 +402,121 @@ function pintarModalFraccionadoMd() {
   document.getElementById('mDetDerSub').textContent = subtituloPreciosFraccMd(f, mdFuente);
   document.getElementById('mDetDerBody').innerHTML = htmlPreciosFraccMd(f, mdFuente);
   conectarModalEsquema(); // precios_modal_esquema.js: tarjetas, edición de costos y margen; llama a conectarModalFraccionadoMd
+  pintarActividadFraccMd();
+  pintarMarcasMayoristaFraccMd();
+}
+
+// Header (#mDetAct): estado y botones del granel. Guardar = guardarActividadLst del listado (PUT, fila de atrás refrescada y visible aunque "Ver inactivos"
+// esté apagado); acá se actualiza mdEsq.fila y se repinta sólo el header. Falla → error visible y todo queda como estaba.
+function pintarActividadFraccMd(foco = false) {
+  const cont = document.getElementById('mDetAct');
+  if (!cont) return;
+  cont.innerHTML = htmlActividadFraccMd(mdEsq.fila);
+  const botones = [...cont.querySelectorAll('.md-act')], msg = cont.querySelector('.md-act-msg');
+  botones.forEach(b => {
+    b.onclick = async () => {
+      const valor = JSON.parse(b.dataset.valor), plu = mdEsq.fila.plu;
+      botones.forEach(x => { x.disabled = true; });
+      msg.textContent = '';
+      try {
+        await guardarActividadLst(mdEsq.tipo, plu, valor); // precios_listados.js
+      } catch (e) {
+        botones.forEach(x => { x.disabled = false; });
+        msg.textContent = `No se pudo cambiar el estado: ${e.message}`;
+        return;
+      }
+      if (!mdEsq || mdEsq.fila.plu !== plu) return; // se cerró o se abrió otro producto mientras guardaba
+      mdEsq = { ...mdEsq, fila: ACT_FR_MD().conActividadLst(mdEsq.fila, valor) };
+      pintarActividadFraccMd(true);
+    };
+  });
+  if (foco) { const primero = cont.querySelector('.md-act'); if (primero) primero.focus(); }
+}
+
+// Toggle Minorista | Mayorista de cada presentación (card derecha). Guardar = guardarMarcaMayoristaLst del listado (PUT, subfila de atrás refrescada);
+// acá se actualiza la presentación en mdEsq.fila, se repinta sólo la card derecha y se recarga el detalle (pack/bulto dependen de la clasificación).
+// Falla → error visible junto al toggle y todo queda como estaba. Es un único onclick delegado: repintar la card no acumula handlers.
+function pintarMarcasMayoristaFraccMd() {
+  const cont = document.getElementById('mDetDerBody');
+  if (!cont) return;
+  cont.onclick = async e => {
+    const b = e.target.closest('.md-may');
+    if (!b || b.disabled || b.getAttribute('aria-pressed') === 'true') return;
+    const fila = b.closest('.md-may-fila'), plu = b.dataset.plu, valor = JSON.parse(b.dataset.valor), granel = mdEsq.fila.plu;
+    const botones = [...fila.querySelectorAll('.md-may')], msg = fila.querySelector('.md-may-msg');
+    botones.forEach(x => { x.disabled = true; });
+    msg.textContent = ''; msg.classList.remove('text-crit');
+    let umbral, avisoListado = '';
+    try {
+      umbral = await guardarMarcaMayoristaLst(mdEsq.tipo, plu, valor); // precios_listados.js
+    } catch (err) {
+      if (!err.marcaGuardada) {
+        botones.forEach(x => { x.disabled = false; });
+        msg.classList.add('text-crit'); // sólo con error (el color no debe estar en el HTML vacío)
+        msg.textContent = `No se pudo cambiar la marca: ${err.message}`;
+        return;
+      }
+      avisoListado = err.message; // la marca se guardó; sólo falló refrescar el listado de atrás: se muestra tras repintar
+    }
+    if (!mdEsq || mdEsq.fila.plu !== granel) return; // se cerró o se abrió otro producto mientras guardaba
+    const conMarca = ACT_FR_MD().conMarcaMayoristaLst;
+    const aplicar = f => ({ ...f, presentaciones: f.presentaciones.map(p => (String(p.plu) === String(plu) ? conMarca(p, valor, umbral) : p)) });
+    mdEsq = { ...mdEsq, fila: aplicar(mdEsq.fila) };
+    repintarPreciosFraccMd(plu, valor);
+    try { // detalle fresco del server (mismo endpoint que al abrir); si falla queda lo local y se avisa
+      const nueva = await (await fetch(`/api/precios/esquema/detalle/${encodeURIComponent(granel)}?tipo=${encodeURIComponent(mdEsq.tipo)}`)).json();
+      if (nueva.error) throw new Error(nueva.error);
+      if (!mdEsq || mdEsq.fila.plu !== granel) return;
+      mdEsq = { ...mdEsq, fila: aplicar(nueva) };
+      repintarModalCompletoFraccMd(plu, valor);
+    } catch (err) {
+      avisoListado = `La marca se guardó, pero no se pudo actualizar el detalle (${err.message}). Cerrá y volvé a abrir el producto.`;
+    }
+    if (avisoListado) avisarMarcaFraccMd(plu, avisoListado);
+  };
+}
+function avisarMarcaFraccMd(plu, texto) {
+  const f = [...document.querySelectorAll('#mDetDerBody .md-may-fila')].find(x => x.dataset.plu === String(plu));
+  const msg = f && f.querySelector('.md-may-msg');
+  if (!msg) return;
+  msg.classList.add('text-crit');
+  msg.textContent = texto;
+}
+// Repinta las dos tarjetas con el detalle nuevo (mdEsq) sin pisar lo que se está editando a la izquierda: los campos con id cuyo valor difiere del
+// original (borrador sin guardar) se restauran y reciben un "input" para que sus handlers recalculen; scroll de ambas tarjetas y foco se conservan.
+function repintarModalCompletoFraccMd(plu, valor) {
+  const izq = document.getElementById('mDetBody'), der = document.getElementById('mDetDerBody');
+  const campos = [...izq.querySelectorAll('input[id],textarea[id],select[id]')];
+  const esCheck = c => c.type === 'checkbox';
+  const sucios = campos.filter(c => c.type !== 'radio' && (esCheck(c) ? c.checked !== c.defaultChecked : c.value !== c.defaultValue))
+    .map(c => ({ id: c.id, valor: esCheck(c) ? c.checked : c.value }));
+  const act = document.activeElement;
+  const focoIzq = act && izq.contains(act) && act.id ? act.id : null;
+  const focoDer = !!act && der.contains(act);
+  const tops = [izq.scrollTop, der.scrollTop];
+  pintarModalFraccionadoMd();
+  sucios.forEach(({ id, valor: v }) => {
+    const c = document.getElementById(id);
+    if (!c) return;
+    if (esCheck(c)) c.checked = v; else c.value = v;
+    c.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  document.getElementById('mDetBody').scrollTop = tops[0];
+  document.getElementById('mDetDerBody').scrollTop = tops[1];
+  if (focoIzq) { const c = document.getElementById(focoIzq); if (c) c.focus(); }
+  else if (focoDer) {
+    const f = [...document.querySelectorAll('#mDetDerBody .md-may-fila')].find(x => x.dataset.plu === String(plu));
+    const b = f && (f.querySelector(`.md-may[data-valor="${valor}"]`) || f.querySelector('.md-may'));
+    if (b) b.focus();
+  }
+}
+function repintarPreciosFraccMd(plu, valor, foco = true) {
+  const cont = document.getElementById('mDetDerBody');
+  const activo = !foco && document.activeElement && cont.contains(document.activeElement);
+  cont.innerHTML = htmlPreciosFraccMd(mdEsq.fila, mdFuente);
+  const f = [...cont.querySelectorAll('.md-may-fila')].find(x => x.dataset.plu === String(plu));
+  const b = f && (f.querySelector(`.md-may[data-valor="${valor}"]`) || f.querySelector('.md-may'));
+  if (b && (foco || activo)) b.focus();
 }
 
 // Recuerda si el acordeón está abierto (los repintados lo respetan). Al abrirlo con un clic lo lleva arriba; el evento toggle del

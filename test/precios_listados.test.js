@@ -477,3 +477,47 @@ test('conMarcaMayoristaLst: boolean = manual; null vuelve a automático según e
   assert.strictEqual(conMarcaMayoristaLst({ ...p, pesoG: null }, null, 1).mayorista, false);
   assert.strictEqual(p.mayorista, false);
 });
+
+// ── guardarMarcaMayoristaLst: refresco del listado tras cambiar la marca (se carga el script como en la página, con el servidor simulado) ──
+const vmLst = require('node:vm'), fsLst = require('node:fs'), pathLst = require('node:path');
+function ctxLst({ filasNuevas, falla }) {
+  const base = pathLst.join(__dirname, '..');
+  const pedidos = [], pintados = [];
+  const nodo = () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {} }, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [] });
+  const ctx = vmLst.createContext({ console, document: { getElementById: nodo, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
+    fetch: (url, o) => { if (o && o.method === 'PUT') return Promise.resolve({ json: () => Promise.resolve({ mayorista: { pesoMinG: 700 } }) });
+      pedidos.push(url); return Promise.resolve({ json: () => Promise.resolve(falla ? { error: 'boom' } : { filas: filasNuevas }) }); } });
+  ctx.self = ctx;
+  vmLst.runInContext(fsLst.readFileSync(pathLst.join(base, 'lib/precios_esquema.js'), 'utf8'), ctx);
+  for (const f of ['precios_comun.js', 'precios_listados.js']) vmLst.runInContext(fsLst.readFileSync(pathLst.join(base, 'public/js', f), 'utf8'), ctx);
+  ctx.API_FR = '/x';
+  ctx.renderListado = t => pintados.push(t);
+  return { ctx, pedidos, pintados, correr: s => vmLst.runInContext(s, ctx) };
+}
+const filaGr = (pack) => ({ plu: '100', presentaciones: [{ plu: '101', pesoG: 1000, mayorista: false, mayoristas: [{ tipo: 'pack', precio: pack }] }] });
+
+test('guardarMarcaMayoristaLst: tras el PUT trae el listado y la fila queda con pack/bulto nuevos y visible', async () => {
+  const t = ctxLst({ filasNuevas: [filaGr(5000)] });
+  t.correr(`lstDatos = { fraccionado: [${JSON.stringify(filaGr(9000))}] }`);
+  const umbral = await t.correr("guardarMarcaMayoristaLst('fraccionado', '101', true)");
+  assert.equal(umbral, 700);
+  assert.deepEqual(t.pedidos.filter(u => u.includes('/esquema/listado')), ['/api/precios/esquema/listado?tipo=fraccionado']);
+  assert.equal(t.correr('lstDatos.fraccionado[0].presentaciones[0].mayoristas[0].precio'), 5000); // del server, no el viejo
+  assert.equal(t.correr("visiblesLst.has('100')"), true);                                          // el granel tocado sigue visible
+  assert.equal(t.pintados.length, 2);                                                               // repinte local y repinte con datos nuevos
+});
+
+test('guardarMarcaMayoristaLst: si falla el refresco tira un error visible con marcaGuardada y deja el cambio local', async () => {
+  const t = ctxLst({ falla: true });
+  t.correr(`lstDatos = { fraccionado: [${JSON.stringify(filaGr(9000))}] }`);
+  await assert.rejects(t.correr("guardarMarcaMayoristaLst('fraccionado', '101', true)"), e => e.marcaGuardada === true && /se guardó.*boom/.test(e.message));
+  assert.equal(t.correr('lstDatos.fraccionado[0].presentaciones[0].mayorista'), true);
+  assert.equal(t.correr("textoErrorMarcaLst({ message: 'x', marcaGuardada: true })"), 'x');
+  assert.match(t.correr("textoErrorMarcaLst(new Error('x'))"), /^No se pudo cambiar la marca: x$/);
+});
+
+test('granelDePresentacionLst: devuelve el PLU del granel que contiene la presentación; null si no está', () => {
+  const { granelDePresentacionLst } = require('../public/js/precios_listados.js');
+  assert.equal(granelDePresentacionLst([filaGr(1)], 101), '100');
+  assert.equal(granelDePresentacionLst([filaGr(1)], '999'), null);
+});

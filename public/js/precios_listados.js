@@ -92,6 +92,12 @@ function conMarcaMayoristaLst(p, valor, pesoMinG) {
   return { ...p, mayorista: r.mayorista, mayoristaOrigen: r.origen };
 }
 
+// PLU del granel (fila de primer nivel) que contiene la presentación plu; null si no está.
+function granelDePresentacionLst(filas, plu) {
+  const g = (filas || []).find(f => (f.presentaciones || []).some(p => String(p.plu) === String(plu)));
+  return g ? g.plu : null;
+}
+
 // ── Orden ────────────────────────────────────────────────────────────────────────
 // Headers ordenables de precios_comun.js (montarOrden/ordenarCon). Siempre hay un orden: por defecto el nombre A→Z (es, sin
 // mayúsculas ni acentos). Nulls al final. Fraccionado ordena los granel: cada uno lleva dentro sus presentaciones (en el
@@ -246,7 +252,7 @@ const textoPrecioFijoLst = pf => CANALES_PF_LST.filter(([c]) => pf && pf[c] > 0)
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst, accionActividadLst, htmlAccionActividadLst, conActividadLst, htmlBadgeMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst };
+  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst, accionActividadLst, htmlAccionActividadLst, conActividadLst, htmlBadgeMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst, granelDePresentacionLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -416,45 +422,73 @@ function desplegarLst(tipo, boton) {
 // Activar / Desactivar / Volver a automático un granel (PUT config/…/fraccionado/subrubros { activos: { [plu]: true | false | null } }, el mismo
 // que usa Configuración): actualiza la fila local sin recargar el listado y la deja visible hasta el próximo refresco o cambio de filtro.
 // Si falla deja el error junto a los botones y no cambia nada.
+// guardarActividadLst es compartido con el modal de Fraccionado (precios_modal_fraccionado.js): PUT + fila local + repintado del listado.
+async function guardarActividadLst(tipo, plu, valor) {
+  await pedirJson('PUT', `${API_FR}/subrubros`, { activos: { [plu]: valor } }); // precios_comun.js, precios_config_fraccionado.js
+  visiblesLst.add(String(plu));
+  if (!lstDatos[tipo]) return;
+  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(f => (String(f.plu) === String(plu) ? conActividadLst(f, valor) : f)) };
+  renderListado(tipo);
+}
 async function cambiarActividadLst(tipo, boton) {
   const plu = boton.dataset.plu, valor = JSON.parse(boton.dataset.valor), grupo = boton.closest('span.solo-config');
   const botones = [...grupo.querySelectorAll('.lst-act')], msg = grupo.querySelector('.lst-act-msg');
   botones.forEach(b => { b.disabled = true; });
   msg.textContent = '';
   try {
-    await pedirJson('PUT', `${API_FR}/subrubros`, { activos: { [plu]: valor } }); // precios_comun.js, precios_config_fraccionado.js
+    await guardarActividadLst(tipo, plu, valor);
   } catch (e) {
     botones.forEach(b => { b.disabled = false; });
     msg.textContent = `No se pudo cambiar el estado: ${e.message}`;
     return;
   }
-  visiblesLst.add(String(plu));
-  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(f => (String(f.plu) === String(plu) ? conActividadLst(f, valor) : f)) };
-  renderListado(tipo);
   const nuevo = document.getElementById(LST_CONT[tipo]).querySelector(`.lst-act[data-plu="${CSS.escape(plu)}"]`);
   if (nuevo) nuevo.focus();
 }
 
 // Forzar Mayorista / Minorista / Volver a automático una presentación (PUT …/fraccionado/mayorista { porPlu: { [plu]: true | false | null } }):
 // actualiza la presentación local sin recargar el listado. Si falla deja el error junto a los botones y no cambia nada.
+// guardarMarcaMayoristaLst es compartido con el modal de Fraccionado: PUT + presentación local + repintado del listado. Devuelve el umbral vigente (g).
+async function guardarMarcaMayoristaLst(tipo, plu, valor) {
+  const vista = await pedirJson('PUT', `${API_FR}/mayorista`, { porPlu: { [plu]: valor } }); // precios_comun.js, precios_config_fraccionado.js
+  const umbral = vista.mayorista ? vista.mayorista.pesoMinG : null;
+  if (!lstDatos[tipo]) return umbral;
+  const granel = granelDePresentacionLst(lstDatos[tipo], plu);
+  if (granel != null) visiblesLst.add(String(granel)); // la fila tocada no se oculta aunque cambie su estado
+  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(g => ({ ...g, presentaciones: (g.presentaciones || []).map(p => (String(p.plu) === String(plu) ? conMarcaMayoristaLst(p, valor, umbral) : p)) })) };
+  renderListado(tipo);
+  // pack/bulto de las presentaciones mayoristas cambian en el server: se traen las filas de nuevo (sin repintar el marco: filtros, orden y grupos abiertos quedan)
+  try {
+    const j = await (await fetch(`/api/precios/esquema/listado?tipo=${tipo}`)).json();
+    if (j.error) throw new Error(j.error);
+    lstDatos = { ...lstDatos, [tipo]: j.filas };
+    renderListado(tipo);
+  } catch (e) {
+    const err = new Error(`La marca se guardó, pero no se pudieron actualizar los precios del listado (${e.message}). Recargá el listado antes de exportar.`);
+    err.marcaGuardada = true;
+    throw err;
+  }
+  return umbral;
+}
+// Texto del error de guardarMarcaMayoristaLst: si la marca ya se había guardado, el mensaje ya lo dice entero.
+const textoErrorMarcaLst = e => (e.marcaGuardada ? e.message : `No se pudo cambiar la marca: ${e.message}`);
 async function cambiarMayoristaLst(tipo, boton) {
   const plu = boton.dataset.plu, valor = JSON.parse(boton.dataset.valor), grupo = boton.closest('span.solo-config');
   const botones = [...grupo.querySelectorAll('.lst-may')], msg = grupo.querySelector('.lst-may-msg');
   botones.forEach(b => { b.disabled = true; });
   msg.textContent = '';
-  let vista;
   try {
-    vista = await pedirJson('PUT', `${API_FR}/mayorista`, { porPlu: { [plu]: valor } }); // precios_comun.js, precios_config_fraccionado.js
+    await guardarMarcaMayoristaLst(tipo, plu, valor);
   } catch (e) {
     botones.forEach(b => { b.disabled = false; });
-    msg.textContent = `No se pudo cambiar la marca: ${e.message}`;
-    return;
+    msg.textContent = textoErrorMarcaLst(e);
+    if (!e.marcaGuardada) return;
   }
-  const umbral = vista.mayorista ? vista.mayorista.pesoMinG : null;
-  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(g => ({ ...g, presentaciones: (g.presentaciones || []).map(p => (String(p.plu) === String(plu) ? conMarcaMayoristaLst(p, valor, umbral) : p)) })) };
-  renderListado(tipo);
   const nuevo = document.getElementById(LST_CONT[tipo]).querySelector(`.lst-may[data-plu="${CSS.escape(plu)}"]`);
-  if (nuevo) nuevo.focus();
+  if (!nuevo) return;
+  nuevo.focus();
+  const msgNuevo = nuevo.closest('span.solo-config').querySelector('.lst-may-msg'); // el listado se repintó: el aviso va en el span nuevo
+  if (msgNuevo) msgNuevo.textContent = msg.textContent;
 }
 
 // Headers del tab; el clic guarda el orden, re-monta los headers (▲/▼, aria-sort) y re-pinta sólo el tbody.

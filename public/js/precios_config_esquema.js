@@ -290,7 +290,43 @@ function pintarQuiebresEsq(card) {
         <td class="text-right tabular-nums">${pctEsq(q.margenPct)}</td></tr>`).join('')}</tbody></table>`;
 }
 
-// Reventa: descuento al distribuidor. Fraccionado: sólo las tres tablas (sin descuento al distribuidor).
+// Mayorista: descuentos de Fraccionado (sólo ese tipo). Pack = $/kg sin IVA − descPackPct; bulto = pack − descBultoPct. Texto con coma o punto.
+const DESC_MAYORISTA_DEF = { descPackPct: 10, descBultoPct: 10 }; // ausente en la respuesta = 10 y 10
+const CAMPOS_MAYORISTA_ESQ = { descPackPct: 'Descuento precio pack', descBultoPct: 'Descuento precio bulto' };
+const AYUDA_MAYORISTA_ESQ = 'Aplica a los pack y bulto vinculados a presentaciones mayoristas. Pack = precio por kg sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto.';
+function pctDeTextoEsq(txt) { // "10,5" / "10.5" → 10.5; vacío o inválido → null
+  const s = String(txt ?? '').trim().replace(',', '.');
+  return /^\d+(\.\d+)?$/.test(s) ? Number(s) : null;
+}
+const mayoristaEfectivoEsq = m => ({ ...DESC_MAYORISTA_DEF, ...Object.fromEntries(Object.keys(DESC_MAYORISTA_DEF).filter(k => m && Number.isFinite(m[k])).map(k => [k, m[k]])) });
+function validarMayoristaEsq(v) { // '' si está bien; si no, el mensaje del primer campo malo
+  for (const [k, rotulo] of Object.entries(CAMPOS_MAYORISTA_ESQ)) {
+    if (v[k] == null) return `${rotulo}: ingresá un número (coma o punto).`;
+    if (v[k] < 0 || v[k] >= 100) return `${rotulo}: debe ser mayor o igual a 0 y menor a 100.`;
+  }
+  return '';
+}
+const leerMayoristaEsq = card => Object.fromEntries(Object.keys(CAMPOS_MAYORISTA_ESQ).map(k => [k, pctDeTextoEsq(card.querySelector(`[data-k="${k}"]`).value)]));
+function htmlMayoristaEsq(m) {
+  const v = mayoristaEfectivoEsq(m);
+  const campo = k => `<div class="cfg-campo"><label for="esqMay-${k}">${CAMPOS_MAYORISTA_ESQ[k]} (%)</label>
+    ${campoU(`<input type="text" inputmode="decimal" id="esqMay-${k}" data-k="${k}" value="${esc(String(v[k]).replace('.', ','))}" aria-describedby="esqMayAyuda esqMayError">`, '%', { w: 'w-28' })}</div>`;
+  return `<div class="cfg-card mt-4" data-mayorista><h3 class="cfg-h">Mayorista: descuentos</h3>
+    <p class="cfg-ayuda" id="esqMayAyuda">${AYUDA_MAYORISTA_ESQ}</p>
+    <div class="flex gap-6 flex-wrap">${Object.keys(CAMPOS_MAYORISTA_ESQ).map(campo).join('')}</div>
+    <p class="esq-error-may text-xs text-crit mt-2" id="esqMayError" role="status" aria-live="polite"></p></div>`;
+}
+// Error en vivo de la tarjeta (aria-invalid en los campos); devuelve el mensaje ('' = válido).
+function pintarMayoristaEsq(card) {
+  const err = validarMayoristaEsq(leerMayoristaEsq(card));
+  card.querySelector('.esq-error-may').textContent = err;
+  const msg = card.closest('section').querySelector('.esq-msg');
+  if (!err && msg.textContent.startsWith('Corregí')) msg.textContent = ''; // aviso de guardado bloqueado, ya resuelto
+  card.querySelectorAll('[data-k]').forEach(i => i.setAttribute('aria-invalid', String(!!err && err.startsWith(CAMPOS_MAYORISTA_ESQ[i.dataset.k]))));
+  return err;
+}
+
+// Reventa: descuento al distribuidor. Fraccionado: las tres tablas y los descuentos mayoristas (sin descuento al distribuidor).
 function htmlMargenesEsq(m, cfg) {
   const tituloRango = esFraccCfg()
     ? 'Percentiles 5 y 95 de los costos $/kg de los graneles de Fraccionado (consulta SIGA; no guarda)'
@@ -305,7 +341,8 @@ function htmlMargenesEsq(m, cfg) {
       <div class="cfg-campo"><label for="esqDtoDistrib">Descuento al margen para distribuidores</label>
         ${campoU(`<input id="esqDtoDistrib" type="number" step="any" min="0" max="99" value="${esc(m.descuentoDistribuidorPct ?? '')}" placeholder="0">`, 'puntos %', { w: 'w-28' })}</div>
       <p class="cfg-ayuda">Reventa con proveedor distribuidor: se resta del margen de los tres canales (ej. margen 50 % y descuento 5 → 45 %),
-        después del ajuste del producto y antes de extras, IVA y redondeo. No aplica a un margen fijo del producto. Vacío = sin descuento.</p></div>`}</section>`;
+        después del ajuste del producto y antes de extras, IVA y redondeo. No aplica a un margen fijo del producto. Vacío = sin descuento.</p></div>`}
+    ${esFraccCfg() ? htmlMayoristaEsq(m.mayorista) : ''}</section>`;
 }
 
 async function recalcularRangoEsq(sec) {
@@ -369,6 +406,8 @@ function pintarMargenesEsq(panel, cfg) {
   panel.querySelectorAll('[data-canal]').forEach(pintarQuiebresEsq);
   // oninput (no addEventListener): el panel persiste entre cargas y no hay que acumular listeners.
   panel.oninput = e => {
+    const may = e.target.closest('[data-mayorista]');
+    if (may) { pintarMayoristaEsq(may); return; }
     const c = e.target.closest('[data-canal]');
     if (!c) return;
     if (e.target.closest('.esq-fila')) marcarManualEsq(c, true); // editar una fila la pasa a manual
@@ -380,13 +419,17 @@ function pintarMargenesEsq(panel, cfg) {
   sec.querySelector('.esq-guardar').onclick = () => {
     const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
     const dto = sec.querySelector('#esqDtoDistrib');
-    guardarBloqueEsq(sec, urlEsq('/margenes'), { ...tablas, ...(dto ? { descuentoDistribuidorPct: numOrNull(dto.value) } : {}) }, cargarMargenesEsq);
+    const may = sec.querySelector('[data-mayorista]');
+    if (may && pintarMayoristaEsq(may)) { msgEsq(sec.querySelector('.esq-msg'), 'Corregí los descuentos mayoristas antes de guardar.', 'text-crit'); may.querySelector('[aria-invalid="true"]').focus(); return; }
+    guardarBloqueEsq(sec, urlEsq('/margenes'), { ...tablas, ...(dto ? { descuentoDistribuidorPct: numOrNull(dto.value) } : {}),
+      ...(may ? { mayorista: leerMayoristaEsq(may) } : {}) }, cargarMargenesEsq); // Fraccionado: siempre manda mayorista (reemplazo total)
   };
 }
 
 // Helpers de la tabla manual de Fraccionado para test (puros, y los que leen una tarjeta).
 if (typeof module === 'object' && module.exports) module.exports = { htmlValorEnergiaEsq, htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
-  filasConNuevaEsq, filasSinEsq, ordenarFilasEsq, textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq };
+  filasConNuevaEsq, filasSinEsq, ordenarFilasEsq, textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq,
+  pctDeTextoEsq, mayoristaEfectivoEsq, validarMayoristaEsq, leerMayoristaEsq, htmlMayoristaEsq };
 
 // ── Switch Reventa | Fraccionado (#cfgTipo, precios.html) ──
 // Cambiar de tipo con cambios sin guardar pregunta (puedeSalirConfig) y recarga el sub-tab visible con los valores del tipo.

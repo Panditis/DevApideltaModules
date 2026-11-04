@@ -47,6 +47,7 @@ function abrirModal(titulo, ancho){
   caja.classList.toggle('max-w-2xl', !ancho); caja.classList.toggle('max-w-3xl', !!ancho); caja.classList.toggle('md-doble', ancho === 'doble');
   document.getElementById('mDetTitulo').textContent = titulo;
   document.getElementById('mDetSub').textContent = '';
+  document.getElementById('mDetAct').innerHTML = ''; // estado del granel (Fraccionado)
   document.getElementById('mDetBody').innerHTML = CARGANDO_MD;
   document.getElementById('mDetDer').classList.toggle('hidden', ancho !== 'doble');
   document.getElementById('mDetDerSub').textContent = '';
