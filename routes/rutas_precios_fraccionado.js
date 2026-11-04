@@ -35,6 +35,7 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
     const margenes = (f && f.margenes) || {};
     return { costoHora: cf.costoHora, tramosTiempo: cf.tramosTiempo, subrubros: cf.subrubros, porGranel: cf.porGranel, envasePorPeso: cf.envasePorPeso,
       costoBobinaKg: cf.costoBobinaKg, valorEnergiaKwh: cf.valorEnergiaKwh, activoGranel: activoGranel || {},
+      mayorista: cf.mayorista || { pesoMinG: null, porPlu: {} },
       maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0 } })), ajustesPeso: margenes.ajustesPeso || null };
   }
 
@@ -96,6 +97,9 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: tampoco se valida que el peso tenga presentaciones (sería pedir SIGA); Configuración lo marca "sin presentaciones".
   router.put(`${BASE}/envase`, guardarFracc((req, cf) => CF.aplicarEnvase(cf, cuerpo(req))));
+  // Presentaciones mayoristas: body { pesoMinG?, porPlu?: { [plu]: true|false|null } }. ponytail: no se valida que el PLU sea una
+  // presentación del listado (sería pedir SIGA); una marca de un PLU que no está no clasifica nada.
+  router.put(`${BASE}/mayorista`, guardarFracc((req, cf) => CF.aplicarMayorista(cf.mayorista, cuerpo(req))));
   // Ajuste por peso del margen (antes en Márgenes): body { ajustesPeso: { tramosG, puntos } | null }. Va en margenes.ajustesPeso
   // del bloque, donde lo lee el motor; las tablas por canal no se tocan.
   router.put(`${BASE}/ajustes-peso`, guardarFracc((req, _cf, f) => ({ margenes: cfgEsq.margenesConAjustePeso(f.margenes, cuerpo(req)) })));

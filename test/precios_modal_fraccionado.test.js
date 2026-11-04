@@ -441,3 +441,14 @@ test('htmlTarjetaCostoFraccMd: el nombre de la bolsa con HTML sale escapado en e
   assert.ok(!html.includes('<img'));
   assert.match(html, /Bolsa &lt;img/);
 });
+
+test('htmlPreciosFraccMd: cada tarjeta de presentación dice Mayorista (por peso / marcada a mano) o Minorista; sin dato del server no dice nada', () => {
+  const g = granelPrecios();
+  const marcas = { 101: { mayorista: true, mayoristaOrigen: 'peso' }, 102: { mayorista: true, mayoristaOrigen: 'manual' }, 103: { mayorista: false, mayoristaOrigen: null } };
+  const html = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(p => ({ ...p, ...marcas[p.plu] })) }, 'sistema');
+  assert.match(cartaPres(html, 'Almendras 500G'), /Mayorista \(por peso\)/);
+  assert.match(cartaPres(html, 'Almendras 1Kg'), /Mayorista \(marcada a mano\)/);
+  assert.match(cartaPres(html, 'Almendras 250G'), /<div class="md-sub">Minorista<\/div>/);
+  const sin = htmlPreciosFraccMd({ ...g, presentaciones: g.presentaciones.map(({ mayorista, mayoristaOrigen, ...p }) => p) }, 'sistema');
+  assert.doesNotMatch(sin, />Minorista<|Mayorista \(/);
+});

@@ -25,6 +25,7 @@ const BASE_G_FR = 1000; // el tramo que cubre 1 kg es la base de la tabla y vale
 const TRAMO_INICIAL_G = 250;
 const PRODUCTOS_PARA_BUSCAR = 8; // desde acá la lista de productos de un subrubro trae buscador
 const MAX_GRANELES_FR = 1000;    // productos por PUT subrubros (espejo de MAX_GRANELES de lib/precios_config_fraccionado.js)
+const PESO_MIN_MAYORISTA_MAX_FR = 1000000; // peso mínimo mayorista en g (espejo del servidor: entero 1..1.000.000)
 const MAX_ACTIVOS_FR = 1000;     // estados por PUT subrubros (mismo tope en el servidor)
 
 // ── Puros (test/precios_config_fraccionado_ui.test.js) ──
@@ -68,6 +69,21 @@ function errorGranelesFr(cambios, nombres = {}) {
   const mal = plus.find(p => cambios[p] != null && !(cambios[p] >= 0 && cambios[p] <= MIN_KG_MAX_FR));
   return mal ? `${nombres[mal] || `Producto ${mal}`}: el min por kg es un número de 0 a ${MIN_KG_MAX_FR}` : null;
 }
+// Peso mínimo mayorista: texto del input ('' = sin umbral). null si está bien; si no, el mensaje (espejo del PUT mayorista).
+function errorPesoMinMayoristaFr(texto) {
+  const t = String(texto ?? '').trim();
+  if (t === '') return null;
+  const n = Number(t.replace(',', '.'));
+  return Number.isInteger(n) && n >= 1 && n <= PESO_MIN_MAYORISTA_MAX_FR ? null : `El peso mínimo es un entero de 1 a ${PESO_MIN_MAYORISTA_MAX_FR.toLocaleString('es-AR')} gramos (vacío = sin umbral)`;
+}
+// Body del PUT mayorista: el umbral, o null si el texto está vacío (saca el umbral).
+const cuerpoMayoristaFr = texto => ({ pesoMinG: String(texto ?? '').trim() === '' ? null : Number(String(texto).trim().replace(',', '.')) });
+// porPlu = { [plu]: true | false }: "2 marcadas a mano (1 mayorista, 1 minorista)" o "ninguna marcada a mano".
+function resumenMarcasMayoristaFr(porPlu) {
+  const v = Object.values(porPlu || {}), may = v.filter(x => x === true).length, min = v.filter(x => x === false).length, n = may + min;
+  return n ? `${n} marcada${n === 1 ? '' : 's'} a mano (${may} mayorista${may === 1 ? '' : 's'}, ${min} minorista${min === 1 ? '' : 's'})` : 'ninguna marcada a mano';
+}
+
 // Estado de un producto en el listado de Fraccionado: activoGranel = { [plu]: true | false } (sólo los fijados a mano; ausente = automático).
 const activoGuardadoFr = (activoGranel, plu) => { const a = (activoGranel || {})[plu]; return typeof a === 'boolean' ? a : null; };
 const estadoDeActivoFr = a => (a === true ? 'activo' : a === false ? 'inactivo' : 'auto'); // valor del <select> de la fila
@@ -201,13 +217,15 @@ function pintarCosteoFracc(panel) {
     <div class="grid gap-4 xl:grid-cols-2">${htmlTramosFr()}${htmlMaquinasFr()}</div>
     ${htmlSubrubrosCardFr()}
     ${htmlPesosFr()}
-    ${htmlAjustesPesoFr()}`;
+    ${htmlAjustesPesoFr()}
+    ${htmlMayoristaFr()}`;
   panel.querySelector('#frEstado').onclick = e => { const b = e.target.closest('[data-ancla]'); if (b) irAnclaFr(b.dataset.ancla); };
   conectarTramosFr(panel.querySelector('#frTramos'));
   conectarMaquinasFr(panel.querySelector('#frMaquinas'));
   conectarSubrubrosFr(panel.querySelector('#frSubrubrosCard'));
   conectarPesosFr(panel.querySelector('#frPesos'));
   conectarAjustesPesoFr(panel.querySelector('#frAjustes'));
+  conectarMayoristaFr(panel.querySelector('#frMayorista'));
   cargarHistorialFr();
 }
 
@@ -497,6 +515,9 @@ function filtrarProductosFr(det, texto) {
 if (typeof module === 'object' && module.exports) Object.assign(module.exports, { minKgGranelFr, cambiosGranelesFr, errorGranelesFr, cuerpoSubrubrosFr,
   textoHeredadoFr, pisadosFr, textoPisarFr, textoCompletadosFr, activoGuardadoFr, estadoDeActivoFr, activoDeEstadoFr, cambiosActivosFr, errorActivosFr });
 
+// Helpers puros de Mayoristas (peso mínimo) para test.
+if (typeof module === 'object' && module.exports) Object.assign(module.exports, { errorPesoMinMayoristaFr, cuerpoMayoristaFr, resumenMarcasMayoristaFr, PESO_MIN_MAYORISTA_MAX_FR });
+
 // Helpers puros de Máquinas (consumo de energía) para test.
 if (typeof module === 'object' && module.exports) Object.assign(module.exports, { avisoEnergiaFr, errorConsumoFr, CONSUMO_MAX_FR, TXT_SIN_ENERGIA_FR });
 
@@ -576,4 +597,30 @@ function conectarAjustesPesoFr(card) {
   };
   card.querySelector('.fr-guardar').onclick = () => guardarFr(card, '/ajustes-peso', { ajustesPeso: leerAjustesPesoFr(card) },
     () => repintarFr('frAjustes', htmlAjustesPesoFr, conectarAjustesPesoFr));
+}
+
+// ── Presentaciones mayoristas ──
+// Peso mínimo (g): las presentaciones de ese peso o más cuentan como mayoristas; vacío = ninguna lo es por peso. Las marcas a mano por
+// presentación (Mayorista / Minorista / automático) se hacen desde el listado y ganan sobre el peso. Hoy sólo clasifica y muestra: el precio
+// se calcula igual. Guarda con PUT /mayorista { pesoMinG: entero | null }; la respuesta trae mayorista y guardarFr lo mezcla en cfFr.
+function htmlMayoristaFr() {
+  const m = cfFr.mayorista || { pesoMinG: null, porPlu: {} };
+  return `<div class="cfg-card fr-card fr-ancla min-w-0 mt-4" data-guardable data-nombre="Presentaciones mayoristas" id="frMayorista"><div class="fr-cuerpo">
+    <h3 class="cfg-h">Presentaciones mayoristas</h3>
+    <p class="cfg-ayuda">Presentaciones de este peso o más se tratan como mayoristas. Vacío: ninguna lo es por peso. Una presentación sin peso en el nombre nunca es mayorista por peso.
+      Hoy sólo se clasifica y se muestra (badge en el listado y columna en el export): el precio se calcula igual que antes.</p>
+    <label class="flex flex-col gap-1 text-xs text-gris w-fit">Peso mínimo mayorista
+      ${campoU(`<input type="number" min="1" max="${PESO_MIN_MAYORISTA_MAX_FR}" step="1" data-k="pesoMinG" value="${esc(m.pesoMinG ?? '')}" placeholder="sin umbral" aria-describedby="frMayoristaErr">`, 'g', { w: 'w-40' })}</label>
+    <p id="frMayoristaErr" class="fr-may-err text-xs text-crit mt-1" role="status" aria-live="polite"></p>
+    <p class="text-sm text-gris mt-2">Marcas a mano (se cambian desde el listado, con el botón de cada presentación): <b>${esc(resumenMarcasMayoristaFr(m.porPlu))}</b>. La marca a mano gana sobre el peso.</p>
+    </div>${pieFr('Guardar peso mínimo')}</div>`;
+}
+function conectarMayoristaFr(card) {
+  const input = card.querySelector('[data-k="pesoMinG"]'), err = card.querySelector('.fr-may-err');
+  const validar = () => { const e = errorPesoMinMayoristaFr(input.value) || (input.validity && input.validity.badInput ? 'Número no válido' : null); err.textContent = e || ''; input.setAttribute('aria-invalid', String(!!e)); return e; };
+  input.oninput = validar;
+  card.querySelector('.fr-guardar').onclick = () => {
+    if (validar()) return input.focus();
+    return guardarFr(card, '/mayorista', cuerpoMayoristaFr(input.value), () => repintarFr('frMayorista', htmlMayoristaFr, conectarMayoristaFr));
+  };
 }

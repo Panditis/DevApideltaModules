@@ -276,7 +276,7 @@ test('itemsDecididos + listasExport: una lista por canal; Fraccionado alcanza a 
   assert.strictEqual(omitidos, 1); // Sal: decidida con última compra, que no tiene
   const listas = L.listasExport(items);
   const enc = ['Codigo', 'Nombre', 'Costo', 'Venta'];
-  assert.deepStrictEqual(listas.minorista, [enc, [1, 'Arroz', 1000, 1800], [101, 'Almendras 500G', 1000, 1950], [102, 'Almendras 1Kg', 1000, 1800]]);
+  assert.deepStrictEqual(listas.minorista, [enc, [1, 'Arroz', 1000, 1800], [101, 'Almendras 500G', 1000, 1950], [102, 'Almendras 1Kg', 1000, 1800], [100, 'Almendras', 1000, 1800]]);
   // Pack/bulto por unidad: Costo = costo unitario (1000) en ambas listas, Venta = 1430 neto / 1750 con IVA.
   assert.deepStrictEqual(listas.bultoNeto, [enc, [50, 'Arroz Bulto x6', 1000, 1430]]);
   assert.deepStrictEqual(listas.bultoIva, [enc, [50, 'Arroz Bulto x6', 1000, 1750]]);
@@ -319,7 +319,7 @@ test('listasExport Fraccionado: la decisión del granel pone su costo $/kg de es
       costeo: { costoPorProducto: { 100: 800 }, decisiones: { 100: { fuente } } }, cfg: CFG,
     });
     const listas = L.listasExport(L.itemsDecididos({ fraccionado }).items);
-    assert.deepStrictEqual(listas.minorista.slice(1), [[101, 'Almendras 500G', costoMin, venta500], [102, 'Almendras 1Kg', costoMin, venta1k]], fuente);
+    assert.deepStrictEqual(listas.minorista.slice(1), [[101, 'Almendras 500G', costoMin, venta500], [102, 'Almendras 1Kg', costoMin, venta1k], [100, 'Almendras', costoMin, venta1k]], fuente); // + granel $/kg
     assert.deepStrictEqual(listas.packNeto[1], [110, 'Almendras Pack', ...packNeto], fuente);
     assert.deepStrictEqual(listas.packIva[1], [110, 'Almendras Pack', ...packIva], fuente);
   }
@@ -347,7 +347,7 @@ test('listasExport: el Costo es el que se ve en pantalla (sin costos extra), aun
   });
   assert.strictEqual(almacen[0].costos.sistema, 1100); // el sugerido sí usa costo + extras
   const listas = L.listasExport(L.itemsDecididos({ almacen, fraccionado }).items);
-  assert.deepStrictEqual(listas.minorista.slice(1).map(f => f[2]), [1000, 1000]);
+  assert.deepStrictEqual(listas.minorista.slice(1).map(f => f[2]), [1000, 1000, 1000]); // + fila del granel
 });
 
 test('listasExport Producción (Aumentar): Costo = costo de la receta/envasado por unidad', () => {

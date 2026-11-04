@@ -3,7 +3,7 @@
 // presentación) con costo sistema, última compra, vigente, sugerido por fuente y un <select> con la DECISIÓN (qué costo usar
 // para el precio nuevo; marca el producto para exportar). Se decide acá, sin abrir el modal, o en el modal (clic en el nombre);
 // las dos vías guardan igual (guardarDecision). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
-// Fraccionado además oculta los graneles REEFER e inactivos (toggles); el estado manual (activo / inactivo / automático) se fija en Configuración › Costeo Fraccionado › Subrubros.
+// Fraccionado además oculta los graneles REEFER e inactivos (toggles); el estado manual (activo / inactivo / automático) se fija con el botón de cada granel (con permiso de Configuración) o en Configuración › Costeo Fraccionado › Subrubros.
 // Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS, fmtFechaPrecio,
 // montarOrden, ordenarCon (precios_comun.js), avisar, confirmar (precios_config.js), abrirModalEsquema, opcionesSelect
 // (precios_modal_esquema.js), textoRevisar (precios_produccion.js), XLSX (CDN).
@@ -16,12 +16,13 @@ const normL = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 // (toggle "Sin clasificar", para clasificar productos nuevos de SIGA desde el modal); null = todas.
 // Fraccionado (spec 2026-10-26): los graneles REEFER (control de stock) y los inactivos se ocultan salvo verReefer / verInactivos.
 // REEFER no depende de la actividad (rige verReefer aunque esté inactivo); el "sin granel" (plu null) siempre se ve.
-function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false, proveedor = false, clasificacion = null, verReefer = false, verInactivos = false } = {}) {
+// siempreVisibles (Set de PLU): graneles cuyo estado se cambió con el botón de la fila; no se ocultan hasta el próximo refresco o cambio de filtro.
+function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false, proveedor = false, clasificacion = null, verReefer = false, verInactivos = false, siempreVisibles = null } = {}) {
   const t = normL(texto.trim());
   const coincide = f => !t || normL(`${f.plu ?? ''} ${f.nombre}${proveedor ? ` ${f.proveedor ?? ''}` : ''}`).includes(t)
     || (f.presentaciones || []).some(p => normL(`${p.plu} ${p.nombre}`).includes(t));
   const clase = f => !clasificacion || (clasificacion === 'con') === !!f.tipoProveedor;
-  const oculta = f => f.plu != null && (f.reefer === true ? !verReefer : f.activo === false && !verInactivos);
+  const oculta = f => f.plu != null && !(siempreVisibles && siempreVisibles.has(String(f.plu))) && (f.reefer === true ? !verReefer : f.activo === false && !verInactivos);
   return filas.filter(f => coincide(f) && clase(f) && !oculta(f) && (!soloDecididos || !!f.decision) && (!soloHoy || f.ingresoHoy === true)
     && (!ultimaMasCara || (f.costoSistema > 0 && f.costoUltimaCompra > f.costoSistema)));
 }
@@ -41,6 +42,54 @@ const BADGE_ACT_LST = 'ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-i
 function htmlBadgesActividadLst(f) {
   const badge = (txt, title) => ` <span class="${BADGE_ACT_LST}" title="${ESC_LST(title)}">${txt}</span>`;
   return (f.reefer === true ? badge('REEFER', 'Granel REEFER: depósito especial, sirve de control de stock') : '') + (f.activo === false ? badge('inactivo', textoInactivoLst(f)) : '');
+}
+
+// Botón de actividad por fila de granel (sólo con permiso de Configuración: .solo-config). El granel REEFER lo rige su toggle y el "sin
+// granel" (plu null) no tiene estado: sin botón. activo = lo que se ve hoy; fijado = activoManual boolean. Inactivo → "Activar" (true),
+// activo → "Desactivar" (false); fijado a mano suma el texto "Fijado a mano" y "Volver a automático" (null).
+function accionActividadLst(f) {
+  if (f.plu == null || f.reefer === true) return null;
+  const activo = f.activo !== false;
+  return { activo, texto: activo ? 'Desactivar' : 'Activar', valor: !activo, fijado: typeof f.activoManual === 'boolean' };
+}
+function htmlAccionActividadLst(f) {
+  const a = accionActividadLst(f);
+  if (!a) return '';
+  const plu = ESC_LST(f.plu), nom = ESC_LST(f.nombre), cls = 'whitespace-nowrap px-2 py-0.5 rounded border border-borde text-xs font-semibold hover:bg-white';
+  return `<span class="solo-config inline-flex flex-wrap items-center gap-1 ml-2 align-middle font-normal">`
+    + `<button type="button" class="lst-act ${cls}" data-plu="${plu}" data-valor="${a.valor}" aria-label="${a.texto} el granel ${nom}">${a.texto}</button>`
+    + (a.fijado ? `<span class="text-[11px] text-gris whitespace-nowrap">Fijado a mano</span><button type="button" class="lst-act ${cls}" data-plu="${plu}" data-valor="null" aria-label="Volver a automático el estado del granel ${nom}">Volver a automático</button>` : '')
+    + `<span class="lst-act-msg text-xs text-crit" role="alert"></span></span>`;
+}
+// Fila con el estado ya cambiado (valor true | false | null = automático): activoManual y activo como los calcula el server (actividadGranel).
+const conActividadLst = (f, valor) => ({ ...f, activoManual: valor, activo: valor ?? (f.actividad ? f.actividad.auto === 'activo' : true) });
+
+// Presentaciones mayoristas (Fraccionado, p.mayorista / p.mayoristaOrigen: 'peso' | 'manual' | null; OJO: fila.mayoristas[] plural es el pack/bulto,
+// otra cosa). Badge "Mayorista" con el origen en el tooltip, y, sólo con permiso de Configuración (.solo-config), botones para forzar Mayorista /
+// Minorista o volver a automático (PUT config/…/fraccionado/mayorista { porPlu: { [plu]: true | false | null } }).
+const TXT_ORIGEN_MAY_LST = origen => (origen === 'manual' ? 'Marcada a mano' : origen === 'peso' ? 'Por peso' : '');
+const htmlBadgeMayoristaLst = p => (p.mayorista === true
+  ? ` <span class="${BADGE_ACT_LST}" title="${ESC_LST(TXT_ORIGEN_MAY_LST(p.mayoristaOrigen) || 'Mayorista')}">Mayorista</span>` : '');
+// Qué botones lleva la presentación: forzar lo contrario de lo que es hoy y, si está marcada a mano, volver a automático. null = sin botones (sin PLU).
+function accionesMayoristaLst(p) {
+  if (p.plu == null) return null;
+  const es = p.mayorista === true;
+  return [{ texto: es ? 'Marcar minorista' : 'Marcar mayorista', valor: !es }, ...(p.mayoristaOrigen === 'manual' ? [{ texto: 'Volver a automático', valor: null }] : [])];
+}
+function htmlAccionMayoristaLst(p) {
+  const acciones = accionesMayoristaLst(p);
+  if (!acciones) return '';
+  const plu = ESC_LST(p.plu), nom = ESC_LST(p.nombre), cls = 'whitespace-nowrap px-2 py-0.5 rounded border border-borde text-xs font-semibold hover:bg-white';
+  return `<span class="solo-config inline-flex flex-wrap items-center gap-1 ml-2 align-middle font-normal">`
+    + acciones.map(a => `<button type="button" class="lst-may ${cls}" data-plu="${plu}" data-valor="${a.valor}" aria-label="${a.texto}: ${nom}">${a.texto}</button>`).join('')
+    + `<span class="lst-may-msg text-xs text-crit" role="alert"></span></span>`;
+}
+// Presentación con la marca ya cambiada (valor true | false | null = automático): la misma regla del server
+// (PreciosEsquema.esMayoristaPresentacion); pesoMinG = el umbral vigente de la respuesta del PUT.
+const PE_LST = typeof module === 'object' && module.exports ? require('../../lib/precios_esquema') : PreciosEsquema;
+function conMarcaMayoristaLst(p, valor, pesoMinG) {
+  const r = PE_LST.esMayoristaPresentacion(p.pesoG, p.plu, { pesoMinG, porPlu: typeof valor === 'boolean' ? { [p.plu]: valor } : {} });
+  return { ...p, mayorista: r.mayorista, mayoristaOrigen: r.origen };
 }
 
 // ── Orden ────────────────────────────────────────────────────────────────────────
@@ -95,6 +144,7 @@ const deltaFrac = (nuevo, base) => (nuevo != null && base > 0 ? Math.round(((nue
 // PLU de la planilla = número (como el Codigo del export a SIGA, lib/precios_listado_esquema codigoNumerico); no numérico/null quedan como están.
 const pluXlsx = plu => (/^\d+$/.test(String(plu)) ? Number(plu) : plu);
 const ENC_COSTOS_XLSX = ['Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra'];
+const ENC_MAYORISTA_XLSX = 'Mayorista'; // última columna del export de Fraccionado: las anteriores no se mueven (el formato se carga en SIGA)
 const ENC_PRECIOS_XLSX = ['Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)', 'Precio nuevo con costo última compra', 'Δ% (vs precio actual)'];
 function filasExportListado(filas, tipo) {
   const precios = (p, conUltima = true) => {
@@ -111,9 +161,9 @@ function filasExportListado(filas, tipo) {
   if (tipo !== 'fraccionado') return [['PLU', 'Nombre', ...ENC_COSTOS_XLSX, 'Proveedor', 'Tipo proveedor', ...ENC_PRECIOS_XLSX],
     ...filas.map(f => [pluXlsx(f.plu), f.nombre, ...costos(f), f.proveedor || null, TXT_TIPO_PROVEEDOR[f.tipoProveedor] || null, ...precios(f)])];
   const granel = g => (g.plu == null ? g.nombre : `${g.plu} · ${g.nombre}`);
-  return [['PLU', 'Nombre', 'Granel', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX], ...filas.flatMap(g => ((g.presentaciones || []).length
-    ? g.presentaciones.map(p => [pluXlsx(p.plu), p.nombre, granel(g), ...costos(g), ...precios(p)])
-    : [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), ...precios(null)]]))];
+  return [['PLU', 'Nombre', 'Granel', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX, ENC_MAYORISTA_XLSX], ...filas.flatMap(g => ((g.presentaciones || []).length
+    ? g.presentaciones.map(p => [pluXlsx(p.plu), p.nombre, granel(g), ...costos(g), ...precios(p), p.mayorista === true ? 'Sí' : 'No'])
+    : [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), ...precios(null), null]]))];
 }
 
 // "Importar planilla" (Reventa): la planilla Codigo/Nombre/Costo/Precio que se subió a SIGA. rows = la hoja como array de
@@ -196,7 +246,7 @@ const textoPrecioFijoLst = pf => CANALES_PF_LST.filter(([c]) => pf && pf[c] > 0)
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst };
+  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst, accionActividadLst, htmlAccionActividadLst, conActividadLst, htmlBadgeMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -210,7 +260,8 @@ const abiertosLst = new Map(); // ponytail: Fraccionado, grupos abiertos/cerrado
 // Producción: los dos sub-tabs comparten datos y orden, pero cada uno tiene su búsqueda (prodClase, precios_produccion.js).
 const claseLst = tipo => (tipo === 'produccion' ? prodClase : null);
 const filtrosLst = tipo => lstFiltros[claseLst(tipo) === 'envasado' ? 'envasado' : tipo];
-const filtrosBusqueda = tipo => ({ ...filtrosLst(tipo), proveedor: tipo === 'almacen', // lo que recibe filtrarFilas
+const visiblesLst = new Set(); // ponytail: PLU de graneles con el estado recién cambiado (siempreVisibles); estado de UI que se muta en el lugar
+const filtrosBusqueda = tipo => ({ ...filtrosLst(tipo), proveedor: tipo === 'almacen', siempreVisibles: visiblesLst, // lo que recibe filtrarFilas
   clasificacion: tipo !== 'almacen' ? null : filtrosLst(tipo).sinClasificar ? 'sin' : 'con' });
 const NOMBRE_LISTA = { minorista: 'minorista', packNeto: 'pack_sin_iva', packIva: 'pack_con_iva', bultoNeto: 'bulto_sin_iva', bultoIva: 'bulto_con_iva' };
 
@@ -279,10 +330,10 @@ function filaHtml(f, tipo, abierto = false) {
       <td class="p-2">${celdaDecision(f, tipo)}</td>
       <td class="p-2 whitespace-nowrap"><button type="button" class="lst-abrir cfg-btn2 mr-2" data-plu="${esc(f.plu)}">Precios</button><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a></td></tr>`;
   }
-  const subfilas = !abierto ? '' : (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2 pl-7">↳ ${esc(p.nombre)}${badgeFaltanteCosto(p)}</td>
+  const subfilas = !abierto ? '' : (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2 pl-7">↳ ${esc(p.nombre)}${htmlBadgeMayoristaLst(p)}${badgeFaltanteCosto(p)}${htmlAccionMayoristaLst(p)}</td>
     <td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
-  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${fracc ? htmlDesplegarLst(f, abierto) : ''}${botonNombre(f)}${fracc ? htmlBadgesActividadLst(f) + badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
+  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${fracc ? htmlDesplegarLst(f, abierto) : ''}${botonNombre(f)}${fracc ? htmlBadgesActividadLst(f) + badgeAvisosCosto(f) + htmlAccionActividadLst(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
     <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) + celdaTipoProveedor(f) : ''}
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
@@ -326,10 +377,10 @@ function htmlMarcoListado(tipo) {
 function conectarListado(tipo, cont) {
   const f = filtrosLst(tipo);
   cont.querySelector('.lst-recargar').onclick = () => cargarListado(tipo);
-  cont.querySelector('.lst-buscar').oninput = e => { f.texto = e.target.value; renderListado(tipo); };
+  cont.querySelector('.lst-buscar').oninput = e => { f.texto = e.target.value; visiblesLst.clear(); renderListado(tipo); };
   [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara'], ['.lst-hoy', 'soloHoy'], ['.lst-sinclas', 'sinClasificar'], ['.lst-reefer', 'verReefer'], ['.lst-inactivos', 'verInactivos']].forEach(([sel, k]) => {
     const b = cont.querySelector(sel);
-    if (b) b.onclick = () => { f[k] = !f[k]; b.classList.toggle('on', f[k]); b.setAttribute('aria-pressed', String(f[k])); renderListado(tipo); };
+    if (b) b.onclick = () => { f[k] = !f[k]; visiblesLst.clear(); b.classList.toggle('on', f[k]); b.setAttribute('aria-pressed', String(f[k])); renderListado(tipo); };
   });
   montarOrdenListado(tipo, cont);
   cont.querySelector('.lst-exportar').onclick = exportarDecididos;
@@ -346,6 +397,8 @@ function conectarListado(tipo, cont) {
   cuerpo.addEventListener('change', e => { const s = e.target.closest('.lst-decision'); if (s) cambiarDecisionLst(tipo, s); });
   cuerpo.addEventListener('click', e => {
     const d = e.target.closest('.lst-desplegar'); if (d) desplegarLst(tipo, d);
+    const a = e.target.closest('.lst-act'); if (a) cambiarActividadLst(tipo, a);
+    const m = e.target.closest('.lst-may'); if (m) cambiarMayoristaLst(tipo, m);
     const b = e.target.closest('.lst-abrir'); if (b && b.dataset.plu) abrirModalEsquema(tipo, b.dataset.plu);
     // Envasado Apidelta: tarjeta de producto base → su modal; la tarjeta "Nuevo producto base" → alta.
     const t = e.target.closest('.eb-tarjeta'); if (t) (t.classList.contains('lst-nuevo') ? abrirBaseNueva() : abrirBaseEnvasado(t.dataset.familia));
@@ -357,6 +410,50 @@ function desplegarLst(tipo, boton) {
   abiertosLst.set(k, boton.getAttribute('aria-expanded') !== 'true');
   renderListado(tipo);
   const nuevo = document.getElementById(LST_CONT[tipo]).querySelector(`.lst-desplegar[data-grupo="${CSS.escape(k)}"]`);
+  if (nuevo) nuevo.focus();
+}
+
+// Activar / Desactivar / Volver a automático un granel (PUT config/…/fraccionado/subrubros { activos: { [plu]: true | false | null } }, el mismo
+// que usa Configuración): actualiza la fila local sin recargar el listado y la deja visible hasta el próximo refresco o cambio de filtro.
+// Si falla deja el error junto a los botones y no cambia nada.
+async function cambiarActividadLst(tipo, boton) {
+  const plu = boton.dataset.plu, valor = JSON.parse(boton.dataset.valor), grupo = boton.closest('span.solo-config');
+  const botones = [...grupo.querySelectorAll('.lst-act')], msg = grupo.querySelector('.lst-act-msg');
+  botones.forEach(b => { b.disabled = true; });
+  msg.textContent = '';
+  try {
+    await pedirJson('PUT', `${API_FR}/subrubros`, { activos: { [plu]: valor } }); // precios_comun.js, precios_config_fraccionado.js
+  } catch (e) {
+    botones.forEach(b => { b.disabled = false; });
+    msg.textContent = `No se pudo cambiar el estado: ${e.message}`;
+    return;
+  }
+  visiblesLst.add(String(plu));
+  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(f => (String(f.plu) === String(plu) ? conActividadLst(f, valor) : f)) };
+  renderListado(tipo);
+  const nuevo = document.getElementById(LST_CONT[tipo]).querySelector(`.lst-act[data-plu="${CSS.escape(plu)}"]`);
+  if (nuevo) nuevo.focus();
+}
+
+// Forzar Mayorista / Minorista / Volver a automático una presentación (PUT …/fraccionado/mayorista { porPlu: { [plu]: true | false | null } }):
+// actualiza la presentación local sin recargar el listado. Si falla deja el error junto a los botones y no cambia nada.
+async function cambiarMayoristaLst(tipo, boton) {
+  const plu = boton.dataset.plu, valor = JSON.parse(boton.dataset.valor), grupo = boton.closest('span.solo-config');
+  const botones = [...grupo.querySelectorAll('.lst-may')], msg = grupo.querySelector('.lst-may-msg');
+  botones.forEach(b => { b.disabled = true; });
+  msg.textContent = '';
+  let vista;
+  try {
+    vista = await pedirJson('PUT', `${API_FR}/mayorista`, { porPlu: { [plu]: valor } }); // precios_comun.js, precios_config_fraccionado.js
+  } catch (e) {
+    botones.forEach(b => { b.disabled = false; });
+    msg.textContent = `No se pudo cambiar la marca: ${e.message}`;
+    return;
+  }
+  const umbral = vista.mayorista ? vista.mayorista.pesoMinG : null;
+  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(g => ({ ...g, presentaciones: (g.presentaciones || []).map(p => (String(p.plu) === String(plu) ? conMarcaMayoristaLst(p, valor, umbral) : p)) })) };
+  renderListado(tipo);
+  const nuevo = document.getElementById(LST_CONT[tipo]).querySelector(`.lst-may[data-plu="${CSS.escape(plu)}"]`);
   if (nuevo) nuevo.focus();
 }
 
@@ -374,6 +471,7 @@ function montarOrdenListado(tipo, cont) {
 async function cargarListado(tipo) {
   const cont = document.getElementById(LST_CONT[tipo]);
   if (!cont) return;
+  visiblesLst.clear();
   cont.innerHTML = htmlMarcoListado(tipo);
   conectarListado(tipo, cont);
   try {

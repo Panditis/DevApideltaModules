@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst } = require('../public/js/precios_listados.js');
+  htmlBadgeMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst, contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -198,10 +198,11 @@ test('filasExportListado Fraccionado: una fila por presentación con los costos 
     { plu: null, nombre: 'Sin granel asignado', costoSistema: null, presentaciones: [{ plu: '70', nombre: 'Pasas 1Kg', vigente: 5000, sugeridos: { sistema: null, ultimaCompra: null } }] },
   ], 'fraccionado');
   assert.deepStrictEqual(aoa[0].slice(0, 4), ['PLU', 'Nombre', 'Granel', 'Costo actual (sistema)']);
-  assert.strictEqual(aoa[0].length, 12);
-  assert.deepStrictEqual(aoa[1], [51, 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0]);
-  assert.deepStrictEqual(aoa[2], [60, 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null]);
-  assert.deepStrictEqual(aoa[3], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null]);
+  assert.strictEqual(aoa[0].length, 13);
+  assert.strictEqual(aoa[0][12], 'Mayorista'); // columna nueva al final: las 12 de antes no se mueven
+  assert.deepStrictEqual(aoa[1], [51, 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0, 'No']);
+  assert.deepStrictEqual(aoa[2], [60, 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null, null]);
+  assert.deepStrictEqual(aoa[3], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null, 'No']);
 });
 
 test('filasExportListado Producción: costo de receta/envasado, sin columnas de última compra', () => {
@@ -311,7 +312,7 @@ test('badgeFaltanteCosto: PLU de bolsa → "sin costo: PLU 900", "_bobina" → "
   // Arrange: el script como en el navegador (badgeFaltanteCosto no se exporta)
   const vm = require('node:vm');
   const { esc, ordenarCon } = require('../public/js/precios_comun.js');
-  const ctx = vm.createContext({ esc, ordenarCon, fmtSug: String });
+  const ctx = vm.createContext({ esc, ordenarCon, fmtSug: String, PreciosEsquema: require('../lib/precios_esquema') });
   vm.runInContext(require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/js/precios_listados.js'), 'utf8'), ctx);
   const badge = p => vm.runInContext(`badgeFaltanteCosto(${JSON.stringify(p)})`, ctx);
   // Act / Assert
@@ -402,4 +403,77 @@ test('textoPrecioFijoLst: title del badge "$=" con el precio de cada canal fijad
   assert.strictEqual(textoPrecioFijoLst({ minorista: 3999, bulto: 12.5 }), `Minorista $ ${fmtSug(3999)} · Bulto $ ${fmtSug(12.5)}`);
   assert.strictEqual(textoPrecioFijoLst({ pack: 800 }), `Pack $ ${fmtSug(800)}`);
   assert.strictEqual(textoPrecioFijoLst(undefined), '');
+});
+
+// ── Botón de actividad por granel (Activar / Desactivar / Volver a automático) ──
+const { accionActividadLst, htmlAccionActividadLst, conActividadLst } = require('../public/js/precios_listados.js');
+
+test('accionActividadLst: inactivo → Activar (true), activo → Desactivar (false); sin PLU o REEFER, sin botón', () => {
+  assert.deepStrictEqual(accionActividadLst({ plu: '5', activo: false }), { activo: false, texto: 'Activar', valor: true, fijado: false });
+  assert.deepStrictEqual(accionActividadLst({ plu: '5', activo: true, activoManual: true }), { activo: true, texto: 'Desactivar', valor: false, fijado: true });
+  assert.strictEqual(accionActividadLst({ plu: null, activo: true }), null);
+  assert.strictEqual(accionActividadLst({ plu: '9', reefer: true, activo: true }), null);
+});
+
+test('htmlAccionActividadLst: automático = un botón; fijado a mano suma el texto y "Volver a automático" (null); escapa el nombre', () => {
+  const auto = htmlAccionActividadLst({ plu: '5', nombre: 'Arroz <b>', activo: false, activoManual: null });
+  assert.match(auto, /class="solo-config /);
+  assert.match(auto, /data-plu="5" data-valor="true" aria-label="Activar el granel Arroz &lt;b&gt;">Activar<\/button>/);
+  assert.doesNotMatch(auto, /Fijado a mano|Volver a automático/);
+  const fijo = htmlAccionActividadLst({ plu: '5', nombre: 'Arroz', activo: false, activoManual: false });
+  assert.match(fijo, /data-valor="true"[^>]*>Activar</);
+  assert.match(fijo, /Fijado a mano/);
+  assert.match(fijo, /data-valor="null"[^>]*>Volver a automático</);
+  assert.strictEqual(htmlAccionActividadLst({ plu: null, nombre: 'x' }), '');
+});
+
+test('conActividadLst: fija true/false o vuelve al automático (según actividad.auto); no muta', () => {
+  const f = { plu: '5', activo: false, activoManual: null, actividad: { auto: 'inactivo' } };
+  assert.strictEqual(conActividadLst(f, true).activo, true);
+  assert.strictEqual(conActividadLst(f, true).activoManual, true);
+  const g = { plu: '5', activo: true, activoManual: true, actividad: { auto: 'inactivo' } };
+  assert.deepStrictEqual([conActividadLst(g, null).activo, conActividadLst(g, null).activoManual], [false, null]);
+  assert.strictEqual(conActividadLst({ plu: '5', activo: true }, null).activo, true); // sin actividad calculada: activo
+  assert.strictEqual(f.activo, false);
+});
+
+test('filtrarFilas: siempreVisibles mantiene un granel inactivo aunque "Ver inactivos" esté apagado', () => {
+  const filas = [{ plu: '5', nombre: 'A', activo: false }, { plu: '6', nombre: 'B', activo: false }];
+  assert.strictEqual(filtrarFilas(filas, {}).length, 0);
+  assert.deepStrictEqual(filtrarFilas(filas, { siempreVisibles: new Set(['5']) }).map(f => f.plu), ['5']);
+});
+
+test('export Fraccionado: "Mayorista" Sí/No al final de cada presentación (true → Sí, false/sin dato → No)', () => {
+  const aoa = filasExportListado([{ plu: '50', nombre: 'G', presentaciones: [
+    { plu: '51', nombre: 'A 5KG', mayorista: true, sugeridos: {} }, { plu: '52', nombre: 'A 100G', mayorista: false, sugeridos: {} }, { plu: '53', nombre: 'B', sugeridos: {} }] }], 'fraccionado');
+  assert.deepStrictEqual(aoa.slice(1).map(f => f[f.length - 1]), ['Sí', 'No', 'No']);
+});
+
+test('mayorista listado: badge sólo si es mayorista, con el origen en el tooltip', () => {
+  assert.strictEqual(htmlBadgeMayoristaLst({ mayorista: false }), '');
+  assert.match(htmlBadgeMayoristaLst({ mayorista: true, mayoristaOrigen: 'peso' }), /title="Por peso">Mayorista</);
+  assert.match(htmlBadgeMayoristaLst({ mayorista: true, mayoristaOrigen: 'manual' }), /title="Marcada a mano">Mayorista</);
+});
+
+test('mayorista listado: botones = forzar lo contrario + volver a automático sólo si está marcada a mano; solo-config; sin PLU nada', () => {
+  assert.deepStrictEqual(accionesMayoristaLst({ plu: '5', mayorista: false, mayoristaOrigen: null }), [{ texto: 'Marcar mayorista', valor: true }]);
+  assert.deepStrictEqual(accionesMayoristaLst({ plu: '5', mayorista: true, mayoristaOrigen: 'peso' }), [{ texto: 'Marcar minorista', valor: false }]);
+  assert.deepStrictEqual(accionesMayoristaLst({ plu: '5', mayorista: false, mayoristaOrigen: 'manual' }), [{ texto: 'Marcar mayorista', valor: true }, { texto: 'Volver a automático', valor: null }]);
+  assert.strictEqual(accionesMayoristaLst({ plu: null }), null);
+  const h = htmlAccionMayoristaLst({ plu: '5', nombre: 'A "x"', mayorista: true, mayoristaOrigen: 'manual' });
+  assert.match(h, /class="solo-config /);
+  assert.match(h, /data-plu="5" data-valor="false" aria-label="Marcar minorista: A &quot;x&quot;"/);
+  assert.match(h, /data-valor="null"/);
+  assert.match(h, /class="lst-may-msg[^"]*" role="alert"/);
+  assert.strictEqual(htmlAccionMayoristaLst({ plu: null }), '');
+});
+
+test('conMarcaMayoristaLst: boolean = manual; null vuelve a automático según el umbral y el peso (límite incluido; sin peso o sin umbral, no); no muta', () => {
+  const p = { plu: '5', pesoG: 5000, mayorista: false, mayoristaOrigen: 'manual' };
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, true, null), { ...p, mayorista: true, mayoristaOrigen: 'manual' });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5000), { ...p, mayorista: true, mayoristaOrigen: 'peso' });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5001), { ...p, mayorista: false, mayoristaOrigen: null });
+  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, null), { ...p, mayorista: false, mayoristaOrigen: null });
+  assert.strictEqual(conMarcaMayoristaLst({ ...p, pesoG: null }, null, 1).mayorista, false);
+  assert.strictEqual(p.mayorista, false);
 });

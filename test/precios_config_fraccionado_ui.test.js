@@ -11,7 +11,7 @@ const cheerio = require('cheerio');
 const RUTA = path.join(__dirname, '../public/js/precios_config_fraccionado.js');
 const { conTramoFr, indiceBaseFr, errorTramosFr, subrubrosSinMinKgFr, cambiosSubrubrosFr, errorSubrubrosFr, cuentaProductosFr, textoUsosFr,
   coincideFr, subrubrosListaFr, estadoConfigFr, textoAjustesPesoFr, textoTramosTiempoFr, minKgGranelFr, cambiosGranelesFr, errorGranelesFr,
-  cuerpoSubrubrosFr, textoHeredadoFr, pisadosFr, textoPisarFr, textoCompletadosFr } = require(RUTA);
+  cuerpoSubrubrosFr, textoHeredadoFr, pisadosFr, textoPisarFr, textoCompletadosFr, errorPesoMinMayoristaFr, cuerpoMayoristaFr, resumenMarcasMayoristaFr } = require(RUTA);
 const RUTA_ENV = path.join(__dirname, '../public/js/precios_config_envase.js');
 
 // ── Puros ──
@@ -345,3 +345,19 @@ test('no hay diálogos nativos ni console en el script de la configuración', ()
   assert.doesNotMatch(fs.readFileSync(RUTA, 'utf8'), /(alert|confirm|prompt)\s*\(|console\./);
 });
 
+test('peso mínimo mayorista: vacío ok; entero 1..1.000.000 ok; 0, decimal, negativo, texto o más del tope → mensaje', () => {
+  ['', '  ', '1', '5000', '1000000', '2,0'].forEach(t => assert.strictEqual(errorPesoMinMayoristaFr(t), null, t));
+  ['0', '-5', '1.5', '2,5', 'abc', '1000001'].forEach(t => assert.match(errorPesoMinMayoristaFr(t), /entero de 1 a 1\.000\.000/, t));
+});
+
+test('cuerpoMayoristaFr: vacío saca el umbral (null); con valor, número', () => {
+  assert.deepStrictEqual(cuerpoMayoristaFr(''), { pesoMinG: null });
+  assert.deepStrictEqual(cuerpoMayoristaFr(' 5000 '), { pesoMinG: 5000 });
+});
+
+test('resumenMarcasMayoristaFr: cuenta las marcas a mano por tipo; sin marcas, "ninguna marcada a mano"', () => {
+  assert.strictEqual(resumenMarcasMayoristaFr({}), 'ninguna marcada a mano');
+  assert.strictEqual(resumenMarcasMayoristaFr(undefined), 'ninguna marcada a mano');
+  assert.strictEqual(resumenMarcasMayoristaFr({ 1: true, 2: false, 3: true }), '3 marcadas a mano (2 mayoristas, 1 minorista)');
+  assert.strictEqual(resumenMarcasMayoristaFr({ 1: true }), '1 marcada a mano (1 mayorista, 0 minoristas)');
+});

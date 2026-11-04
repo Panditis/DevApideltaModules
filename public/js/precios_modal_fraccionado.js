@@ -172,13 +172,16 @@ const htmlCodigoMayoristaFraccMd = m => `<li class="md-fr-cod"><div class="md-fr
   + `${m.nombre ? `<div class="md-fr-cod-nom">${ESC_FR_MD(m.nombre)}</div>` : ''}${m.filas.map(htmlFilaPreciosFraccMd).join('')}</li>`;
 const htmlCodigosMayoristasFraccMd = (mayoristas, etiqueta) => `<ul class="md-fr-cods" aria-label="${ESC_FR_MD(etiqueta)}">${mayoristas.map(htmlCodigoMayoristaFraccMd).join('')}</ul>`;
 // Tarjeta de una presentación: nombre y Δ % arriba, PLU y peso, precios y, si tiene pack/bulto, su sub-bloque "Códigos mayoristas" adentro.
-function htmlTarjetaPresentacionFraccMd({ minorista: r, mayoristas }) {
+// Clasificación mayorista/minorista de la presentación (p = la presentación del listado, con mayorista y mayoristaOrigen): sólo lectura. '' sin dato.
+const htmlClaseMayoristaFraccMd = p => (!p || typeof p.mayorista !== 'boolean' ? ''
+  : `<div class="md-sub">${p.mayorista ? `Mayorista (${p.mayoristaOrigen === 'manual' ? 'marcada a mano' : 'por peso'})` : 'Minorista'}</div>`);
+function htmlTarjetaPresentacionFraccMd({ minorista: r, mayoristas, presentacion }) {
   const peso = textoPesoMd(r.pesoG);
   const { precios, detalle } = partesPreciosFraccMd(r);
   const mays = mayoristas.length ? `<div class="md-fr-mays"><div class="md-fr-mays-t">Códigos mayoristas</div>`
     + `${htmlCodigosMayoristasFraccMd(mayoristas, `Códigos mayoristas de ${r.nombre}`)}</div>` : '';
   return `<li class="md-fr-card md-fr-pres"><div class="md-fr-l1"><b>${ESC_FR_MD(r.nombre)}</b>${chipDeltaFrMd(r)}</div>`
-    + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div><div class="md-fr-l3">${precios}${detalle}</div>${mays}</li>`;
+    + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div>${htmlClaseMayoristaFraccMd(presentacion)}<div class="md-fr-l3">${precios}${detalle}</div>${mays}</li>`;
 }
 // Tarjeta de los pack/bulto del granel mismo (no de una presentación); sin ellos no hay tarjeta.
 const htmlTarjetaGranelFraccMd = mayoristas => (!mayoristas.length ? '' : `<li class="md-fr-card md-fr-granel"><h4 class="md-fr-card-t">Mayoristas del granel `
@@ -193,7 +196,8 @@ function htmlPreciosFraccMd(f, fuente) {
   const cab = chips ? `<div class="md-fr-chips">${chips}</div>` : '';
   if (!filas.length) return `${cab}<p class="text-gris">Sin precios para mostrar.</p>`;
   const { granel, presentaciones } = agruparPreciosFraccMd(filas);
-  return `${cab}<ul class="md-fr-lista">${presentaciones.map(htmlTarjetaPresentacionFraccMd).join('')}${htmlTarjetaGranelFraccMd(granel)}</ul>`;
+  const porPlu = Object.fromEntries((f.presentaciones || []).map(p => [String(p.plu), p]));
+  return `${cab}<ul class="md-fr-lista">${presentaciones.map(x => htmlTarjetaPresentacionFraccMd({ ...x, presentacion: porPlu[String(x.minorista.plu)] })).join('')}${htmlTarjetaGranelFraccMd(granel)}</ul>`;
 }
 // Debajo de las tarjetas de costo: un bloque por columna cuando hay dos; con uno solo (sin configuración sólo queda el margen) a ancho completo.
 function htmlColumnasFraccMd(...bloques) {
