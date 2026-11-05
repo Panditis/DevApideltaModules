@@ -27,7 +27,7 @@ const NODE_FR_MD = typeof module === 'object' && module.exports;
 const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { esc, fmtMoney, claseDelta };
 const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD } = FMT_FR_MD;
 // Estado del granel (activo / inactivo): las mismas funciones del listado (precios_listados.js, que se carga antes).
-const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, textoActivoPorStockLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }); // al llamar: el orden de los scripts no importa
+const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, textoActivoPorStockLst, textoActivoPorPresentacionesLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }); // al llamar: el orden de los scripts no importa
 const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
@@ -401,6 +401,7 @@ function htmlActividadFraccMd(f) {
   const nom = ESC_FR_MD(f.nombre), titulo = a.activo ? (a.fijado ? 'Fijado a mano como activo' : 'Activo según los movimientos de stock') : ACT_FR_MD().textoInactivoLst(f);
   return `<span class="inline-flex flex-wrap items-center gap-2 text-xs"><span class="font-semibold text-ink" title="${ESC_FR_MD(titulo)}">${a.activo ? 'Activo' : 'Inactivo'}</span>`
     + `<span class="text-gris">${a.fijado ? 'Fijado a mano' : 'Automático'}</span>`
+    + (ACT_FR_MD().textoActivoPorPresentacionesLst(f) ? `<span class="md-por-stock md-por-presentacion px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${ESC_FR_MD(ACT_FR_MD().textoActivoPorPresentacionesLst(f))}">Activo por presentación</span>` : '')
     + (porStock ? `<span class="md-por-stock px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${ESC_FR_MD(porStock)}">Activo por stock</span>` : '')
     + `<span class="solo-config inline-flex flex-wrap items-center gap-1">`
     + `<button type="button" class="md-act ${cls}" data-valor="${a.valor}" aria-label="${a.texto} el granel ${nom}">${a.texto}</button>`

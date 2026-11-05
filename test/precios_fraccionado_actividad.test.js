@@ -43,7 +43,7 @@ test('venta directa que es su propio granel: el mismo PLU es granel y presentaci
   const con = listar(new Map([['700', { n: 2, ultimo: '2026-10-10' }]]));
   assert.deepStrictEqual([con.activo, con.actividad.motivos, con.actividad.presentacionesActivas, con.presentaciones[0].movReciente], [true, [], 1, true]);
   const sin = listar(new Map());
-  assert.deepStrictEqual([sin.activo, sin.actividad.motivos, sin.presentaciones[0].movReciente], [false, ['sinMovGranel', 'sinMovPresentaciones'], false]);
+  assert.deepStrictEqual([sin.activo, sin.actividad.motivos, sin.presentaciones[0].movReciente], [false, ['sinMovPresentaciones'], false]);
 });
 
 // Contrato: filas como llegan al navegador (listadoFraccionado → filaPublica → JSON) usadas por el front sin adaptar.
@@ -68,7 +68,7 @@ test('contrato back → front: filtros, conteos y badges del listado leen reefer
   assert.deepStrictEqual(contarOcultables(filas), { reefer: 1, inactivos: 2 });
   const porPlu = Object.fromEntries(filas.map(f => [f.plu, f]));
   assert.match(htmlBadgesActividadLst(porPlu[200]), />REEFER<.*>inactivo</);
-  assert.match(htmlBadgesActividadLst(porPlu[300]), /title="Inactivo: el granel no tuvo movimientos en 6 meses; ninguna presentación/);
+  assert.match(htmlBadgesActividadLst(porPlu[300]), /title="Inactivo: sin movimientos de ninguna presentación en el último año"/);
   assert.match(htmlBadgesActividadLst(porPlu[400]), /title="Fijado a mano como inactivo"/);
   // Export del listado: recibe las filas ya filtradas (filtrosBusqueda incluye los toggles) → sin REEFER ni inactivos
   const exp = filasExportListado(filtrarFilas(filas, {}), 'fraccionado').flat();

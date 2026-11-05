@@ -375,11 +375,12 @@ test('contarOcultables: cuántos REEFER y cuántos inactivos (no REEFER) hay en 
 });
 
 test('textoMotivosActividad / textoInactivoLst: motivos legibles; fijado a mano gana sobre el automático', () => {
-  assert.strictEqual(textoMotivosActividad(['sinMovGranel']), 'el granel no tuvo movimientos en 6 meses');
-  assert.match(textoMotivosActividad(['sinPresentaciones', 'sinMovPresentaciones']), /no tiene presentaciones en el listado; ninguna presentación tuvo movimientos en 6 meses/);
+  assert.strictEqual(textoMotivosActividad(['sinMovGranel']), ''); // informativo: no es causa de inactividad
+  assert.strictEqual(textoMotivosActividad(['sinMovGranel', 'sinMovPresentaciones']), 'sin movimientos de ninguna presentación en el último año');
+  assert.strictEqual(textoMotivosActividad(['sinPresentaciones', 'sinMovPresentaciones']), 'sin presentaciones; sin movimientos de ninguna presentación en el último año');
   assert.strictEqual(textoMotivosActividad(undefined), '');
   assert.strictEqual(textoMotivosActividad(['otro']), 'otro');
-  assert.strictEqual(textoInactivoLst(inactivo('3', ['sinMovGranel'])), 'Inactivo: el granel no tuvo movimientos en 6 meses');
+  assert.strictEqual(textoInactivoLst(inactivo('3', ['sinMovGranel', 'sinMovPresentaciones'])), 'Inactivo: sin movimientos de ninguna presentación en el último año');
   assert.strictEqual(textoInactivoLst(inactivo('3', ['sinMovGranel'], { activoManual: false })), 'Fijado a mano como inactivo');
   assert.strictEqual(textoInactivoLst({ activo: false }), 'Inactivo');
 });
@@ -391,14 +392,21 @@ test('htmlBadgesActividadLst: "activo por stock" solo con activoPorStock; title 
   assert.strictEqual(htmlBadgesActividadLst(granel('7')), '');
 });
 
+test('htmlBadgesActividadLst: "activo por presentación" solo con activoPorPresentaciones', () => {
+  const por = granel('8', { actividad: { auto: 'activo', motivos: [], activoPorPresentaciones: true } });
+  assert.match(htmlBadgesActividadLst(por), /title="El granel no tuvo movimientos propios en el último año, pero una presentación sí\.">activo por presentación<\/span>/);
+  assert.doesNotMatch(htmlBadgesActividadLst(granel('9', { actividad: { auto: 'activo', motivos: [], activoPorPresentaciones: false } })), /presentación/);
+  assert.doesNotMatch(htmlBadgesActividadLst(inactivo('3', ['sinMovPresentaciones'], { actividad: { auto: 'inactivo', motivos: [], activoPorPresentaciones: true } })), /activo por presentación/);
+});
+
 test('htmlBadgesActividadLst: badge REEFER y/o inactivo (con title); activo común → nada; escapa el title', () => {
   assert.strictEqual(htmlBadgesActividadLst(granel('1')), '');
   assert.strictEqual(htmlBadgesActividadLst({ plu: '1', nombre: 'x' }), '');
   const ree = htmlBadgesActividadLst(granel('2', { reefer: true }));
   assert.match(ree, />REEFER<\/span>/);
   assert.doesNotMatch(ree, /inactivo/);
-  const ina = htmlBadgesActividadLst(inactivo('3', ['sinMovGranel']));
-  assert.match(ina, /title="Inactivo: el granel no tuvo movimientos en 6 meses">inactivo<\/span>/);
+  const ina = htmlBadgesActividadLst(inactivo('3', ['sinMovPresentaciones']));
+  assert.match(ina, /title="Inactivo: sin movimientos de ninguna presentación en el último año">inactivo<\/span>/);
   assert.doesNotMatch(ina, /REEFER/);
   const ambos = htmlBadgesActividadLst(inactivo('4', ['otro"<'], { reefer: true }));
   assert.match(ambos, />REEFER<\/span>.*>inactivo<\/span>/);

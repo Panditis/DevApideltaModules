@@ -582,7 +582,7 @@ test('listado Fraccionado con costeo.fraccionado que no es un bloque (lista o n�
 // ── Actividad de Fraccionado (spec 2026-10-26-precios-fraccionado-activos-reefer) ─────────────
 const conMovimientos = filas => async sql => (sql.includes('MovimientosStockProductos') ? filas : sigaFalso(sql));
 
-test('listado Fraccionado: actividad del granel con los movimientos de 6 meses (granel + presentaciones); detalle igual', async () => {
+test('listado Fraccionado: actividad del granel con los movimientos de 12 meses (granel + presentaciones); detalle igual', async () => {
   const sqls = [];
   const query = async sql => { sqls.push(sql); return conMovimientos([{ IdProducto: '50', N: 4, Ultimo: '2026-10-20' }, { IdProducto: '51', N: 1, Ultimo: '2026-09-02' }])(sql); };
   const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
@@ -591,11 +591,11 @@ test('listado Fraccionado: actividad del granel con los movimientos de 6 meses (
     const [g] = j.filas;
     assert.strictEqual(j.avisoActividad, undefined);
     assert.deepStrictEqual([g.reefer, g.activoManual, g.activo, g.actividad, g.presentaciones[0].movReciente],
-      [false, null, true, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-20', presentacionesActivas: 1,
+      [false, null, true, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-20', presentacionesActivas: 1, activoPorPresentaciones: false,
         activoPorStock: false, stockPresentaciones: 0, sucursalesConStock: [] }, true]);
     const sqlMov = sqls.find(s => s.includes('MovimientosStockProductos'));
     assert.match(sqlMov, /'50','51'|'51','50'/);
-    const d = crearRutas.restarMeses(new Date(), 6);
+    const d = crearRutas.restarMeses(new Date(), 12);
     const desde = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     assert.ok(sqlMov.includes(`'${desde} 00:00:00'`), sqlMov);
     assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado')).actividad.auto, 'activo');

@@ -113,7 +113,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
   }
 
-  // Movimientos de los últimos 6 meses de graneles y presentaciones (actividad, spec 2026-10-26). Si la consulta falla →
+  // Movimientos de los últimos 12 meses de graneles y presentaciones (actividad, spec 2026-10-26). Si la consulta falla →
   // null: el listado sale igual, sin actividad (nadie inactivo salvo a mano) y GET listado avisa con AVISO_ACTIVIDAD.
   async function movimientosFraccionado(grupos) {
     const plus = grupos.flatMap(g => [g.plu, ...g.presentaciones.map(p => p.plu)]).filter(p => p != null);
@@ -306,7 +306,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   return router;
 };
 
-const MESES_ACTIVIDAD = 6;
+const MESES_ACTIVIDAD = 12;
 const AVISO_ACTIVIDAD = 'No se pudo consultar la actividad (movimientos o stock): no se ocultan graneles inactivos (sólo los fijados a mano).';
 
 // Fecha nueva meses atrás; si el día no existe en ese mes, el último (31/08 − 6 → 28/02, no el 03/03 de setMonth).

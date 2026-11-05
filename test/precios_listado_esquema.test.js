@@ -634,17 +634,29 @@ const fraccAct = (movimientos, activoGranel) => L.listadoFraccionado({ grupos: G
 test('listadoFraccionado actividad: REEFER, auto con motivos, manual gana, "Sin granel" siempre activo; movReciente por presentación', () => {
   const mov = new Map([['100', { n: 3, ultimo: '2026-10-01' }], ['101', { n: 1, ultimo: '2026-09-01' }], ['200', { n: 2, ultimo: '2026-08-01' }], ['401', { n: 1, ultimo: '2026-07-01' }]]);
   const [alm, nue, pas, man, sin] = fraccAct(mov, { 300: true, 100: false, 999: 'x' });
-  assert.deepStrictEqual(alm.actividad, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-01', presentacionesActivas: 1 });
+  assert.deepStrictEqual(alm.actividad, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-01', presentacionesActivas: 1, activoPorPresentaciones: false });
   assert.deepStrictEqual([alm.reefer, alm.activoManual, alm.activo], [false, false, false]); // fijado inactivo a mano
   const almP = Object.fromEntries(alm.presentaciones.map(p => [p.plu, p.movReciente]));
   assert.deepStrictEqual(almP, { 101: true, 102: false });
   assert.deepStrictEqual([nue.reefer, nue.actividad.auto, nue.actividad.motivos, nue.activo], [true, 'inactivo', ['sinPresentaciones'], false]);
-  assert.deepStrictEqual([pas.reefer, pas.actividad.motivos, pas.activoManual, pas.activo], [false, ['sinMovGranel', 'sinMovPresentaciones'], true, true]);
-  assert.deepStrictEqual([man.actividad.motivos, man.actividad.ultimoMovGranel, man.activoManual, man.activo], [['sinMovGranel'], null, null, false]);
+  assert.deepStrictEqual([pas.reefer, pas.actividad.motivos, pas.activoManual, pas.activo], [false, ['sinMovPresentaciones'], true, true]);
+  // presentación con movimiento (p. ej. a 8 meses, dentro de los 12) y granel sin movimiento propio → activo por presentaciones
+  assert.deepStrictEqual([man.actividad.motivos, man.actividad.ultimoMovGranel, man.activoManual, man.activo, man.actividad.auto, man.actividad.activoPorPresentaciones], [[], null, null, true, 'activo', true]);
   assert.deepStrictEqual([sin.reefer, sin.actividad, sin.activoManual, sin.activo, sin.presentaciones[0].movReciente], [false, null, null, true, false]);
   // viajan a todos los usuarios (filaPublica no los saca)
   const pub = L.filaPublica(alm);
   assert.deepStrictEqual([pub.reefer, pub.activo, pub.activoManual, pub.actividad.auto, pub.presentaciones[0].movReciente], [false, false, false, 'activo', true]);
+});
+
+test('listadoFraccionado actividad: todo fuera de los 12 meses (sin movimientos) y sin stock → inactivo; sin presentaciones → inactivo', () => {
+  const [alm, nue] = fraccAct(new Map());
+  assert.deepStrictEqual([alm.activo, alm.actividad.auto, alm.actividad.motivos, alm.actividad.activoPorPresentaciones], [false, 'inactivo', ['sinMovPresentaciones'], false]);
+  assert.deepStrictEqual([nue.activo, nue.actividad.motivos], [false, ['sinPresentaciones']]);
+});
+
+test('listadoFraccionado actividad: inactivo fijado a mano gana sobre presentación con movimiento', () => {
+  const [, , , man] = fraccAct(new Map([['401', { n: 1, ultimo: '2026-03-01' }]]), { 400: false });
+  assert.deepStrictEqual([man.actividad.auto, man.actividad.activoPorPresentaciones, man.activo], ['activo', true, false]);
 });
 
 test('listadoFraccionado actividad sin movimientos (consulta caída): actividad null, activo salvo fijado a mano; REEFER igual', () => {
@@ -664,7 +676,7 @@ test('listadoFraccionado stock: presentación con stock en sucursal 3 activa el 
   const [alm, , , man] = fraccStock(new Map([['102', [{ sucursal: 3, stock: 4 }, { sucursal: 6, stock: 9 }]]]));
   assert.deepStrictEqual([alm.activo, alm.actividad.auto, alm.actividad.activoPorStock, alm.actividad.stockPresentaciones, alm.actividad.sucursalesConStock],
     [true, 'activo', true, 4, [3]]);
-  assert.deepStrictEqual(alm.actividad.motivos, ['sinMovGranel', 'sinMovPresentaciones']); // los motivos de movimientos quedan
+  assert.deepStrictEqual([alm.actividad.motivos, alm.actividad.activoPorPresentaciones], [['sinMovPresentaciones'], false]); // los motivos de movimientos quedan
   assert.deepStrictEqual([man.activo, man.actividad.activoPorStock], [false, false]);
   assert.strictEqual(L.filaPublica(alm).actividad.activoPorStock, true);
 });

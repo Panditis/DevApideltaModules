@@ -380,7 +380,7 @@ function actualizarMaquinasPropiasFr() {
 // activos: { [plu]: true | false | null } } sólo con lo que cambió (vaciar un campo con valor guardado manda null; Automático = null).
 // "Usar en todos" (historial) completa los inputs sin guardar y no toca el estado. Repintar la tarjeta conserva el filtro y las listas abiertas.
 const OPCIONES_ESTADO_FR = [['auto', 'Automático'], ['activo', 'Activo'], ['inactivo', 'Inactivo']];
-const TITULO_ESTADO_FR = 'Automático: lo decide el sistema por los movimientos de stock de los últimos 6 meses y por el stock actual: si alguna presentación tiene stock en alguna sucursal (menos 6, 8 y 11), el producto no se desactiva. Activo e Inactivo lo fijan a mano.';
+const TITULO_ESTADO_FR = 'Automático: lo decide el sistema. El producto queda activo si alguna presentación tuvo movimientos de stock en el último año, o si alguna presentación tiene stock en alguna sucursal (menos 6, 8 y 11). Activo e Inactivo lo fijan a mano.';
 // Select del estado de un producto en el listado (estado = 'auto' | 'activo' | 'inactivo'); data-plu lo lee guardarSubrubrosFr.
 const htmlSelectEstadoFr = (plu, nombre, estado) => `<select class="fr-act num-in text-left" data-plu="${esc(plu)}" aria-label="${esc(`Estado de ${nombre} en el listado`)}" title="${esc(TITULO_ESTADO_FR)}">${
   OPCIONES_ESTADO_FR.map(([v, t]) => `<option value="${v}"${v === estado ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
@@ -435,8 +435,8 @@ function htmlSubrubrosCardFr() {
         Cada producto usa su propio valor y, si lo dejás vacío, el del subrubro (que también usan los productos nuevos de SIGA). Un producto sin valor propio
         en un subrubro sin valor no suma mano de obra ni máquina. "Usar en todos" copia el valor del historial a todos los productos del subrubro.
         Se guarda todo junto con un solo botón: sólo viaja lo que cambiaste, y vaciar un campo le saca el valor.</p>
-      <p class="cfg-ayuda"><b>Estado</b> de cada producto en el listado de Fraccionado: <b>Automático</b> lo decide el sistema según los movimientos de stock de los últimos
-        6 meses y el stock actual (si alguna presentación tiene stock en alguna sucursal, menos 6, 8 y 11, no se desactiva); <b>Activo</b> lo muestra siempre; <b>Inactivo</b> lo oculta. No cambia ningún precio: sólo define si el producto aparece en el listado. Los inactivos se ven
+      <p class="cfg-ayuda"><b>Estado</b> de cada producto en el listado de Fraccionado: <b>Automático</b> lo decide el sistema: el producto queda activo si alguna presentación tuvo movimientos de stock en el último
+        año, o si alguna presentación tiene stock en alguna sucursal (menos 6, 8 y 11); <b>Activo</b> lo muestra siempre; <b>Inactivo</b> lo oculta. No cambia ningún precio: sólo define si el producto aparece en el listado. Los inactivos se ven
         con "Ver inactivos"; los que tienen REEFER en el nombre se ocultan del listado salvo con "Ver REEFER", sea cual sea su estado.</p></div>
       <label class="fr-filtro"><input type="checkbox" id="frSoloFalta"${soloFaltaFr ? ' checked' : ''}> Solo los que faltan <span id="frFaltan" class="fr-faltan" data-n="${faltan}">${faltan}</span></label></div>
     <div id="frSubrubros">${htmlSubrubrosFr()}</div></div>${pieFr('Guardar subrubros')}</div>`;
