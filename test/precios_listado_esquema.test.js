@@ -103,12 +103,13 @@ test('agruparPorGranel: fórmula, nombre del granel, propio PLU y "sin granel" a
   const grupos = L.agruparPorGranel({
     graneles: [{ plu: '100', nombre: 'Almendras DEPOSITO GRANEL' }],
     presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg', ventaDirecta: true },
-      { plu: '103', nombre: 'Pasas 1Kg', ventaDirecta: true }, { plu: '104', nombre: 'Rara 50G' }],
+      { plu: '103', nombre: 'Pasas 1Kg', ventaDirecta: true }, { plu: '104', nombre: 'Rara 50G' },
+      { plu: '105', nombre: 'Almendras PEDIDOS 1Kg', granelSiga: '100' }, { plu: '106', nombre: 'Almendras 1Kg Ambiguo', granelSiga: null }],
     formulas: { 101: { granel: 100 } },
     costos: new Map([['100', { plu: '100', nombre: 'Almendras DEPOSITO GRANEL' }], ['103', { plu: '103', nombre: 'Pasas 1Kg' }]]),
   });
   assert.deepStrictEqual(grupos.map(g => [g.plu, g.presentaciones.map(p => p.plu)]),
-    [['100', ['101', '102']], ['103', ['103']], [null, ['104']]]);
+    [['100', ['101', '102', '105']], ['103', ['103']], [null, ['104', '106']]]);
 });
 
 test('listadoFraccionado: costo $/kg del granel en todas sus presentaciones, ajuste por peso, pack pesable y decisión del granel', () => {

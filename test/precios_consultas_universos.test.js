@@ -5,7 +5,8 @@ const { crearConsultasPrecios, granelDePresentacion, crearGranelPorNombre } = re
 
 const RUBROS = {
   'Pesables Deposito': [{ IdProducto: 100, NombreProducto: 'Almendras DEPOSITO GRANEL' }],
-  'Pesables Fraccionado': [{ IdProducto: 101, NombreProducto: 'Almendras 500G' }],
+  'Pesables Fraccionado': [{ IdProducto: 101, NombreProducto: 'Almendras 500G' }, { IdProducto: 104, NombreProducto: 'Jengibre 1Kg' },
+    { IdProducto: 105, NombreProducto: 'Mezcla 1Kg' }, { IdProducto: 106, NombreProducto: 'Cacao 1Kg' }],
   'Pesables Venta Directa': [{ IdProducto: 102, NombreProducto: 'Almendras 1Kg' }, { IdProducto: 103, NombreProducto: 'Nueces 1Kg' }],
 };
 // SIGA falso: responde según la consulta (costos de un IN de PLUs, fórmula SIGA de los VD o productos de un rubro).
@@ -14,7 +15,14 @@ const query = async sql => {
     const ids = ((sql.match(/IdProducto IN \(([^)]*)\)/) || [])[1] || '').match(/\d+/g) || [];
     return ids.map(id => ({ IdProducto: id, NombreProducto: `P${id}`, CostoSistema: 1210, IvaCompraPct: 21, IngresoHoy: 0 }));
   }
-  if (sql.includes('ProductosComponentes')) return [{ Plu: '103', Granel: '200', Nivel: 1 }];
+  if (sql.includes('ProductosComponentes')) {
+    // 101 tiene fórmula SIGA pero manda pesables_listas; 103 (VD) con dos candidatos toma el primero; 104 pasa por PEDIDOS
+    // (nivel 2, único); 105 ambiguo en su nivel más cercano; 106 sin fórmula.
+    const filas = [{ Plu: '103', Granel: '200', Nivel: 1 }, { Plu: '103', Granel: '201', Nivel: 1 }, { Plu: '101', Granel: '300', Nivel: 1 },
+      { Plu: '104', Granel: '400', Nivel: 2 }, { Plu: '105', Granel: '500', Nivel: 1 }, { Plu: '105', Granel: '501', Nivel: 1 }];
+    const pedidos = (sql.match(/IN \(([^)]*)\)/) || [])[1] || '';
+    return filas.filter(f => pedidos.includes(`'${f.Plu}'`));
+  }
   const rubro = Object.keys(RUBROS).find(r => sql.includes(`'${r}'`));
   return rubro ? RUBROS[rubro] : [];
 };
@@ -24,8 +32,8 @@ test('universoFraccionado: graneles, presentaciones (VD sin fórmula con su gran
   const u = await crearConsultasPrecios(deps).universoFraccionado({ 101: { granel: 100 }, 102: { granel: 100 } });
   assert.deepStrictEqual(u.graneles, [{ plu: '100', nombre: 'Almendras DEPOSITO GRANEL', subrubroId: null, subrubro: null }]);
   assert.deepStrictEqual(u.presentaciones.map(p => [p.plu, !!p.ventaDirecta, p.granelSiga ?? null]),
-    [['101', false, null], ['102', true, null], ['103', true, '200']]);
-  assert.deepStrictEqual([...u.costos.keys()].sort(), ['100', '200']);
+    [['101', false, null], ['104', false, '400'], ['105', false, null], ['106', false, null], ['102', true, null], ['103', true, '200']]);
+  assert.deepStrictEqual([...u.costos.keys()].sort(), ['100', '200', '400']);
   assert.strictEqual(u.costos.get('100').costoSistema, 1210); // PrecioCosto de SIGA tal cual
 });
 
@@ -44,6 +52,8 @@ test('granelDePresentacion: fórmula › fórmula SIGA › nombre del granel ›
   assert.strictEqual(granelDePresentacion({}, { plu: '7', nombre: 'Albahaca 1Kg', ventaDirecta: true }, porNombre), '100');
   assert.strictEqual(granelDePresentacion({}, { plu: '8', nombre: 'Otra 1Kg', ventaDirecta: true }, porNombre), '8');
   assert.strictEqual(granelDePresentacion({}, { plu: '9', nombre: 'Fracc 50G' }, porNombre), null);
+  assert.strictEqual(granelDePresentacion({}, { plu: '9', nombre: 'Albahaca 1Kg', granelSiga: '400' }, porNombre), '400'); // fraccionado: sólo SIGA
+  assert.strictEqual(granelDePresentacion({ 9: { granel: 7 } }, { plu: '9', granelSiga: '400' }, porNombre), '7');
 });
 
 test('universoFraccionado: los PLUs extra (insumos de Fraccionado) también traen costo', async () => {
@@ -113,4 +123,15 @@ test('stockPresentaciones: Map plu → [{ sucursal, stock }], tandas de 500, ids
   assert.strictEqual(sqls.length, 0); // sin ids no consulta
   const caida = crearConsultasPrecios({ ...deps, query: async () => { throw new Error('timeout'); } });
   await assert.rejects(caida.stockPresentaciones(['1']), /timeout/);
+});
+
+test('universoFraccionado: fraccionado gana el nivel 1 único aunque el nivel 2 traiga otro; filas repetidas no rompen el único', async () => {
+  const filas = [{ Plu: '104', Granel: '700', Nivel: 2 }, { Plu: '104', Granel: '400', Nivel: 1 },
+    { Plu: '105', Granel: '500', Nivel: 1 }, { Plu: '105', Granel: '500', Nivel: 1 }];
+  const q = async sql => sql.includes('ProductosComponentes') ? filas : query(sql);
+  const u = await crearConsultasPrecios({ ...deps, query: q }).universoFraccionado({});
+  const g = Object.fromEntries(u.presentaciones.map(p => [p.plu, p.granelSiga ?? null]));
+  assert.strictEqual(g['104'], '400');
+  assert.strictEqual(g['105'], '500');
+  assert.ok(u.costos.has('400') && u.costos.has('500'));
 });
