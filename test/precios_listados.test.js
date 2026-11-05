@@ -384,6 +384,13 @@ test('textoMotivosActividad / textoInactivoLst: motivos legibles; fijado a mano 
   assert.strictEqual(textoInactivoLst({ activo: false }), 'Inactivo');
 });
 
+test('htmlBadgesActividadLst: "activo por stock" solo con activoPorStock; title con sucursales y unidades', () => {
+  const por = granel('5', { actividad: { auto: 'activo', motivos: [], activoPorStock: true, stockPresentaciones: 12, sucursalesConStock: [1, 3] } });
+  assert.match(htmlBadgesActividadLst(por), /title="Sin movimientos recientes, pero hay stock en 2 sucursal\(es\): 12 unidades">activo por stock<\/span>/);
+  assert.strictEqual(htmlBadgesActividadLst(granel('6', { actividad: { auto: 'activo', motivos: [], activoPorStock: false } })), '');
+  assert.strictEqual(htmlBadgesActividadLst(granel('7')), '');
+});
+
 test('htmlBadgesActividadLst: badge REEFER y/o inactivo (con title); activo común → nada; escapa el title', () => {
   assert.strictEqual(htmlBadgesActividadLst(granel('1')), '');
   assert.strictEqual(htmlBadgesActividadLst({ plu: '1', nombre: 'x' }), '');

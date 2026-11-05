@@ -46,7 +46,7 @@ function crearContexto() {
     getJson: () => Promise.resolve({ maquinas: [] }), API_FR: '/api/precios/config/esquema/fraccionado',
     campoU: input => input, textoMotivosActividad: m => (m || []).join('; '),
     guardarDecision: (...a) => { llamadas.push(['guardarDecision', ...a]); return Promise.resolve(null); },
-    ...(({ accionActividadLst, textoInactivoLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }) => ({ accionActividadLst, textoInactivoLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }))(require('../public/js/precios_listados.js')), // las del listado (globales en el navegador)
+    ...(({ accionActividadLst, textoInactivoLst, textoActivoPorStockLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }) => ({ accionActividadLst, textoInactivoLst, textoActivoPorStockLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }))(require('../public/js/precios_listados.js')), // las del listado (globales en el navegador)
     guardarMarcaMayoristaLst: (...a) => { llamadas.push(['guardarMarcaMayoristaLst', ...a]); return Promise.resolve(700); },
     guardarActividadLst: (...a) => { llamadas.push(['guardarActividadLst', ...a]); return Promise.resolve(); },
     renderListado() {}, cargarListado() {}, refrescarAlertasProduccion() {}, salirDeProduccion() {}, activarTab() {},

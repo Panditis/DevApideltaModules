@@ -591,7 +591,8 @@ test('listado Fraccionado: actividad del granel con los movimientos de 6 meses (
     const [g] = j.filas;
     assert.strictEqual(j.avisoActividad, undefined);
     assert.deepStrictEqual([g.reefer, g.activoManual, g.activo, g.actividad, g.presentaciones[0].movReciente],
-      [false, null, true, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-20', presentacionesActivas: 1 }, true]);
+      [false, null, true, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-20', presentacionesActivas: 1,
+        activoPorStock: false, stockPresentaciones: 0, sucursalesConStock: [] }, true]);
     const sqlMov = sqls.find(s => s.includes('MovimientosStockProductos'));
     assert.match(sqlMov, /'50','51'|'51','50'/);
     const d = crearRutas.restarMeses(new Date(), 6);
@@ -863,5 +864,32 @@ test('tabla manual: detalle y listado de Fraccionado cambian de precio con una f
     assert.strictEqual(await listado(), fr.precio);
     assert.notStrictEqual(antes.lista, fr.precio);
     assert.strictEqual((await detalle('almacen', '1')).precio, antes.reventa);
+  } finally { a.cerrar(); }
+});
+
+test('Fraccionado: si la consulta de stock falla, listado y detalle con actividad null + avisoActividad; el manual sigue ganando', async () => {
+  const query = async sql => { if (sql.includes('ProductosDepositos')) throw new Error('timeout'); return conMovimientos([])(sql); };
+  const a = appCon({ ...MIGRADO, activoGranel: { 50: false } }, { query, archivos: ARCHIVOS_FALSOS });
+  const error = console.error;
+  const logs = [];
+  console.error = (...x) => logs.push(x.join(' '));
+  try {
+    const j = await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado');
+    assert.ok(j.avisoActividad);
+    assert.deepStrictEqual([j.filas[0].actividad, j.filas[0].activoManual, j.filas[0].activo], [null, false, false]);
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    assert.deepStrictEqual([det.error, det.actividad, det.activo], [undefined, null, false]);
+    assert.ok(logs.some(l => /stock de presentaciones/.test(l)));
+  } finally { console.error = error; a.cerrar(); }
+});
+
+test('Fraccionado: sin movimientos pero con stock de una presentación en sucursal real → activo por stock (listado y detalle)', async () => {
+  const query = async sql => (sql.includes('ProductosDepositos') ? [{ IdProducto: '51', IdSucursal: 3, Stock: 2 }] : conMovimientos([])(sql));
+  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
+  try {
+    const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
+    assert.deepStrictEqual([g.actividad.auto, g.actividad.activoPorStock, g.actividad.sucursalesConStock, g.activo], ['activo', true, [3], true]);
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    assert.deepStrictEqual([det.actividad.activoPorStock, det.activo], [true, true]);
   } finally { a.cerrar(); }
 });

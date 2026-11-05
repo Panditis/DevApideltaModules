@@ -91,3 +91,26 @@ test('movimientosRecientes: Map plu → { n, ultimo } desde la fecha, en tandas 
   assert.deepStrictEqual((await movimientosRecientes([], '2026-04-26')).size, 0);
   await assert.rejects(movimientosRecientes(['1'], "2026-04-26' OR 1=1"), /fecha inválida/);
 });
+
+test('stockPresentaciones: Map plu → [{ sucursal, stock }], tandas de 500, ids seguros, HAVING > 0 y sin sucursales 6/8/11', async () => {
+  const sqls = [];
+  const { stockPresentaciones } = crearConsultasPrecios({ ...deps, query: async sql => {
+    sqls.push(sql);
+    return sqls.length === 1 ? [{ IdProducto: '51 ', IdSucursal: 2, Stock: 3.5 }, { IdProducto: '51', IdSucursal: 4, Stock: 1 }] : [];
+  } });
+  const plus = [...Array.from({ length: 600 }, (_, i) => String(i + 1)), "1'; DROP", 'abc', '1', null];
+  const m = await stockPresentaciones(plus);
+  assert.deepStrictEqual([...m.entries()], [['51', [{ sucursal: 2, stock: 3.5 }, { sucursal: 4, stock: 1 }]]]);
+  assert.strictEqual(sqls.length, 2); // 500 + 100
+  assert.strictEqual((sqls[0].match(/'\d+'/g) || []).length, 500);
+  assert.match(sqls[0], /pd\.IdSucursal NOT IN \(6,8,11\)/);
+  assert.match(sqls[0], /HAVING SUM\(pd\.Stock\) > 0/);
+  assert.match(sqls[0], /sd\.IdDeposito = pd\.IdDeposito AND sd\.IdSucursal = pd\.IdSucursal/);
+  assert.ok(!sqls.join().includes('DROP') && !sqls.join().includes('abc'));
+  sqls.length = 0;
+  assert.strictEqual((await stockPresentaciones([])).size, 0);
+  assert.strictEqual((await stockPresentaciones(undefined)).size, 0);
+  assert.strictEqual(sqls.length, 0); // sin ids no consulta
+  const caida = crearConsultasPrecios({ ...deps, query: async () => { throw new Error('timeout'); } });
+  await assert.rejects(caida.stockPresentaciones(['1']), /timeout/);
+});

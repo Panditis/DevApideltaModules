@@ -455,6 +455,15 @@ test('htmlPreciosFraccMd: cada tarjeta de presentación dice Mayorista (por peso
   assert.doesNotMatch(sin, />Minorista<|Mayorista \(/);
 });
 
+test('htmlActividadFraccMd: leyenda "Activo por stock" solo con activoPorStock', () => {
+  const { htmlActividadFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+  const f = { plu: '100', nombre: 'Almendras', reefer: false, activo: true, activoManual: null };
+  const con = htmlActividadFraccMd({ ...f, actividad: { auto: 'activo', motivos: [], activoPorStock: true, stockPresentaciones: 7, sucursalesConStock: [2] } });
+  assert.match(con, /title="Sin movimientos recientes, pero hay stock en 1 sucursal\(es\): 7 unidades">Activo por stock</);
+  assert.doesNotMatch(htmlActividadFraccMd({ ...f, actividad: { auto: 'activo', motivos: [], activoPorStock: false } }), /Activo por stock/);
+  assert.doesNotMatch(htmlActividadFraccMd(f), /Activo por stock/);
+});
+
 test('htmlActividadFraccMd: estado y botón según actividad; sin botón en REEFER y sin granel', () => {
   const { htmlActividadFraccMd } = require('../public/js/precios_modal_fraccionado.js');
   const base = { plu: '100', nombre: 'Almendras', reefer: false, actividad: { auto: 'activo', motivos: [] } };

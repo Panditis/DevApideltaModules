@@ -654,6 +654,39 @@ test('listadoFraccionado actividad sin movimientos (consulta caída): actividad 
   assert.strictEqual(pas.activo, true);
 });
 
+// Stock de presentaciones (Map plu → [{ sucursal, stock }]): alguna presentación con stock > 0 en una sucursal real
+// mantiene activo el granel aunque no tenga movimientos; 6/8/11 y stock <= 0 no cuentan; manual gana; stock null = caída.
+const fraccStock = (stock, activoGranel) => L.listadoFraccionado({ grupos: GRUPOS_ACT, costos: new Map(), vigentes: new Map(),
+  mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }), costeo: activoGranel ? { activoGranel } : {}, cfg: CFG,
+  movimientos: new Map(), stock });
+
+test('listadoFraccionado stock: presentación con stock en sucursal 3 activa el granel sin movimientos recientes', () => {
+  const [alm, , , man] = fraccStock(new Map([['102', [{ sucursal: 3, stock: 4 }, { sucursal: 6, stock: 9 }]]]));
+  assert.deepStrictEqual([alm.activo, alm.actividad.auto, alm.actividad.activoPorStock, alm.actividad.stockPresentaciones, alm.actividad.sucursalesConStock],
+    [true, 'activo', true, 4, [3]]);
+  assert.deepStrictEqual(alm.actividad.motivos, ['sinMovGranel', 'sinMovPresentaciones']); // los motivos de movimientos quedan
+  assert.deepStrictEqual([man.activo, man.actividad.activoPorStock], [false, false]);
+  assert.strictEqual(L.filaPublica(alm).actividad.activoPorStock, true);
+});
+
+test('listadoFraccionado stock: sólo en 6/8/11, cero o negativo no activa', () => {
+  const stock = new Map([['101', [{ sucursal: 6, stock: 5 }, { sucursal: 8, stock: 5 }, { sucursal: 11, stock: 5 }]],
+    ['102', [{ sucursal: 3, stock: 0 }, { sucursal: 4, stock: -2 }]]]);
+  const [alm] = fraccStock(stock);
+  assert.deepStrictEqual([alm.activo, alm.actividad.auto, alm.actividad.activoPorStock, alm.actividad.stockPresentaciones], [false, 'inactivo', false, 0]);
+});
+
+test('listadoFraccionado stock: inactivo fijado a mano gana sobre el stock', () => {
+  const [alm] = fraccStock(new Map([['101', [{ sucursal: 3, stock: 10 }]]]), { 100: false });
+  assert.deepStrictEqual([alm.activoManual, alm.activo, alm.actividad.activoPorStock], [false, false, true]);
+});
+
+test('listadoFraccionado stock caído (null): sin actividad → activo salvo a mano (no apaga en silencio)', () => {
+  const [alm, nue] = fraccStock(null, { 200: false });
+  assert.deepStrictEqual([alm.actividad, alm.activo], [null, true]);
+  assert.deepStrictEqual([nue.actividad, nue.activo], [null, false]);
+});
+
 test('validarActivoGranel: PLU de SIGA y true | false | null; aplicarPorPlu con booleanos (false queda, null quita)', () => {
   assert.strictEqual(L.validarActivoGranel('100', true), null);
   assert.strictEqual(L.validarActivoGranel('100', false), null);

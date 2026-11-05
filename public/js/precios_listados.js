@@ -38,10 +38,17 @@ function textoInactivoLst(f) {
   const motivos = textoMotivosActividad((f.actividad || {}).motivos);
   return motivos ? `Inactivo: ${motivos}` : 'Inactivo';
 }
+// "Activo por stock": sin movimientos recientes pero con stock en sucursales reales (fila.actividad.activoPorStock). '' si no aplica.
+function textoActivoPorStockLst(f) {
+  const a = f.actividad || {};
+  if (a.activoPorStock !== true || f.activo === false) return '';
+  const n = (a.sucursalesConStock || []).length, u = Number(a.stockPresentaciones) || 0;
+  return `Sin movimientos recientes, pero hay stock en ${n} sucursal(es): ${u} unidades`;
+}
 const BADGE_ACT_LST = 'ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap';
 function htmlBadgesActividadLst(f) {
   const badge = (txt, title) => ` <span class="${BADGE_ACT_LST}" title="${ESC_LST(title)}">${txt}</span>`;
-  return (f.reefer === true ? badge('REEFER', 'Granel REEFER: depósito especial, sirve de control de stock') : '') + (f.activo === false ? badge('inactivo', textoInactivoLst(f)) : '');
+  return (f.reefer === true ? badge('REEFER', 'Granel REEFER: depósito especial, sirve de control de stock') : '') + (f.activo === false ? badge('inactivo', textoInactivoLst(f)) : '') + (textoActivoPorStockLst(f) ? badge('activo por stock', textoActivoPorStockLst(f)) : '');
 }
 
 // Acción de actividad por granel (la usa el modal de Fraccionado, no la fila del listado). El granel REEFER lo rige su toggle y el "sin
@@ -281,7 +288,7 @@ const textoPrecioFijoLst = pf => CANALES_PF_LST.filter(([c]) => pf && pf[c] > 0)
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst, accionActividadLst, conActividadLst, htmlBadgeMayoristaLst, tipoMayLst, textoOmitidosMayoristaLst, detalleMayoristaLst, htmlDetalleMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst, granelDePresentacionLst };
+  contarOcultables, textoMotivosActividad, textoInactivoLst, textoActivoPorStockLst, htmlBadgesActividadLst, textoPrecioFijoLst, accionActividadLst, conActividadLst, htmlBadgeMayoristaLst, tipoMayLst, textoOmitidosMayoristaLst, detalleMayoristaLst, htmlDetalleMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst, granelDePresentacionLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };

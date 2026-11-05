@@ -106,7 +106,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
       const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo),
         consultas.universoFraccionado(formulas, costeoF ? plusInsumos(costeoF) : [])]);
       const grupos = L.agruparPorGranel({ graneles, presentaciones, formulas, costos });
-      return L.listadoFraccionado({ grupos, costos, costeo, costeoF, movimientos: conActividad ? await movimientosFraccionado(grupos) : null, ...ctx });
+      const [movimientos, stock] = conActividad ? await Promise.all([movimientosFraccionado(grupos), stockFraccionado(grupos)]) : [null, undefined];
+      return L.listadoFraccionado({ grupos, costos, costeo, costeoF, movimientos, stock, ...ctx });
     }
     const [ctx, presentaciones] = await Promise.all([contexto(costeo, tipo), presentacionesProduccion(costeo)]);
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
@@ -120,6 +121,17 @@ module.exports = function crearRutasPreciosEsquema(deps) {
       return await consultas.movimientosRecientes(plus, isoDe(restarMeses(new Date(), MESES_ACTIVIDAD)));
     } catch (err) {
       console.error('[precios] movimientos de Fraccionado (actividad de graneles):', err.message);
+      return null;
+    }
+  }
+
+  // Stock de hoy de las presentaciones (las del grupo; no los pack/bulto vinculados). Si falla → null: actividad null
+  // (activo salvo a mano) y avisoActividad, igual que movimientos; no apaga graneles en silencio.
+  async function stockFraccionado(grupos) {
+    try {
+      return await consultas.stockPresentaciones(grupos.flatMap(g => g.presentaciones.map(p => p.plu)));
+    } catch (err) {
+      console.error('[precios] stock de presentaciones de Fraccionado (actividad de graneles):', err.message);
       return null;
     }
   }
@@ -295,7 +307,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
 };
 
 const MESES_ACTIVIDAD = 6;
-const AVISO_ACTIVIDAD = 'No se pudieron consultar los movimientos de stock: no se ocultan graneles inactivos (sólo los fijados a mano).';
+const AVISO_ACTIVIDAD = 'No se pudo consultar la actividad (movimientos o stock): no se ocultan graneles inactivos (sólo los fijados a mano).';
 
 // Fecha nueva meses atrás; si el día no existe en ese mes, el último (31/08 − 6 → 28/02, no el 03/03 de setMonth).
 function restarMeses(d, meses) {
