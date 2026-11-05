@@ -2680,7 +2680,7 @@ app.use(require('./routes/rutas_cotizador')({ apiRoute, query, leerJSON, guardar
 // la protección de /analisis-ventas y /analisis-central no cambia.
 app.use(require('./routes/rutas_analisis')({
   apiRoute, query, leerJSON, guardarJSON, safeDate, auth, FAMILIAS_MANUALES_PATH,
-  generarTop20Prioritarios,
+  generarTop20Prioritarios, FORMULA_ACTIVA_SQL,
 }));
 
 

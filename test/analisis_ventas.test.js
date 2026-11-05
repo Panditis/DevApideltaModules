@@ -752,6 +752,40 @@ test('familiaNombre recorta presentación, múltiplo y variantes pack/bulto', ()
   assert.strictEqual(familiaNombre('ALMENDRA TOSTADA X12'), 'ALMENDRA TOSTADA');
 });
 
+// "9 Unidades" es una presentación: sin recortarla, el minorista y su Bulto quedaban en
+// familias distintas y Portfolio mostraba la venta mayorista aparte de la minorista.
+test('familiaNombre recorta "N Unidades" y junta minorista con Bulto', () => {
+  assert.strictEqual(familiaNombre('Pepas Apidelta Integrales Dulce de Leche 9 Unidades'),
+    'Pepas Apidelta Integrales Dulce de Leche');
+  assert.strictEqual(familiaNombre('Pepas Apidelta Integrales Dulce de Leche Bulto'),
+    'Pepas Apidelta Integrales Dulce de Leche');
+  assert.strictEqual(familiaNombre('Alfajor Triple 12 Unid'), 'Alfajor Triple');
+  assert.strictEqual(familiaNombre('Alfajor Triple 1 Unidad'), 'Alfajor Triple');
+});
+
+// La fórmula de SIGA dice de qué minorista sale cada pack/bulto: manda sobre el nombre, que
+// no siempre coincide (el bulto "F Bosque" sale del minorista "Frutos Del Bosque").
+test('agruparFamilias junta pack/bulto con su minorista según la fórmula, aunque el nombre difiera', () => {
+  const { aplicarBaseDeFormula, sqlBaseDeFormula } = require('../lib/analisis_ventas');
+  const rows = [
+    { IdProducto: '5889', Nombre: 'Pepas Apidelta Integrales Frutos Del Bosque 9 Unidades', Unidades: 874, Facturacion: 100 },
+    { IdProducto: '5948', Nombre: 'Pepas Apidelta Integrales F Bosque Bulto', Unidades: 288, Facturacion: 50 },
+    { IdProducto: '1', Nombre: 'Nuez Pelada 1Kg', Unidades: 3, Facturacion: 9 },
+  ];
+  const base = [{ Id: 5948, Base: 'Pepas Apidelta Integrales Frutos Del Bosque 9 Unidades' }];
+  const fams = agruparFamilias(aplicarBaseDeFormula(rows, base), Infinity);
+  const pepas = fams.find(f => f.familia === 'Pepas Apidelta Integrales Frutos Del Bosque');
+  assert.strictEqual(pepas.unidades, 1162);
+  assert.strictEqual(pepas.presentaciones.length, 2);
+  assert.ok(fams.find(f => f.familia === 'Nuez Pelada'));
+  // El detalle conserva el nombre propio del producto y la entrada no se muta.
+  assert.ok(pepas.presentaciones.some(p => p.nombre.endsWith('F Bosque Bulto')));
+  assert.strictEqual(rows[1].NombreBase, undefined);
+  // Sin fórmula (consulta caída o vacía) todo queda como antes.
+  assert.strictEqual(aplicarBaseDeFormula(rows, []), rows);
+  assert.match(sqlBaseDeFormula('pc.IdFormula = 1'), /pc\.IdFormula = 1/);
+});
+
 test('familiaNombre deja intacto lo que no tiene presentación y no devuelve vacío', () => {
   assert.strictEqual(familiaNombre('NUEZ MARIPOSA'), 'NUEZ MARIPOSA');
   assert.strictEqual(familiaNombre('1KG'), '1KG'); // dato sucio: no puede desaparecer

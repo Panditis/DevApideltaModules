@@ -27,7 +27,7 @@ const familiasManuales = require('../lib/familias_manuales');
 module.exports = function crearRutasAnalisis(deps) {
   const {
     apiRoute, query, leerJSON, guardarJSON, safeDate, auth,
-    FAMILIAS_MANUALES_PATH, generarTop20Prioritarios,
+    FAMILIAS_MANUALES_PATH, generarTop20Prioritarios, FORMULA_ACTIVA_SQL,
   } = deps;
   const router = express.Router();
 
@@ -141,6 +141,13 @@ async function sinInsumosSQL() {
   return condicionInsumos;
 }
 
+// Las familias juntan cada pack/bulto con su minorista según la fórmula de SIGA. Si la
+// consulta falla se sigue por nombre, que es como funcionaba antes: no rompe el reporte.
+async function conBaseDeFormula(rows) {
+  const base = await query(analisisVentas.sqlBaseDeFormula(FORMULA_ACTIVA_SQL))
+    .catch(e => { console.error('[analisis] fórmula pack/bulto:', e.message); return []; });
+  return analisisVentas.aplicarBaseDeFormula(rows, base);
+}
 
 router.get('/api/analisis-ventas', apiRoute(async req => {
   const desde = safeDate(req.query.desde);
@@ -218,7 +225,7 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
     }),
     // Familias del nombre + grupos manuales en una sola tabla. Los productos asignados a un
     // grupo se listan sólo ahí: ver familiasYGrupos.
-    familias: analisisVentas.familiasYGrupos(productosFacturacion,
+    familias: analisisVentas.familiasYGrupos(await conBaseDeFormula(productosFacturacion),
       familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, [])), topN),
     articulosPorTicket: {
       promedio: articulosProm,
@@ -364,7 +371,7 @@ router.get('/api/analisis-central', apiRoute(async req => {
       idProd: r.IdProducto, nombre: r.Nombre,
       unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
     })),
-    familias: analisisVentas.agruparFamilias(productos, topN),
+    familias: analisisVentas.agruparFamilias(await conBaseDeFormula(productos), topN),
     clientes: analisisVentas.agruparClientes(ventasCliente, topN),
   };
 }));
@@ -417,7 +424,7 @@ router.get('/api/analisis-central/apicultura', apiRoute(async req => {
       idProd: r.IdProducto, nombre: r.Nombre,
       unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
     })),
-    familias: analisisVentas.agruparFamilias(productos, topN),
+    familias: analisisVentas.agruparFamilias(await conBaseDeFormula(productos), topN),
     clientes: analisisVentas.agruparClientes(ventasCliente, topN),
   };
 }));
@@ -466,7 +473,7 @@ router.get('/api/analisis-familias', puedeVerFamilias, apiRoute(async req => {
 
   // Sin tope: se listan todas las familias y el front las pagina de a 20. El tope de 20 del
   // resto de las vistas dejaría afuera justo la cola que esta pestaña quiere mostrar.
-  const familias = analisisVentas.agruparFamilias(productos, Infinity);
+  const familias = analisisVentas.agruparFamilias(await conBaseDeFormula(productos), Infinity);
   return {
     rango: { desde, hasta },
     sucursales: sucIds,
