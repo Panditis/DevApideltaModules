@@ -674,3 +674,36 @@ test('Fraccionado: decisionPrecioSinVigente muestra el aviso (decision null) y s
   abrir(dom, 'fraccionado', granel({ conPermiso: true }));
   assert.doesNotMatch(dom.cuerpo(), /sin presentación vigente/);
 });
+
+// 2026-11-05: el pack/bulto de una presentación NO mayorista se vende por paquete (peso de la presentación) y el de una mayorista por kilo;
+// sin config explícita el modal lo rotula en la banda del pack/bulto ("Cómo se calcula el precio") y la tarjeta derecha trae la venta.
+test('Fraccionado: rótulo del modo de venta por defecto en el pack/bulto (no mayorista → por paquete, mayorista → por kilo)', () => {
+  const FC = require('../lib/precios_fraccionado_costo');
+  const vinculos = [{ plu: '201', nombre: 'Almendras Bulto x6', basePlu: '101', cantidad: 6, tipo: 'bulto' },
+    { plu: '205', nombre: 'Almendras Pack 5Kg', basePlu: '105', cantidad: 1, tipo: 'pack' }];
+  const v = new Map([['101', 1950], ['105', 9000]]);
+  const [g] = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '105', nombre: 'Almendras 5Kg' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: v, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes: v }), costeo: {}, cfg: CFG,
+    costeoF: FC.normalizarCosteoFraccionado({ costoHora: 6000, mayorista: { pesoMinG: 5000, porPlu: {} } }),
+  });
+  const fila = g; // fila entera (con desglose), como con precios-config
+  const may = plu => fila.presentaciones.find(p => p.mayoristas.some(m => m.plu === plu)).mayoristas.find(m => m.plu === plu);
+  assert.deepStrictEqual([may('201').venta, may('201').unidades], [{ modo: 'paquete', pesoKg: 0.5, porDefecto: true }, 0.5]);
+  assert.deepStrictEqual([may('205').venta, may('205').unidades], [{ modo: 'kg', pesoKg: null, porDefecto: true }, 1]);
+  const c = dom => dom.correr("cuentasPrecioFraccMd(mdEsq.fila.presentaciones.find(p => p.plu === '101'), 'sistema')");
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', fila, { detalle: true });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(c(dom).mayoristas.map(m => m.venta))), [may('201').venta]); // la tarjeta derecha trae la venta
+  const todo = dom.cuerpo() + dom.cuerpoDer();
+  assert.match(todo, /<b>Bulto<\/b> <span class="md-sub">PLU 201 · × 0\.5 · Por paquete \(peso de la presentación\)<\/span>/);
+  assert.match(todo, /<b>Pack<\/b> <span class="md-sub">PLU 205 · × 1 · Por kilo<\/span>/);
+  // Con config explícita no hay rótulo de "por defecto".
+  const [g2] = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: v, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes: v, ventaPesable: { 201: { modo: 'kg' } } }), costeo: {}, cfg: CFG,
+  });
+  const dom2 = crearContexto();
+  abrir(dom2, 'fraccionado', g2, { detalle: true });
+  assert.match(dom2.cuerpo() + dom2.cuerpoDer(), /PLU 201 · × 1<\/span>/);
+});

@@ -215,7 +215,13 @@ test('listadoFraccionado con vínculos: TODOS los pack/bulto vinculados usan los
   const pack = d.desglose.porVinculo['92'];
   assert.strictEqual(pack.descuentoMayoristaPct, 10);
   assert.strictEqual(pack.netoUnidad, Math.round(d.desglose.minorista.conExtras * 0.9 * 100) / 100);
-  assert.deepStrictEqual(d.mayoristas, sug(antes, '702').mayoristas); // el vinculado no depende de la marca de su base
+  // 2026-11-05: el vinculado SÍ depende de la marca de su base. Base no mayorista → por paquete (unidades = peso, 5 kg);
+  // base mayorista (acá por peso mínimo) → por kilo (unidades 1). Marcar/desmarcar cambia el precio del pack sin aviso extra.
+  const m92 = fila => fila.presentaciones.find(p => p.plu === '702').mayoristas.find(m => m.plu === '92');
+  assert.deepStrictEqual([m92(antes).unidades, m92(antes).venta], [5, { modo: 'paquete', pesoKg: 5, porDefecto: true }]);
+  assert.deepStrictEqual([m92(despues).unidades, m92(despues).venta], [1, { modo: 'kg', pesoKg: null, porDefecto: true }]);
+  assert.strictEqual(d.mayoristas[0].conIva, 1650); // por kilo
+  assert.strictEqual(sug(antes, '702').mayoristas[0].conIva, 8200); // por paquete de 5 kg
   assert.strictEqual(despues.presentaciones.find(p => p.plu === '702').mayoristaTipo, 'bulto');
   const conPack = listar({ pesoMinG: null, porPlu: { 702: 'pack' } });
   const p702 = conPack.presentaciones.find(p => p.plu === '702');

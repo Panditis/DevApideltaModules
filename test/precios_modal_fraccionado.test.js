@@ -124,8 +124,8 @@ test('filasPreciosFraccMd: filas por canal con el peso de la presentación y el 
   assert.deepStrictEqual(filas.map(r => [r.canal, r.plu, r.pesoG ?? null, r.vigente, r.sugerido, r.deltaPesos, r.deltaPct]), [
     ['Minorista · Almendras 250G', '103', 250, null, 1950, null, null],       // sin vigente: sin Δ
     ['Minorista · Almendras 500G', '101', 500, 1950, 1950, 0, 0],
-    ['Bulto sin IVA', '201', null, 9000, 1309.77, -7690.23, -85.4],               // el Δ vs vigente va en la fila sin IVA
-    ['Bulto con IVA', '201', null, null, 1600, null, null],                   // con IVA no tiene vigente: sin Δ
+    ['Bulto sin IVA', '201', null, 9000, 654.89, -8345.11, -92.7],               // el Δ vs vigente va en la fila sin IVA; bulto de la 500G por paquete (× 0,5, 2026-11-05)
+    ['Bulto con IVA', '201', null, null, 800, null, null],                    // con IVA no tiene vigente: sin Δ
     ['Minorista · Almendras 1Kg', '102', 1000, 1500, 1800, 300, 20]]);
 });
 
@@ -217,14 +217,14 @@ test('htmlPreciosFraccMd: los pack/bulto van DENTRO de la tarjeta de su presenta
   assert.match(medio, /<div class="md-fr-mays-t">Códigos mayoristas<\/div>/);
   assert.ok(medio.indexOf('md-fr-l3') < medio.indexOf('md-fr-mays'));                      // primero la presentación, después lo subordinado
   const codigo = medio.match(/<li class="md-fr-cod">.*?<\/li>/s)[0];
-  assert.match(codigo, /<b>Bulto<\/b> <span class="md-sub">PLU 201 · × 1<\/span>/);       // tipo, PLU y unidades
+  assert.match(codigo, /<b>Bulto<\/b> <span class="md-sub">PLU 201 · × 0\.5<\/span>/);     // tipo, PLU y unidades (por paquete: peso de la 500G, 2026-11-05)
   assert.match(codigo, /<span class="md-warn" title="[^"]*">revisar unidad<\/span>/);       // el aviso queda junto al código
   assert.match(codigo, /<div class="md-fr-cod-nom">Almendras Bulto x6<\/div>/);
   const sinIva = codigo.match(/<div class="md-fr-fila"><span class="md-fr-iva">Sin IVA<\/span>.*?<\/div>(?=<div class="md-fr-fila">|<\/li>)/s)[0];
-  assert.match(sinIva, /<span class="font-semibold text-warn">-\$ 7\.690,23<\/span>/); // bulto por descuento (2026-11-04)
-  assert.match(sinIva, /sem-bajar md-chip"><span aria-hidden="true">▼<\/span>-85\.4%/);
+  assert.match(sinIva, /<span class="font-semibold text-warn">-\$ 8\.345,11<\/span>/); // bulto por descuento (2026-11-04), por paquete × 0,5 (2026-11-05)
+  assert.match(sinIva, /sem-bajar md-chip"><span aria-hidden="true">▼<\/span>-92\.7%/);
   const conIva = codigo.match(/<div class="md-fr-fila"><span class="md-fr-iva">Con IVA<\/span>.*?<\/div>/s)[0];
-  assert.match(conIva, /\$ 1\.600/);
+  assert.match(conIva, /\$ 800/);
   assert.doesNotMatch(conIva, /text-crit|text-warn|text-gris|md-chip/);                      // sin vigente ni Δ
   assert.ok(html.indexOf('PLU 201') < html.indexOf('Almendras 1Kg'));                        // el bulto de la 500G está en su tarjeta, antes que la 1Kg
 });

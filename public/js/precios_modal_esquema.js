@@ -129,10 +129,13 @@ function estadoDecision(fila, tipo) {
   return { exporta: true, texto: tipo === 'produccion' ? 'Se exporta con aumento' : `Se exporta con ${(TXT_OPCION[f] || f).toLowerCase()}` };
 }
 
-// Modo de venta de un pack/bulto pesable → pedido a /api/precios/pack-bulto/venta/:plu. Por kg = el default: se borra.
+// Modo de venta de un pack/bulto pesable → pedido a /api/precios/pack-bulto/venta/:plu. Por kg se guarda explícito (PUT modo kg).
 const PESO_MAX_KG_MD = 1000; // mismo tope que lib/precios_pack_bulto
+// Rótulo del modo cuando viene por defecto (sin config explícita): paquete = peso de la presentación; kg = mayorista. Con config explícita, ninguno.
+const TXT_VENTA_PAQUETE_DEF = 'Por paquete (peso de la presentación)';
+const rotuloVentaMd = v => (!v || v.porDefecto !== true ? '' : v.modo === 'paquete' ? TXT_VENTA_PAQUETE_DEF : 'Por kilo');
 function ventaPayload(modo, pesoKg) {
-  if (modo !== 'paquete') return { metodo: 'DELETE' };
+  if (modo !== 'paquete') return { metodo: 'PUT', body: { modo: 'kg' } }; // explícito: el default sin config puede ser paquete
   if (!(pesoKg > 0 && pesoKg <= PESO_MAX_KG_MD)) return { error: `Por paquete: poné el peso del paquete (más de 0 y hasta ${PESO_MAX_KG_MD} kg).` };
   return { metodo: 'PUT', body: { modo: 'paquete', pesoKg } };
 }
@@ -210,7 +213,7 @@ const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug
 // "con última compra" (con decisión: la fuente elegida) o "con costo sistema, para comparar" (sin decisión: nada se exporta).
 const textoFuenteMd = (fila, fuente) => (fila.decision ? `con ${(TXT_OPCION[fuente] || fuente).toLowerCase()}` : 'con costo sistema, para comparar');
 
-if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd, fuenteRefMd, canalesPrecioFijoMd, payloadPrecioFijoMd };
+if (typeof module === 'object' && module.exports) module.exports = { rotuloVentaMd, fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd, margenesDePrecioMd, fuenteRefMd, canalesPrecioFijoMd, payloadPrecioFijoMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -585,8 +588,9 @@ const htmlFilaExtraMd = (it = {}) => `<tr><td class="py-1 pr-2"><input class="nu
 const ventasPesablesMd = f => [...(f.mayoristas || []), ...(f.presentaciones || []).flatMap(p => p.mayoristas || [])].filter(m => m.venta);
 const htmlVentaMd = m => `<tr><td class="py-1 pr-2">${esc(TIPO_CANAL[m.tipo] || m.tipo)} ${esc(m.plu)} <span class="text-gris">${esc(m.nombre || '')}</span></td>
   <td class="py-1 pr-2"><select class="md-venta-modo num-in" data-plu="${esc(m.plu)}" aria-label="Modo de venta de ${esc(m.plu)}">
-    <option value="kg"${m.venta.modo !== 'paquete' ? ' selected' : ''}>Por kg</option><option value="paquete"${m.venta.modo === 'paquete' ? ' selected' : ''}>Por paquete</option></select></td>
-  <td class="py-1 pr-2"><input type="number" min="0" step="any" class="md-venta-kg num-in w-20${m.venta.modo === 'paquete' ? '' : ' hidden'}" data-plu="${esc(m.plu)}" value="${esc(m.venta.pesoKg ?? '')}" aria-label="Kg del paquete de ${esc(m.plu)}"></td>
+    <option value="kg"${m.venta.modo !== 'paquete' ? ' selected' : ''}>Por kg</option><option value="paquete"${m.venta.modo === 'paquete' ? ' selected' : ''}>Por paquete</option></select>
+    ${rotuloVentaMd(m.venta) ? `<div class="md-sub md-venta-def">${esc(rotuloVentaMd(m.venta))}</div>` : ''}</td>
+  <td class="py-1 pr-2"><input type="number" min="0" step="any" class="md-venta-kg num-in w-20${m.venta.modo === 'paquete' ? '' : ' hidden'}" data-plu="${esc(m.plu)}" value="${esc(m.venta.pesoKg ?? '')}" aria-label="Kg del paquete de ${esc(m.plu)}"${m.venta.porDefecto === true && m.venta.modo === 'paquete' ? ' title="Viene del peso de la presentación"' : ''}></td>
   <td class="py-1"><button type="button" class="md-venta-guardar cfg-btn2" data-plu="${esc(m.plu)}">Guardar</button></td></tr>`;
 function htmlVentasPesablesMd(f) {
   const ms = mdEsq.tipo === 'fraccionado' ? ventasPesablesMd(f) : [];

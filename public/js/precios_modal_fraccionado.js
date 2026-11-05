@@ -28,7 +28,7 @@ const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { esc, fmtMoney, 
 const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD } = FMT_FR_MD;
 // Estado del granel (activo / inactivo): las mismas funciones del listado (precios_listados.js, que se carga antes).
 const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, textoActivoPorStockLst, textoActivoPorPresentacionesLst, conActividadLst, conMarcaMayoristaGranelLst, accionesMayoristaLst, textoReglaMayLst, AYUDA_REGLA_MAY }); // al llamar: el orden de los scripts no importa
-const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
+const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { rotuloVentaMd, TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
 // componentesCosto de una presentación (lib/precios_fraccionado_costo) por concepto. fuente = la elegida en el modal;
@@ -340,7 +340,7 @@ function cuentasPrecioFraccMd(fila, fuente, { minorista = true } = {}) {
   const d = s.desglose, porVinculo = d.porVinculo || {};
   return {
     minorista: minorista ? pasosMinoristaFraccMd(d, fila.componentesCosto ? 'Costo real' : 'Costo de mercadería').map(filaDePasoMd) : null, // presentación costeada = mercadería + envase + MO + máquina
-    mayoristas: (fila.mayoristas || []).filter(v => porVinculo[v.plu]).map(v => ({ tipo: v.tipo, plu: v.plu, nombre: v.nombre, unidades: porVinculo[v.plu].unidades,
+    mayoristas: (fila.mayoristas || []).filter(v => porVinculo[v.plu]).map(v => ({ tipo: v.tipo, plu: v.plu, nombre: v.nombre, unidades: porVinculo[v.plu].unidades, venta: v.venta,
       filas: ESQ_FR_MD.pasosMayoristaMd(d, porVinculo[v.plu]).map(filaDePasoMd) })),
   };
 }
@@ -364,7 +364,7 @@ const htmlTarjetaCostoFraccMd = (p, fuente, costosGranel) => `<li class="md-dt-c
   + `${subTarjetaFraccMd(p)}${htmlCuentaFraccMd(filasCostoPresFraccMd(p, fuente, costosGranel))}</li>`;
 // Un pack/bulto dentro de la tarjeta de su dueño: banda con su tipo, PLU y unidades (y su nombre) y su cuenta.
 const htmlCanalFraccMd = m => `<div class="md-dt-canal"><b>${ESC_FR_MD(ESQ_FR_MD.TIPO_CANAL[m.tipo] || m.tipo)}</b> `
-  + `<span class="md-sub">PLU ${ESC_FR_MD(m.plu)}${m.unidades ? ` · × ${ESC_FR_MD(m.unidades)}` : ''}</span>${m.nombre ? `<div class="md-dt-canal-nom">${ESC_FR_MD(m.nombre)}</div>` : ''}</div>${htmlCuentaFraccMd(m.filas)}`;
+  + `<span class="md-sub">PLU ${ESC_FR_MD(m.plu)}${m.unidades ? ` · × ${ESC_FR_MD(m.unidades)}` : ''}${ESQ_FR_MD.rotuloVentaMd(m.venta) ? ` · ${ESC_FR_MD(ESQ_FR_MD.rotuloVentaMd(m.venta))}` : ''}</span>${m.nombre ? `<div class="md-dt-canal-nom">${ESC_FR_MD(m.nombre)}</div>` : ''}</div>${htmlCuentaFraccMd(m.filas)}`;
 const SIN_DESGLOSE_FR_MD = 'Sin desglose para esta fuente.';
 function htmlTarjetaPrecioFraccMd(p, fuente) {
   const c = cuentasPrecioFraccMd(p, fuente);

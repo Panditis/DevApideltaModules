@@ -394,8 +394,42 @@ test('crearMayoristasDe: pesable trae su modo de venta (kg por default, paquete 
   const md = L.crearMayoristasDe({ vigentes: new Map(), ventaPesable: { 61: { modo: 'paquete', pesoKg: 5 } },
     vinculos: [{ plu: '60', basePlu: '102', tipo: 'pack', cantidad: 10 }, { plu: '61', basePlu: '102', tipo: 'bulto', cantidad: 10 }] });
   assert.deepStrictEqual(md('102', true).map(m => [m.plu, m.unidades, m.venta]),
-    [['60', 1, { modo: 'kg', pesoKg: null }], ['61', 5, { modo: 'paquete', pesoKg: 5 }]]);
+    [['60', 1, { modo: 'kg', pesoKg: null, porDefecto: true }], ['61', 5, { modo: 'paquete', pesoKg: 5, porDefecto: false }]]);
   assert.deepStrictEqual(md('102').map(m => m.venta), [null, null]);
+});
+
+test('vinculado de presentación con peso: por paquete = pesoG/1000 por defecto; config explícita gana; granel/Reventa sin cambios', () => {
+  assert.strictEqual(L.unidadesVinculo({ plu: '70', cantidad: 1 }, {}, true, 0.1), 0.1);
+  assert.strictEqual(L.unidadesVinculo({ plu: '70', cantidad: 1 }, { 70: { modo: 'kg' } }, true, 0.1), 1);
+  assert.strictEqual(L.unidadesVinculo({ plu: '70', cantidad: 1 }, { 70: { modo: 'paquete', pesoKg: 0.15 } }, true, 0.1), 0.15);
+  assert.strictEqual(L.unidadesVinculo({ plu: '70', cantidad: 1 }, {}, true, null), 1);
+  assert.strictEqual(L.unidadesVinculo({ plu: '71', granel: true, cantidad: 1 }, {}, true, 0.1), 1);
+  assert.strictEqual(L.unidadesVinculo({ plu: '72', cantidad: 6 }, {}, false, 0.1), 1);
+  const md = L.crearMayoristasDe({ vigentes: new Map(), ventaPesable: { 74: { modo: 'kg' } },
+    vinculos: [{ plu: '73', basePlu: '200', tipo: 'bulto', cantidad: 1 }, { plu: '74', basePlu: '200', tipo: 'pack', cantidad: 1 }] });
+  assert.deepStrictEqual(md('200', true, 0.1).map(m => [m.plu, m.unidades, m.venta]),
+    [['73', 0.1, { modo: 'paquete', pesoKg: 0.1, porDefecto: true }], ['74', 1, { modo: 'kg', pesoKg: null, porDefecto: false }]]);
+  assert.deepStrictEqual(md('200', true).map(m => m.venta.porDefecto), [true, false]);
+  // precio del bulto = kilo × 0,1 y costo de export × 0,1
+  const cfg = CFG;
+  const por1 = L.preciosDeCosto({ cfg, tipo: 'fraccionado', costo: 10000, pesoG: 100, mayoristas: [{ plu: '73', tipo: 'bulto', unidades: 1, vigente: null }] });
+  const por01 = L.preciosDeCosto({ cfg, tipo: 'fraccionado', costo: 10000, pesoG: 100, mayoristas: [{ plu: '73', tipo: 'bulto', unidades: 0.1, vigente: null }] });
+  assert.ok(Math.abs(por01.mayoristas[0].neto - por1.mayoristas[0].neto * 0.1) < 1);
+  const listas = L.listasExport([{ costo: 10000, minorista: null, mayoristas: [{ plu: '73', nombre: 'x', tipo: 'bulto', unidades: 0.1, neto: 1, conIva: 1 }] }]);
+  assert.strictEqual(listas.bultoNeto[1][2], 1000);
+});
+
+test('listadoFraccionado: presentación mayorista vende su vinculado por kg por defecto; no mayorista por paquete; config explícita gana', () => {
+  const grupos = [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '105', nombre: 'Almendras 5Kg' }, { plu: '106', nombre: 'Almendras 100G' }] }];
+  const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000 }]]);
+  const vinculos = [{ plu: '80', basePlu: '105', tipo: 'bulto', cantidad: 1 }, { plu: '81', basePlu: '106', tipo: 'bulto', cantidad: 1 }];
+  const listar = ventaPesable => L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: L.crearMayoristasDe({ vigentes: new Map(), vinculos, ventaPesable }),
+    costeo: {}, cfg: CFG, costeoF: FCx.normalizarCosteoFraccionado({ mayorista: { porPlu: { 105: 'bulto' } } }) })[0];
+  const [min, may] = listar({}).presentaciones;
+  assert.strictEqual(may.mayorista, true);
+  assert.deepStrictEqual([may.mayoristas[0].unidades, may.mayoristas[0].venta], [1, { modo: 'kg', pesoKg: null, porDefecto: true }]);
+  assert.strictEqual(min.mayoristas[0].unidades, 0.1);
+  assert.strictEqual(listar({ 80: { modo: 'paquete', pesoKg: 2 } }).presentaciones[1].mayoristas[0].unidades, 2);
 });
 
 // ── Decisión temporal (spec §3): vence si SIGA cambió el precio decidido ──

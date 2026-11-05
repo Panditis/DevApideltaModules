@@ -97,8 +97,8 @@ test('opcionesSelect Fraccionado: el Δ% es el promedio de las presentaciones ("
   assert.strictEqual(opcionesSelect(fracc(new Map()), 'fraccionado')[1].texto, 'Sistema · sin vigente');
 });
 
-test('ventaPayload: por kg → DELETE (vuelve al default); por paquete exige kg > 0 y ≤ 1000', () => {
-  assert.deepStrictEqual(ventaPayload('kg', null), { metodo: 'DELETE' });
+test('ventaPayload: por kg → PUT explícito; por paquete exige kg > 0 y ≤ 1000', () => {
+  assert.deepStrictEqual(ventaPayload('kg', null), { metodo: 'PUT', body: { modo: 'kg' } });
   assert.deepStrictEqual(ventaPayload('paquete', 2.5), { metodo: 'PUT', body: { modo: 'paquete', pesoKg: 2.5 } });
   assert.match(ventaPayload('paquete', 0).error, /peso/);
   assert.match(ventaPayload('paquete', 1001).error, /peso/);

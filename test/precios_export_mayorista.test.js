@@ -72,3 +72,28 @@ test('export: mayorista sin sinIva (margen fijo), minorista y granel salen como 
   const l = L.listasExport(r.items);
   assert.deepStrictEqual(['110', '111', '100'].map(p => venta(l.minorista, p)), [2000, 2000, 1500]);
 });
+
+// 2026-11-05: pack/bulto de una presentación NO mayorista = por paquete (unidades = peso); de una mayorista = por kilo (unidades 1).
+// El costo exportado va × unidades, coherente con su precio.
+test('export: bulto de una 100G va por paquete (costo × 0,1) y el de una mayorista por kilo (costo × 1)', () => {
+  const { CFG: CFGF } = require('./precios_esquema_fixture');
+  const FC = require('../lib/precios_fraccionado_costo');
+  const vinculos = [{ plu: '301', nombre: 'Bulto 100G', basePlu: '101', cantidad: 10, tipo: 'bulto' }, { plu: '305', nombre: 'Bulto 5Kg', basePlu: '105', cantidad: 1, tipo: 'bulto' }];
+  const [g] = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Chia', presentaciones: [{ plu: '101', nombre: 'Chia 100G' }, { plu: '105', nombre: 'Chia 5Kg' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: new Map(), mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes: new Map() }), costeo: {}, cfg: CFGF,
+    costeoF: FC.normalizarCosteoFraccionado({ costoHora: 6000, mayorista: { pesoMinG: 5000, porPlu: {} } }),
+  });
+  const { items } = L.itemsDecididos({ fraccionado: [{ ...g, decision: { fuente: 'sistema' } }] });
+  const listas = L.listasExport(items);
+  const fila = plu => listas.bultoNeto.find(r => r[0] === Number(plu));
+  const it = plu => items.find(i => i.mayoristas.some(m => m.plu === plu));
+  const m = plu => it(plu).mayoristas.find(x => x.plu === plu);
+  assert.deepStrictEqual([m('301').unidades, m('305').unidades], [0.1, 1]);
+  assert.strictEqual(fila('301')[2], Math.round(it('301').costo * 0.1 * 100) / 100);
+  assert.strictEqual(fila('305')[2], Math.round(it('305').costo * 100) / 100);
+  // Coherencia: el bulto de la 100G cuesta y vale ~0,1 de lo mismo por kilo (precio y costo escalan igual).
+  const pkg = it('301').mayoristas.find(x => x.plu === '301');
+  assert.ok(pkg.neto > 0 && pkg.neto < it('301').costo, 'precio del paquete de 100 g menor al costo de 1 kg');
+  assert.ok(fila('301')[3] / fila('301')[2] > 1, 'margen positivo sobre el costo × 0,1');
+});
