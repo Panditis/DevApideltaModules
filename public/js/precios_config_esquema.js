@@ -295,7 +295,7 @@ function pintarQuiebresEsq(card) {
 // Mayorista: descuentos de Fraccionado (sólo ese tipo). Pack = minorista $/kg sin IVA − descPackPct; bulto = pack − descBultoPct. Texto con coma o punto.
 const DESC_MAYORISTA_DEF = { descPackPct: 10, descBultoPct: 10 }; // ausente en la respuesta = 10 y 10
 const CAMPOS_MAYORISTA_ESQ = { descPackPct: 'Descuento precio pack', descBultoPct: 'Descuento precio bulto' };
-const AYUDA_MAYORISTA_ESQ = 'Pack = precio por kg minorista sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto. Aplica a las presentaciones mayoristas y a los productos pack y bulto vinculados.';
+const AYUDA_MAYORISTA_ESQ = 'Pack = precio por kg minorista sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto. Aplica a las presentaciones mayoristas y a los productos pack y bulto vinculados. Si un granel tiene 2 presentaciones mayoristas, la de menor peso es pack y la mayor es bulto (salvo que marques el tipo a mano).';
 function pctDeTextoEsq(txt) { // "10,5" / "10.5" → 10.5; vacío o inválido → null
   const s = String(txt ?? '').trim().replace(',', '.');
   return /^\d+(\.\d+)?$/.test(s) ? Number(s) : null;

@@ -276,3 +276,35 @@ test('PUT mayorista sin migrar: error y no escribe', async () => {
     assert.strictEqual(a.leer().fraccionado, undefined);
   } finally { a.cerrar(); }
 });
+
+test('mayoristasDeGranel: 2 mayoristas de pesos distintos → menor pack, mayor bulto; bordes', () => {
+  const g = (cfg, ...pres) => E.mayoristasDeGranel(pres.map(([plu, pesoG]) => ({ plu, pesoG })), cfg).map(m => [m.tipo, m.tipoOrigen]);
+  const auto = { pesoMinG: 5000, porPlu: {} };
+  assert.deepStrictEqual(g(auto, ['1', 500], ['2', 20000], ['3', 5000]), [[null, null], ['bulto', 'regla'], ['pack', 'regla']]);
+  assert.deepStrictEqual(g({ pesoMinG: 5000, porPlu: { 3: 'bulto' } }, ['2', 20000], ['3', 5000]), [['bulto', 'peso-defecto'], ['bulto', 'manual']]); // una manual: la otra por defecto
+  assert.deepStrictEqual(g({ pesoMinG: 5000, porPlu: { 3: true } }, ['2', 20000], ['3', 5000]), [['bulto', 'peso-defecto'], ['bulto', 'manual']]); // true cuenta como fijada
+  assert.deepStrictEqual(g({ pesoMinG: null, porPlu: { 2: 'pack', 3: 'bulto' } }, ['2', 20000], ['3', 5000]), [['pack', 'manual'], ['bulto', 'manual']]); // manual gana
+  assert.deepStrictEqual(g({ pesoMinG: null, porPlu: { 3: 'pack' } }, ['3', 5000]).length, 1);
+  assert.deepStrictEqual(g(auto, ['2', 5000], ['3', 5000]), [['bulto', 'peso-defecto'], ['bulto', 'peso-defecto']]); // pesos iguales
+  assert.deepStrictEqual(g(auto, ['2', 5000]), [['bulto', 'peso-defecto']]); // 1 mayorista
+  assert.deepStrictEqual(g(auto, ['2', 5000], ['3', 10000], ['4', 20000]).map(x => x[1]), ['peso-defecto', 'peso-defecto', 'peso-defecto']); // 3
+  assert.deepStrictEqual(g({ pesoMinG: 5000, porPlu: { 4: false } }, ['2', 5000], ['3', 10000], ['4', 20000]), [['pack', 'regla'], ['bulto', 'regla'], [null, null]]); // false no cuenta
+  assert.deepStrictEqual(E.mayoristasDeGranel([{ plu: '2', pesoG: 5000 }, { plu: '3', pesoG: 20000 }], auto, false).map(m => m.tipoOrigen), ['peso-defecto', 'peso-defecto']); // sin granel
+});
+
+test('listadoFraccionado: regla pack/bulto por granel, sugerido pack.neto, no mezcla graneles ni aplica sin granel', () => {
+  const pres = (a, b) => [{ plu: a, nombre: 'Chia 5Kg' }, { plu: b, nombre: 'Chia 20Kg' }];
+  const costos = new Map([['700', { nombre: 'Chia granel', costoSistema: 1000 }], ['800', { nombre: 'Lino granel', costoSistema: 1000 }]]);
+  const grupos = [{ plu: '700', nombre: 'Chia granel', presentaciones: pres('701', '702') },
+    { plu: '800', nombre: 'Lino granel', presentaciones: [{ plu: '801', nombre: 'Lino 5Kg' }] },
+    { plu: null, nombre: 'Sin granel', presentaciones: pres('901', '902') }];
+  const filas = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), costeo: {}, cfg: CFG,
+    costeoF: FC.normalizarCosteoFraccionado({ costoHora: 6000, mayorista: { pesoMinG: 5000, porPlu: {} } }), mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }) });
+  const t = fila => L.filaPublica(fila).presentaciones.map(p => [p.plu, p.mayoristaTipo, p.mayoristaTipoOrigen]);
+  assert.deepStrictEqual(t(filas[0]), [['701', 'pack', 'regla'], ['702', 'bulto', 'regla']]);
+  assert.deepStrictEqual(t(filas[1]), [['801', 'bulto', 'peso-defecto']]);
+  assert.deepStrictEqual(t(filas[2]), [['901', 'bulto', 'peso-defecto'], ['902', 'bulto', 'peso-defecto']]);
+  const p701 = filas[0].presentaciones[0].sugeridos.sistema.minorista;
+  assert.strictEqual(p701.tipoMayorista, 'pack');
+  assert.strictEqual(p701.precio, p701.pack.neto);
+});

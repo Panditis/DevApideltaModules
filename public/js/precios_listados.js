@@ -75,8 +75,12 @@ const textoOmitidosMayoristaLst = n => `${n} presentaciones mayoristas no se exp
 const TIPO_MAY_LST = { pack: 'Pack', bulto: 'Bulto' };
 // Tipo efectivo de una presentación mayorista (sin dato = bulto, el default); null si es minorista.
 const tipoMayLst = p => (p && p.mayorista === true ? (p.mayoristaTipo === 'pack' ? 'pack' : 'bulto') : null);
+// Regla del server: un granel con exactamente 2 mayoristas sin tipo a mano → la de menor peso es pack, la mayor bulto (p.mayoristaTipoOrigen === 'regla').
+const AYUDA_REGLA_MAY = 'Si un granel tiene 2 presentaciones mayoristas, la de menor peso es pack y la mayor es bulto (salvo que marques el tipo a mano).';
+const textoReglaMayLst = p => (p && p.mayorista === true && p.mayoristaTipoOrigen === 'regla'
+  ? `Tipo por regla: ${tipoMayLst(p) === 'pack' ? 'menor de 2 mayoristas del granel → pack' : 'mayor de 2 → bulto'}` : '');
 const htmlBadgeMayoristaLst = p => (p.mayorista === true
-  ? ` <span class="${BADGE_ACT_LST}" title="${ESC_LST(TXT_ORIGEN_MAY_LST(p.mayoristaOrigen) || 'Mayorista')}">Mayorista · ${TIPO_MAY_LST[tipoMayLst(p)]}</span>` : '');
+  ? ` <span class="${BADGE_ACT_LST}" title="${ESC_LST([TXT_ORIGEN_MAY_LST(p.mayoristaOrigen) || 'Mayorista', textoReglaMayLst(p)].filter(Boolean).join('. '))}">Mayorista · ${TIPO_MAY_LST[tipoMayLst(p)]}</span>` : '');
 // Las tres opciones del control (pressed = estado efectivo) y, si la marca es manual, volver a automático. null = sin control (sin PLU).
 const OPCIONES_MAY_LST = [{ texto: 'Minorista', valor: false }, { texto: 'Mayorista · Pack', valor: 'pack' }, { texto: 'Mayorista · Bulto', valor: 'bulto' }];
 function accionesMayoristaLst(p) {
@@ -120,13 +124,17 @@ function htmlDetalleMayoristaLst(p, s) {
 }
 const celdaPrecioPres = (p, s) => celdaPrecio(s) + htmlDetalleMayoristaLst(p, s);
 
-// Presentación con la marca ya cambiada (valor false | 'pack' | 'bulto' | true ≡ 'bulto' | null = automático): la misma regla del server
-// (PreciosEsquema.esMayoristaPresentacion → { mayorista, origen, tipo }); pesoMinG = el umbral vigente de la respuesta del PUT.
 const PE_LST = typeof module === 'object' && module.exports ? require('../../lib/precios_esquema') : PreciosEsquema;
-function conMarcaMayoristaLst(p, valor, pesoMinG) {
+
+// Las presentaciones de UN granel con la marca de plu ya cambiada: reclasifica todas juntas con el esquema compartido (mayoristasDeGranel), así aplica la regla
+// de 2 mayoristas igual que el server. Las marcas a mano de las otras presentaciones se conservan (origen 'manual').
+function conMarcaMayoristaGranelLst(pres, plu, valor, pesoMinG) {
   const manual = valor === false || valor === true || valor === 'pack' || valor === 'bulto';
-  const r = PE_LST.esMayoristaPresentacion(p.pesoG, p.plu, { pesoMinG, porPlu: manual ? { [p.plu]: valor } : {} });
-  return { ...p, mayorista: r.mayorista, mayoristaOrigen: r.origen, mayoristaTipo: r.mayorista ? (r.tipo === 'pack' ? 'pack' : 'bulto') : null };
+  const porPlu = {};
+  for (const p of pres) if (p.mayoristaOrigen === 'manual') porPlu[p.plu] = p.mayorista ? (p.mayoristaTipo === 'pack' ? 'pack' : 'bulto') : false;
+  if (manual) porPlu[plu] = valor; else delete porPlu[plu];
+  const rs = PE_LST.mayoristasDeGranel(pres.map(p => ({ pesoG: p.pesoG, plu: p.plu })), { pesoMinG, porPlu });
+  return pres.map((p, i) => ({ ...p, mayorista: rs[i].mayorista, mayoristaOrigen: rs[i].origen, mayoristaTipo: rs[i].mayorista ? (rs[i].tipo === 'pack' ? 'pack' : 'bulto') : null, mayoristaTipoOrigen: rs[i].tipoOrigen }));
 }
 
 // PLU del granel (fila de primer nivel) que contiene la presentación plu; null si no está.
@@ -291,7 +299,7 @@ const textoPrecioFijoLst = pf => CANALES_PF_LST.filter(([c]) => pf && pf[c] > 0)
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, textoMotivosActividad, textoInactivoLst, textoActivoPorStockLst, textoActivoPorPresentacionesLst, htmlBadgesActividadLst, textoPrecioFijoLst, accionActividadLst, conActividadLst, htmlBadgeMayoristaLst, tipoMayLst, textoOmitidosMayoristaLst, detalleMayoristaLst, htmlDetalleMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst, granelDePresentacionLst };
+  contarOcultables, textoMotivosActividad, textoInactivoLst, textoActivoPorStockLst, textoActivoPorPresentacionesLst, htmlBadgesActividadLst, textoPrecioFijoLst, accionActividadLst, conActividadLst, htmlBadgeMayoristaLst, tipoMayLst, textoReglaMayLst, AYUDA_REGLA_MAY, textoOmitidosMayoristaLst, detalleMayoristaLst, htmlDetalleMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaGranelLst, granelDePresentacionLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -482,7 +490,7 @@ async function guardarMarcaMayoristaLst(tipo, plu, valor) {
   if (!lstDatos[tipo]) return umbral;
   const granel = granelDePresentacionLst(lstDatos[tipo], plu);
   if (granel != null) visiblesLst.add(String(granel)); // la fila tocada no se oculta aunque cambie su estado
-  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(g => ({ ...g, presentaciones: (g.presentaciones || []).map(p => (String(p.plu) === String(plu) ? conMarcaMayoristaLst(p, valor, umbral) : p)) })) };
+  lstDatos = { ...lstDatos, [tipo]: lstDatos[tipo].map(g => ({ ...g, presentaciones: (g.presentaciones || []).some(p => String(p.plu) === String(plu)) ? conMarcaMayoristaGranelLst(g.presentaciones, plu, valor, umbral) : g.presentaciones })) };
   renderListado(tipo);
   // pack/bulto de las presentaciones mayoristas cambian en el server: se traen las filas de nuevo (sin repintar el marco: filtros, orden y grupos abiertos quedan)
   try {

@@ -608,7 +608,8 @@ function htmlMayoristaFr() {
   return `<div class="cfg-card fr-card fr-ancla min-w-0 mt-4" data-guardable data-nombre="Presentaciones mayoristas" id="frMayorista"><div class="fr-cuerpo">
     <h3 class="cfg-h">Presentaciones mayoristas</h3>
     <p class="cfg-ayuda">Presentaciones de este peso o más se tratan como mayoristas. Vacío: ninguna lo es por peso. Una presentación sin peso en el nombre nunca es mayorista por peso.
-      Hoy sólo se clasifica y se muestra (badge en el listado y columna en el export): el precio se calcula igual que antes.</p>
+      Hoy sólo se clasifica y se muestra (badge en el listado y columna en el export): el precio se calcula igual que antes.
+      Si un granel tiene 2 presentaciones mayoristas, la de menor peso es pack y la mayor es bulto (salvo que marques el tipo a mano).</p>
     <label class="flex flex-col gap-1 text-xs text-gris w-fit">Peso mínimo mayorista
       ${campoU(`<input type="number" min="1" max="${PESO_MIN_MAYORISTA_MAX_FR}" step="1" data-k="pesoMinG" value="${esc(m.pesoMinG ?? '')}" placeholder="sin umbral" aria-describedby="frMayoristaErr">`, 'g', { w: 'w-40' })}</label>
     <p id="frMayoristaErr" class="fr-may-err text-xs text-crit mt-1" role="status" aria-live="polite"></p>

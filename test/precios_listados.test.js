@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  htmlBadgeMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaLst, contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst } = require('../public/js/precios_listados.js');
+  htmlBadgeMayoristaLst, accionesMayoristaLst, htmlAccionMayoristaLst, conMarcaMayoristaGranelLst, contarOcultables, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoPrecioFijoLst } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -478,16 +478,17 @@ test('mayorista listado: control de 3 estados (Minorista | Mayorista · Pack | M
   assert.strictEqual(htmlAccionMayoristaLst({ plu: null }), '');
 });
 
-test('conMarcaMayoristaLst: false | "pack" | "bulto" (true ≡ bulto) = manual; null vuelve a automático (por peso = bulto; límite incluido; sin peso o sin umbral, no); no muta', () => {
+test('conMarcaMayoristaGranelLst (1 presentación): false | "pack" | "bulto" (true ≡ bulto) = manual; null vuelve a automático (por peso = bulto; límite incluido; sin peso o sin umbral, no); no muta', () => {
+  const conMarca = (p, v, min) => { const { mayoristaTipoOrigen, ...r } = conMarcaMayoristaGranelLst([p], p.plu, v, min)[0]; return r; };
   const p = { plu: '5', pesoG: 5000, mayorista: false, mayoristaOrigen: 'manual' };
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, true, null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'bulto' });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, 'bulto', null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'bulto' });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, 'pack', null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' });
-  assert.deepStrictEqual(conMarcaMayoristaLst({ ...p, mayorista: true }, false, 1), { ...p, mayorista: false, mayoristaOrigen: 'manual', mayoristaTipo: null });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5000), { ...p, mayorista: true, mayoristaOrigen: 'peso', mayoristaTipo: 'bulto' });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, 5001), { ...p, mayorista: false, mayoristaOrigen: null, mayoristaTipo: null });
-  assert.deepStrictEqual(conMarcaMayoristaLst(p, null, null), { ...p, mayorista: false, mayoristaOrigen: null, mayoristaTipo: null });
-  assert.strictEqual(conMarcaMayoristaLst({ ...p, pesoG: null }, null, 1).mayorista, false);
+  assert.deepStrictEqual(conMarca(p, true, null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'bulto' });
+  assert.deepStrictEqual(conMarca(p, 'bulto', null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'bulto' });
+  assert.deepStrictEqual(conMarca(p, 'pack', null), { ...p, mayorista: true, mayoristaOrigen: 'manual', mayoristaTipo: 'pack' });
+  assert.deepStrictEqual(conMarca({ ...p, mayorista: true }, false, 1), { ...p, mayorista: false, mayoristaOrigen: 'manual', mayoristaTipo: null });
+  assert.deepStrictEqual(conMarca(p, null, 5000), { ...p, mayorista: true, mayoristaOrigen: 'peso', mayoristaTipo: 'bulto' });
+  assert.deepStrictEqual(conMarca(p, null, 5001), { ...p, mayorista: false, mayoristaOrigen: null, mayoristaTipo: null });
+  assert.deepStrictEqual(conMarca(p, null, null), { ...p, mayorista: false, mayoristaOrigen: null, mayoristaTipo: null });
+  assert.strictEqual(conMarca({ ...p, pesoG: null }, null, 1).mayorista, false);
   assert.strictEqual(p.mayorista, false);
 });
 
@@ -606,4 +607,31 @@ test('export xlsx: Δ% de una mayorista con descuento compara contra vigenteNeto
   const fila = filasExportListado([g], 'fraccionado')[1];
   const i = filasExportListado([g], 'fraccionado')[0].indexOf('Δ% (vs precio actual)');
   assert.ok(fila[i] > 0.17 && fila[i] < 0.19, `Δ% ${fila[i]}`);
+});
+
+test('mayorista por regla: badge y texto indican pack (menor) o bulto (mayor); sin regla no hay indicador', () => {
+  const { textoReglaMayLst, AYUDA_REGLA_MAY } = require('../public/js/precios_listados.js');
+  const pack = { mayorista: true, mayoristaTipo: 'pack', mayoristaOrigen: 'peso', mayoristaTipoOrigen: 'regla' };
+  const bulto = { ...pack, mayoristaTipo: 'bulto' };
+  assert.match(textoReglaMayLst(pack), /menor de 2 mayoristas del granel → pack/);
+  assert.match(textoReglaMayLst(bulto), /mayor de 2 → bulto/);
+  assert.match(htmlBadgeMayoristaLst(pack), /title="Por peso\. Tipo por regla/);
+  for (const o of ['manual', 'peso-defecto', undefined]) {
+    const p = { ...pack, mayoristaTipoOrigen: o };
+    assert.equal(textoReglaMayLst(p), '');
+    assert.doesNotMatch(htmlBadgeMayoristaLst(p), /regla/);
+  }
+  assert.equal(textoReglaMayLst({ mayorista: false, mayoristaTipoOrigen: 'regla' }), '');
+  const fs = require('node:fs');
+  for (const f of ['precios_config_esquema.js', 'precios_config_fraccionado.js']) {
+    assert.ok(fs.readFileSync(`${__dirname}/../public/js/${f}`, 'utf8').includes(AYUDA_REGLA_MAY), f);
+  }
+});
+
+test('conMarcaMayoristaGranelLst: aplica la regla de 2 mayoristas por granel; la marca a mano gana', () => {
+  const { conMarcaMayoristaGranelLst } = require('../public/js/precios_listados.js');
+  const pres = [{ plu: 1, pesoG: 5000 }, { plu: 2, pesoG: 25000 }, { plu: 3, pesoG: 500 }];
+  const par = r => r.map(p => [p.mayoristaTipo, p.mayoristaTipoOrigen]);
+  assert.deepEqual(par(conMarcaMayoristaGranelLst(pres, 3, false, 5000)), [['pack', 'regla'], ['bulto', 'regla'], [null, null]]);
+  assert.deepEqual(par(conMarcaMayoristaGranelLst(pres, 1, 'bulto', 5000)), [['bulto', 'manual'], ['bulto', 'peso-defecto'], [null, null]]);
 });

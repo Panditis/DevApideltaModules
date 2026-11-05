@@ -27,7 +27,7 @@ const NODE_FR_MD = typeof module === 'object' && module.exports;
 const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { esc, fmtMoney, claseDelta };
 const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD } = FMT_FR_MD;
 // Estado del granel (activo / inactivo): las mismas funciones del listado (precios_listados.js, que se carga antes).
-const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, textoActivoPorStockLst, textoActivoPorPresentacionesLst, conActividadLst, conMarcaMayoristaLst, accionesMayoristaLst }); // al llamar: el orden de los scripts no importa
+const ACT_FR_MD = () => (NODE_FR_MD ? require('./precios_listados.js') : { accionActividadLst, textoInactivoLst, textoActivoPorStockLst, textoActivoPorPresentacionesLst, conActividadLst, conMarcaMayoristaGranelLst, accionesMayoristaLst, textoReglaMayLst, AYUDA_REGLA_MAY }); // al llamar: el orden de los scripts no importa
 const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
@@ -220,15 +220,17 @@ function htmlBloqueMayoristaFraccMd(d) {
 const htmlClaseMayoristaFraccMd = p => {
   if (!p || typeof p.mayorista !== 'boolean') return '';
   const origen = p.mayoristaOrigen === 'manual' ? 'marcada a mano' : 'por peso';
+  const regla = ACT_FR_MD().textoReglaMayLst(p); // '' salvo tipo por regla (2 mayoristas del granel)
   const texto = p.mayorista ? `Mayorista · ${p.mayoristaTipo === 'pack' ? 'Pack' : 'Bulto'} (${origen})` : 'Minorista';
+  const aviso = regla ? ` <span class="md-sub" title="${ESC_FR_MD(ACT_FR_MD().AYUDA_REGLA_MAY)}">· ${ESC_FR_MD(regla)}</span>` : '';
   const acciones = ACT_FR_MD().accionesMayoristaLst(p); // null = sin PLU: sólo lectura
-  if (!acciones) return `<div class="md-sub">${texto}</div>`;
+  if (!acciones) return `<div class="md-sub">${texto}${aviso}</div>`;
   const plu = ESC_FR_MD(p.plu), nom = ESC_FR_MD(p.nombre);
   const cls = 'md-may whitespace-nowrap px-2 py-0.5 border border-borde text-xs font-semibold';
   const btn = (a, extra) => `<button type="button" class="${cls} ${extra}" data-plu="${plu}" data-valor="${ESC_FR_MD(JSON.stringify(a.valor))}" ${a.valor === null ? '' : `aria-pressed="${a.pressed}" `}aria-label="${a.texto}: ${nom}">${a.texto}</button>`;
   const segs = acciones.filter(a => a.valor !== null).map(a => btn(a, a.pressed ? 'bg-ink text-white' : 'text-gris hover:bg-white')).join('');
   const auto = acciones.find(a => a.valor === null);
-  return `<div class="md-sub md-may-fila flex flex-wrap items-center gap-2" data-plu="${plu}"><span>${texto}</span><span class="solo-config inline-flex flex-wrap items-center gap-2">`
+  return `<div class="md-sub md-may-fila flex flex-wrap items-center gap-2" data-plu="${plu}"><span>${texto}${aviso}</span><span class="solo-config inline-flex flex-wrap items-center gap-2">`
     + `<span role="group" class="inline-flex rounded overflow-hidden" aria-label="Clasificación de ${nom}">${segs}</span>`
     + (auto ? btn({ ...auto, texto: 'Volver a automático' }, 'rounded').replace(/ aria-label="[^"]*"/, ` aria-label="Volver a automático la clasificación de ${nom}"`) : '')
     + `<span class="md-may-msg text-xs" role="alert"></span></span></div>`;
@@ -526,8 +528,8 @@ function pintarMarcasMayoristaFraccMd() {
       avisoListado = err.message; // la marca se guardó; sólo falló refrescar el listado de atrás: se muestra tras repintar
     }
     if (!mdEsq || mdEsq.fila.plu !== granel) return; // se cerró o se abrió otro producto mientras guardaba
-    const conMarca = ACT_FR_MD().conMarcaMayoristaLst;
-    const aplicar = f => ({ ...f, presentaciones: f.presentaciones.map(p => (String(p.plu) === String(plu) ? conMarca(p, valor, umbral) : p)) });
+    const conMarca = ACT_FR_MD().conMarcaMayoristaGranelLst;
+    const aplicar = f => ({ ...f, presentaciones: conMarca(f.presentaciones, plu, valor, umbral) });
     mdEsq = { ...mdEsq, fila: aplicar(mdEsq.fila) };
     repintarPreciosFraccMd(plu, valor);
     try { // detalle fresco del server (mismo endpoint que al abrir); si falla queda lo local y se avisa
