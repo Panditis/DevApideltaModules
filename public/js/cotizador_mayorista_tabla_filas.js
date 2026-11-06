@@ -5,8 +5,8 @@
 const NUEVA_SECCION = '__nueva__';
 // [título, ancho, grupo]: PACK y BULTO se agrupan bajo una fila de encabezado superior.
 const COLUMNAS_TABLA = [
-  ['Orden', '76px'], ['Incl.', '56px'], ['Cod', '136px'], ['Nombre', 'auto'], ['Sección', '146px'],
-  ['Cantidad', '106px', 'pack'], ['Modo / PLU / descuento / precio', '284px', 'pack'], ['Cantidad', '106px', 'bulto'], ['PLU / precio', '112px', 'bulto'], ['Tipo y estado', '116px'],
+  ['Orden', '70px'], ['Incl.', '50px'], ['Cod', '128px'], ['Nombre', 'auto'], ['Sección', '150px'],
+  ['Cantidad', '106px', 'pack'], ['Modo / PLU / descuento / precio', '290px', 'pack'], ['Cantidad', '106px', 'bulto'], ['PLU / precio', '200px', 'bulto'], ['Tipo y estado', '112px'],
 ];
 const GRUPOS_TABLA = [['Producto', 5, ''], ['PACK', 2, 'pack'], ['BULTO', 2, 'bulto'], ['', 1, '']];
 
@@ -52,9 +52,71 @@ function celdaCod(f) {
     entrada(f, 'cod', { num: true, etiqueta: 'Código', alCambiar: refrescarCods }),
     h('span', { class: 'nota text-crit font-semibold', 'data-cod-nota': '' }, e ? `⚠ ${e}` : ''));
 }
+// ── Nombre del producto de cada PLU pack/bulto (tp.vinculos de /vinculos, tp.nombres de /nombres) ──
+const DEBOUNCE_NOMBRE_MS = 400;
+const CAMPO_QTY = { packPlu: 'packQty', bultoPlu: 'bultoQty' };
+const sinNombre = () => h('span', { class: 'plu-nombre__aviso' }, 'PLU sin nombre en SIGA');
+function contenidoNombre(f, campo) {
+  const e = tp.vinculos && tp.vinculos[f.cod];
+  if (!e || normalizarCantidad(f[CAMPO_QTY[campo]]).valor === '') return null;
+  const v = e[campo === 'packPlu' ? 'pack' : 'bulto'];
+  const plu = String(f[campo] ?? '').trim();
+  if (plu) {
+    if (!/^\d+$/.test(plu)) return null;
+    const nombre = v && String(v.plu) === plu ? v.nombre : tp.nombres[plu];
+    if (nombre === undefined) return null;
+    return { texto: nombre, auto: false };
+  }
+  return v ? { texto: v.nombre, auto: true } : { texto: undefined, auto: false };
+}
+// Pinta la nota de una celda sin repintar la tabla (no pierde el foco del input).
+function actualizarNotaPlu(nota) {
+  const tr = nota.closest('tr'), f = tr && tp.filas.find(x => String(x._id) === tr.dataset.fila);
+  const c = f && contenidoNombre(f, nota.dataset.notaPlu);
+  nota.title = '';
+  if (!c) return montar(nota, '');
+  if (c.texto === undefined) return montar(nota, h('span', { class: 'plu-nombre__aviso' }, 'Sin vincular'));
+  if (c.texto === null) return montar(nota, c.auto ? [h('span', { class: 'chip chip--gris chip-auto' }, 'auto'), sinNombre()] : sinNombre());
+  nota.title = c.texto;
+  montar(nota, c.auto ? [h('span', { class: 'chip chip--gris chip-auto' }, 'auto'), c.texto] : `↳ ${c.texto}`);
+}
+const refrescarNombresPlu = () => document.querySelectorAll('[data-nota-plu]').forEach(actualizarNotaPlu);
+const notaNombrePlu = campo => h('span', { class: 'nota text-gris plu-nombre', 'data-nota-plu': campo });
+function consultarNombre(input, nota) {
+  actualizarNotaPlu(nota);
+  clearTimeout(nota._t);
+  const plu = input.value.trim();
+  if (!/^\d+$/.test(plu) || tp.nombres[plu] !== undefined) return;
+  nota._t = setTimeout(async () => {
+    try {
+      const r = await api(`/nombres?plus=${plu}`);
+      tp.nombres[plu] = (r.nombres && r.nombres[plu]) ?? null;
+      if (input.value.trim() === plu) actualizarNotaPlu(nota);
+    } catch (_) { /* silencioso: el nombre simplemente no aparece */ }
+  }, DEBOUNCE_NOMBRE_MS);
+}
+// Se llama desde adoptarFilas: los vínculos dependen de las filas guardadas, así que se piden de nuevo cada vez.
+let secuenciaVinculos = 0;
+async function cargarVinculos() {
+  const mia = ++secuenciaVinculos;
+  tp.vinculos = null;
+  tp.nombres = {};
+  try {
+    const r = await api('/vinculos');
+    if (mia !== secuenciaVinculos) return;
+    tp.vinculos = r.vinculos || {};
+    refrescarNombresPlu();
+  } catch (_) { /* silencioso: la tabla sigue usable sin nombres */ }
+}
+function celdaPluConNombre(f, campo, etiqueta, placeholder) {
+  const nota = notaNombrePlu(campo);
+  const input = entrada(f, campo, { num: true, etiqueta, placeholder, alCambiar: el => consultarNombre(el, nota) });
+  return { input, nota };
+}
 function celdaPluOPrecio(f, tipo) {
   if (f.manual) return h('td', null, entrada(f, `${tipo}Price`, { num: true, etiqueta: `Precio fijo ${tipo}`, placeholder: 'Precio $' }));
-  return h('td', null, entrada(f, `${tipo}Plu`, { num: true, etiqueta: `PLU ${tipo}`, placeholder: 'automático' }));
+  const { input, nota } = celdaPluConNombre(f, `${tipo}Plu`, `PLU ${tipo}`, 'automático');
+  return h('td', null, input, nota);
 }
 
 // ── Pack de filas no manuales: modo (PLU / descuento / ninguno) ──
@@ -83,7 +145,10 @@ function celdaPack(f) {
     onchange: () => cambiarModoPack(f, sel.value) }, MODOS_PACK.map(([v, t]) => h('option', { value: v }, t)));
   sel.value = modo;
   if (modo === 'ninguno') return h('td', null, h('div', { class: 'pack-fila' }, sel), h('span', { class: 'nota text-gris' }, 'Sin precio pack'));
-  if (modo === 'plu') return h('td', null, h('div', { class: 'pack-fila' }, sel, entrada(f, 'packPlu', { num: true, etiqueta: 'PLU pack', placeholder: 'automático' })));
+  if (modo === 'plu') {
+    const { input, nota } = celdaPluConNombre(f, 'packPlu', 'PLU pack', 'automático');
+    return h('td', null, h('div', { class: 'pack-fila' }, sel, input), nota);
+  }
   const nota = h('div', null, notaDescuento(f));
   const alCambiar = el => {
     const actual = tp.filas.find(x => x._id === f._id);
@@ -196,4 +261,5 @@ function pintarFilas() {
   const nuevo = h('div', { class: 'tabla-scroll tabla-scroll--alta' }, tabla);
   montar(cont, nuevo);
   nuevo.scrollTop = top;
+  refrescarNombresPlu();
 }

@@ -8,9 +8,9 @@ const express = require('express');
 const XLSX = require('xlsx');
 const C = require('../lib/cotizador_mayorista');
 
-const ENC = ['Codigo', 'Producto', 'CodigoPack', 'Cantidad pack', 'CodigoBulto', 'CantidadBulto'];
+const ENC = ['Codigo', 'Producto', 'CodigoPack', 'Cantidad pack', 'CodigoBulto', 'CantidadBulto', 'NombrePack', 'NombreBulto'];
 // SIGA: cod 100 tiene pack 101 y bulto 102.
-const listados = { almacen: [{ plu: '100', mayoristas: [{ plu: '101', tipo: 'pack' }, { plu: '102', tipo: 'bulto' }] }] };
+const listados = { almacen: [{ plu: '100', mayoristas: [{ plu: '101', tipo: 'pack', nombre: 'Pack101' }, { plu: '102', tipo: 'bulto', nombre: 'Bulto102' }] }] };
 const filas = [
   { cod: '100', seccion: 'A', nombre: 'Siga', packQty: '4', bultoQty: 'caja x 8u' },
   { cod: '200', seccion: 'B', nombre: 'Explicito', packQty: 'raro', bultoQty: '', packPlu: '201', bultoPlu: '202', incluido: false },
@@ -22,10 +22,10 @@ test('filasExportarCodigos: encabezados, orden por sección, explícito, SIGA, m
   const r = C.filasExportarCodigos(filas, C.indicePrecios(listados));
   assert.deepStrictEqual(r, [
     ENC,
-    [100, 'Siga', 101, '4u', 102, '8u'],
-    ['X1', 'Manual', '', '10kg', '', ''],
-    [100, 'Ninguno', '', '4u', 102, '8u'],
-    [200, 'Explicito', 201, 'raro', 202, ''],
+    [100, 'Siga', 101, '4u', 102, '8u', 'Pack101', 'Bulto102'],
+    ['X1', 'Manual', '', '10kg', '', '', '', ''],
+    [100, 'Ninguno', '', '4u', 102, '8u', '', 'Bulto102'],
+    [200, 'Explicito', 201, 'raro', 202, '', '', ''],
   ]);
 });
 
@@ -50,7 +50,7 @@ test('ruta codigos.xlsx: headers y contenido releído (sin permiso de escritura)
     const aoa = await leer(r);
     assert.deepStrictEqual(aoa[0], ENC);
     assert.strictEqual(aoa.length, filas.length + 1);
-    assert.deepStrictEqual(aoa[1], [100, 'Siga', 101, '4u', 102, '8u']);
+    assert.deepStrictEqual(aoa[1], [100, 'Siga', 101, '4u', 102, '8u', 'Pack101', 'Bulto102']);
   } finally { cerrar(ctx); }
 });
 
@@ -60,7 +60,7 @@ test('ruta codigos.xlsx: listados falla → exporta sólo PLU explícitos', asyn
     const r = await fetch(ctx.url);
     assert.strictEqual(r.status, 200);
     const aoa = await leer(r);
-    assert.deepStrictEqual(aoa[1], [100, 'Siga', '', '4u', '', '8u']);
-    assert.deepStrictEqual(aoa[4], [200, 'Explicito', 201, 'raro', 202, '']);
+    assert.deepStrictEqual(aoa[1], [100, 'Siga', '', '4u', '', '8u', '', '']);
+    assert.deepStrictEqual(aoa[4], [200, 'Explicito', 201, 'raro', 202, '', '', '']);
   } finally { cerrar(ctx); }
 });

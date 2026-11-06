@@ -13,7 +13,7 @@ const auto = (filas, lst) => C.autocompletarVinculos(filas, C.indicePrecios(lst)
 test('granel con una sola mayorista → bulto', () => {
   const r = auto([fila({ packQty: '' })], frac([pres('502', 25000, 'bulto')]));
   assert.strictEqual(r.filas[0].bultoPlu, '502');
-  assert.deepStrictEqual(r.completadas, [{ cod: '500', nombre: 'Almendra', tipo: 'bulto', plu: '502', origen: 'presentacion' }]);
+  assert.deepStrictEqual(r.completadas, [{ cod: '500', nombre: 'Almendra', tipo: 'bulto', plu: '502', origen: 'presentacion', nombrePlu: 'P502' }]);
   assert.deepStrictEqual(r.sinVincular, []);
 });
 
@@ -133,7 +133,7 @@ const runF = (filas, usos, idx = new Map()) => C.autocompletarVinculos(filas, id
 
 test('fórmula: único candidato sin tipo → bulto, origen formula', () => {
   const r = runF([filaF({ packQty: '' })], [u('200', 'PEPAS X24', 24)]);
-  assert.deepStrictEqual(r.completadas, [{ cod: '100', nombre: 'Pepas', tipo: 'bulto', plu: '200', origen: 'formula' }]);
+  assert.deepStrictEqual(r.completadas, [{ cod: '100', nombre: 'Pepas', tipo: 'bulto', plu: '200', origen: 'formula', nombrePlu: 'PEPAS X24' }]);
 });
 
 test('fórmula: dos sin tipo → menor pack / mayor bulto; nombre manda', () => {
@@ -184,7 +184,7 @@ test('ruta autocompletar: usosComoFormula sólo con cod numéricos con faltantes
     const { status, data } = await post(ctx.base);
     assert.strictEqual(status, 200);
     assert.deepStrictEqual(llamadas, [['100']]);
-    assert.deepStrictEqual(data.completadas.find(c => c.cod === '100'), { cod: '100', nombre: 'Pepas', tipo: 'bulto', plu: '900', origen: 'formula' });
+    assert.deepStrictEqual(data.completadas.find(c => c.cod === '100'), { cod: '100', nombre: 'Pepas', tipo: 'bulto', plu: '900', origen: 'formula', nombrePlu: 'PEPAS CAJA' });
   } finally { cerrar(ctx); }
 });
 

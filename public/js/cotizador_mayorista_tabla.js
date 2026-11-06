@@ -4,7 +4,7 @@
 // Las filas se reemplazan (nunca se mutan); cada una lleva un _id sólo del cliente que se saca al guardar.
 // La vista de filas está en cotizador_mayorista_tabla_filas.js y el importador en cotizador_mayorista_importar.js.
 
-const tp = { filas: [], base: '', puede: false, q: '', seccion: '', estado: 'todos', cargada: false, sig: 1 };
+const tp = { filas: [], base: '', puede: false, q: '', seccion: '', estado: 'todos', cargada: false, sig: 1, vinculos: null, nombres: {} };
 
 const sinId = ({ _id, ...f }) => f;
 const claveGuardable = filas => JSON.stringify(filas.map(filaParaGuardar));
@@ -103,6 +103,7 @@ function adoptarFilas(filas) {
   tp.filas = aplanar(agrupar(filas.map(f => ({ ...f, ...(f.manual ? {} : { modoPack: f.modoPack || 'plu' }), _id: tp.sig++ })))); // agrupado = el orden en que se exporta
   tp.base = claveGuardable(tp.filas);
   tp.cargada = true;
+  cargarVinculos();
 }
 async function cargarTabla() {
   cargandoTabla($('tablaCont'));

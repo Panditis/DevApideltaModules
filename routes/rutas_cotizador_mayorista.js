@@ -33,7 +33,7 @@
 //        El CSV exportado no cambia: sólo cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price.
 //        importar: fila no manual sin 'Codigo Pack' ni pack_price → modoPack 'ninguno'; si no, 'plu' (nunca 'descuento').
 //        comparacion: pack en 'ninguno' no figura; en 'descuento' sistema = pack calculado, origen 'descuento', plu null.
-//   POST /api/cotizador-mayorista/autocompletar (permiso precios-config) → { filas: [Fila], completadas: [{ cod, nombre, tipo, plu, origen }],
+//   POST /api/cotizador-mayorista/autocompletar (permiso precios-config) → { filas: [Fila], completadas: [{ cod, nombre, tipo, plu, origen, nombrePlu }],
 //        sinVincular: [{ cod, nombre, faltan: ['pack'|'bulto'], motivo? }] }  (guarda la tabla). Completa packPlu/bultoPlu vacíos de filas
 //        no manuales con cantidad (pack sólo en modoPack 'plu'): vínculo SIGA o, si no hay, presentación mayorista de fraccionado
 //        de Precios (cod = granel o cualquier presentación del grupo) o, si tampoco, producto de SIGA (cualquier rubro) cuya
@@ -42,6 +42,12 @@
 //        (opcional): candidatos por fórmula ambiguos, no asignados. Si la consulta por fórmula falla, sigue sin esa fuente.
 //        Limitación: los PLU por fórmula no son vínculos de Precios (no están en el índice): su precio en el catálogo sale
 //        del respaldo (último exportado) con motivo "PLU X sin precio en el módulo"; no se inventan precios.
+//        completadas[].nombrePlu: nombre del PLU asignado (índice o candidato por fórmula) o null; nombre sigue siendo el de la fila.
+//   GET  /api/cotizador-mayorista/vinculos     → { vinculos: { [cod]: { pack: { plu, nombre|null, origen: 'fila'|'siga' } | null, bulto: ídem } } }
+//        Filas no manuales; sólo columnas en uso (bulto con cantidad; pack con cantidad y modoPack 'plu'). 'siga' = vínculo
+//        automático (sin presentaciones, el que usa el precio). Si listados o SIGA fallan: se loguea y sigue (nombre null).
+//   GET  /api/cotizador-mayorista/nombres?plus=1,2,3 → { nombres: { [plu]: nombre|null } } (sólo PLU numéricos; el resto se
+//        ignora; sin válidos → { nombres: {} }; más de 50 → { error }). Fallo de SIGA → 500 { error }.
 //   POST /api/cotizador-mayorista/exportar     → { version, generado, sha256, productos, diff, revisar }   (errores → { error })
 //   GET  /api/cotizador-mayorista/historial    → [{ version, generado, usuario, productos, sha256, nuevos, quitados, cambiados,
 //        publicado: { fecha, ok, error? } | null, metaIlegible? }]   (meta.json corrupto → fila con nulls y metaIlegible: true)
@@ -55,7 +61,8 @@
 //   GET  /api/cotizador-mayorista/publicaciones/:version/catalogo.csv | version.json → descarga (attachment)
 //   GET  /api/cotizador-mayorista/comparacion  → { iguales, difieren, sinDato, conDecision, detalle: [...] } (sistema vs planilla)
 //   GET  /api/cotizador-mayorista/codigos.xlsx → descarga cotizador_codigos_AAAA-MM-DD.xlsx (hoja 'codigos', sólo lectura)
-//        Columnas: Codigo, Producto, CodigoPack, Cantidad pack, CodigoBulto, CantidadBulto. Una fila por fila de la tabla
+//        Columnas: Codigo, Producto, CodigoPack, Cantidad pack, CodigoBulto, CantidadBulto, NombrePack, NombreBulto
+//        (nombre del PLU de CodigoPack/CodigoBulto: índice de Precios o SIGA; vacío si no se encuentra o falla). Una fila por fila de la tabla
 //        (incluidas o no), orden del catálogo. PLU = explícito o vínculo SIGA; manual sin PLU; pack vacío en 'ninguno'/'descuento'.
 //        Cantidad normalizada ("12u", "10kg") o el texto crudo si no se reconoce. Si listadosVigentes falla: sólo PLU explícitos.
 //        Error al generar → 500 { error }.
@@ -72,6 +79,7 @@ const HOJA = 'apidelta_precios';
 const FTP_TIMEOUT_MS = 30000;
 
 module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, listadosVigentes, tienePermiso, usosComoFormula = async () => [],
+  nombresPorPlu = async () => ({}),
   // ponytail: basic-ftp 5.x a propósito; el aviso de npm audit (DoS en Client.list()) no aplica, no usamos list()
   crearClienteFtp = () => new (require('basic-ftp').Client)(FTP_TIMEOUT_MS) }) {
   const router = express.Router();
@@ -115,11 +123,35 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
     const r = C.armarCatalogo({ tabla, indice: C.indicePrecios(listados), respaldos: respaldosDe(tabla, anterior) });
     return { ...r, diff: C.diffCatalogo(anterior.filas, r.filas), ultimaVersion: anterior.version, productos: r.filas.length };
   }
+  // Índice de Precios y nombres SIGA de los PLU explícitos que no están en él; cada fuente que falla se loguea y se omite.
+  async function indiceYNombres(filas, ctx) {
+    let indice = new Map(), nombres = {};
+    try { indice = C.indicePrecios(await listadosVigentes()); } catch (err) { console.error(`[cotizador-mayorista] ${ctx} sin vínculos SIGA:`, err.message); }
+    const faltan = C.plusSinNombre(filas, indice);
+    if (faltan.length) {
+      try { nombres = await nombresPorPlu(faltan); } catch (err) { console.error(`[cotizador-mayorista] ${ctx} nombresPorPlu falló:`, err.message); }
+    }
+    return { indice, nombres };
+  }
   const sinOrigen = filas => filas.map(({ origen: _o, ...f }) => f);
 
   router.get('/api/cotizador-mayorista/tabla', apiRoute(async () => {
     const t = leerTabla();
     return { ...t, comandos: C.comandosSubida(t.subida) };
+  }));
+
+  router.get('/api/cotizador-mayorista/vinculos', apiRoute(async () => {
+    const { filas } = leerTabla();
+    const { indice, nombres } = await indiceYNombres(filas, 'vinculos');
+    return { vinculos: C.vinculosResueltos(leerTabla().filas, indice, nombres) };
+  }));
+
+  router.get('/api/cotizador-mayorista/nombres', apiRoute(async (req) => {
+    const plus = [...new Set(String(req.query.plus || '').split(',').map(x => x.trim()).filter(x => /^\d{1,12}$/.test(x)))];
+    if (!plus.length) return { nombres: {} };
+    if (plus.length > 50) return { error: 'Máximo 50 PLU por consulta' };
+    const r = await nombresPorPlu(plus);
+    return { nombres: Object.fromEntries(plus.map(p => [p, r[p] ?? null])) };
   }));
 
   router.put('/api/cotizador-mayorista/tabla', conPermiso(apiRoute(async (req) => {
@@ -313,12 +345,9 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
 
   router.get('/api/cotizador-mayorista/codigos.xlsx', async (req, res) => {
     try {
-      let indice = new Map();
-      try { indice = C.indicePrecios(await listadosVigentes()); } catch (err) {
-        console.error('[cotizador-mayorista] codigos.xlsx sin vínculos SIGA:', err.message); // sigue con los PLU explícitos
-      }
-      const ws = XLSX.utils.aoa_to_sheet(C.filasExportarCodigos(leerTabla().filas, indice));
-      ws['!cols'] = [12, 45, 12, 14, 12, 14].map(wch => ({ wch }));
+      const { indice, nombres } = await indiceYNombres(leerTabla().filas, 'codigos.xlsx'); // sigue con lo que haya
+      const ws = XLSX.utils.aoa_to_sheet(C.filasExportarCodigos(leerTabla().filas, indice, nombres));
+      ws['!cols'] = [12, 45, 12, 14, 12, 14, 40, 40].map(wch => ({ wch }));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'codigos');
       const d = new Date(), p = n => String(n).padStart(2, '0');
