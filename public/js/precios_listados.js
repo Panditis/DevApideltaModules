@@ -214,9 +214,22 @@ function filasExportListado(filas, tipo) {
   if (tipo !== 'fraccionado') return [['PLU', 'Nombre', ...ENC_COSTOS_XLSX, 'Proveedor', 'Tipo proveedor', ...ENC_PRECIOS_XLSX],
     ...filas.map(f => [pluXlsx(f.plu), f.nombre, ...costos(f), f.proveedor || null, TXT_TIPO_PROVEEDOR[f.tipoProveedor] || null, ...precios(f)])];
   const granel = g => (g.plu == null ? g.nombre : `${g.plu} · ${g.nombre}`);
-  return [['PLU', 'Nombre', 'Granel', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX, ...ENC_MAYORISTA_XLSX], ...filas.flatMap(g => ((g.presentaciones || []).length
-    ? g.presentaciones.map(p => [pluXlsx(p.plu), p.nombre, granel(g), ...costos(g), ...precios(p), p.mayorista === true ? 'Sí' : 'No', ...extrasMayoristaXlsx(p)])
-    : [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), ...precios(null), null, null, null]]))];
+  // Vinculados pack/bulto de SIGA (p.mayoristas / g.mayoristas): una fila 'Sí' por cada uno, una sola vez por plu. Vigente y neto sin IVA.
+  const vistos = new Set();
+  const filasVinculadosXlsx = (g, lista, dueno) => (lista || []).filter(v => !vistos.has(String(v.plu)) && vistos.add(String(v.plu))).map(v => {
+    const sug = fuente => (((dueno || {}).sugeridos || {})[fuente] || {}).mayoristas; // sugeridos del dueño del vínculo (presentación o granel)
+    const de = fuente => (sug(fuente) || []).find(s => String(s.plu) === String(v.plu)) || null;
+    const vig = v.vigente || null, sis = de('sistema'), ult = de('ultimaCompra');
+    return [pluXlsx(v.plu), v.nombre, granel(g), ...costos(g), vig, sis ? sis.neto ?? null : null, deltaFrac(sis ? sis.neto : null, vig),
+      ult ? ult.neto ?? null : null, deltaFrac(ult ? ult.neto : null, vig), 'Sí', sis ? sis.conIva ?? null : null, null];
+  });
+  return [['PLU', 'Nombre', 'Granel', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX, ...ENC_MAYORISTA_XLSX], ...filas.flatMap(g => {
+    const pres = g.presentaciones || [];
+    const filasPres = pres.flatMap(p => [[pluXlsx(p.plu), p.nombre, granel(g), ...costos(g), ...precios(p), p.mayorista === true ? 'Sí' : 'No', ...extrasMayoristaXlsx(p)],
+      ...filasVinculadosXlsx(g, p.mayoristas, p)]);
+    const filaGranel = pres.length ? [] : [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), ...precios(null), null, null, null]];
+    return [...filaGranel, ...filasPres, ...filasVinculadosXlsx(g, g.mayoristas, g)];
+  })];
 }
 
 // "Importar planilla" (Reventa): la planilla Codigo/Nombre/Costo/Precio que se subió a SIGA. rows = la hoja como array de

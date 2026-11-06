@@ -635,3 +635,21 @@ test('conMarcaMayoristaGranelLst: aplica la regla de 2 mayoristas por granel; la
   assert.deepEqual(par(conMarcaMayoristaGranelLst(pres, 3, false, 5000)), [['pack', 'regla'], ['bulto', 'regla'], [null, null]]);
   assert.deepEqual(par(conMarcaMayoristaGranelLst(pres, 1, 'bulto', 5000)), [['bulto', 'manual'], ['bulto', 'peso-defecto'], [null, null]]);
 });
+
+test('export Fraccionado: una fila "Sí" por cada vinculado pack/bulto (p.mayoristas y g.mayoristas), con precio actual/nuevo sin IVA, sin duplicar plu', () => {
+  const v = { plu: '20202', nombre: 'X 1Kg Bulto', tipo: 'bulto', unidades: 1, vigente: 3000 };
+  const sugV = { sistema: { mayoristas: [{ plu: '20202', neto: 3150, conIva: 3600 }] }, ultimaCompra: { mayoristas: [{ plu: '20202', neto: 3300 }] } };
+  const g = { plu: '50', nombre: 'G', costoSistema: 10, presentaciones: [
+    { plu: '51', nombre: 'X 1Kg', mayoristas: [v], sugeridos: sugV }, { plu: '52', nombre: 'X 500G', mayoristas: [v], sugeridos: sugV }], mayoristas: [v, { plu: '30303', nombre: 'Y Bulto', vigente: 0 }] };
+  const aoa = filasExportListado([g], 'fraccionado');
+  const iNuevo = aoa[0].indexOf('Precio nuevo con costo actual');
+  assert.strictEqual(aoa.length, 1 + 2 + 2); // 2 presentaciones + 20202 (una vez) + 30303 (sólo en el granel)
+  const f = aoa.find(r => r[0] === 20202);
+  assert.deepStrictEqual([f[1], f[2], f[3 + 4], f[iNuevo], f[iNuevo + 1], f[iNuevo + 2], f[iNuevo + 3], ...f.slice(-3)],
+    ['X 1Kg Bulto', '50 · G', 3000, 3150, 0.05, 3300, 0.1, 'Sí', 3600, null]);
+  assert.ok(aoa.every(r => r.length === aoa[0].length));
+  const sin = aoa.find(r => r[0] === 30303);
+  assert.deepStrictEqual(sin.slice(iNuevo - 1, iNuevo + 4), [null, null, null, null, null]); // sin sugerido ni vigente → vacíos
+  const soloGranel = filasExportListado([{ plu: '60', nombre: 'N', presentaciones: [], mayoristas: [v] }], 'fraccionado');
+  assert.deepStrictEqual(soloGranel.slice(1).map(r => r[0]), [60, 20202]);
+});
