@@ -86,6 +86,32 @@
   .toast{position:fixed;right:20px;bottom:20px;z-index:60;padding:10px 16px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6.4px 14.4px rgba(26,28,24,.2)}
   .toast--ok{background:#405936;color:#fff}
   .toast--crit{background:#a4262c;color:#fff}
+
+  /* Contraste pestaña Productos y secciones (WCAG 1.4.11: bordes de control >=3:1). Solo este módulo; el theme no se toca. */
+  #panel-productos .card{background:#f6f7f3;border-color:#a9ae9d}
+  #panel-productos .campo{background:#fff;color:#1a1c18;border:1px solid #6f7365;box-shadow:inset 0 1px 0 rgba(26,28,24,.05)}
+  #panel-productos .campo::placeholder{color:#6b6e62;opacity:1;font-style:italic}
+  #panel-productos .campo:hover:not(:disabled){border-color:#1a1c18}
+  #panel-productos .campo:focus{border-color:#2f4328;box-shadow:0 0 0 3px rgba(64,89,54,.4)}
+  #panel-productos .campo:disabled{background:#e6e8e1;color:#4a4d42;border-color:#b4b8aa;box-shadow:none}
+  #panel-productos .campo-etq{color:#3d4036;font-weight:600}
+  #panel-productos .btn-sec{border-color:#6f7365;color:#1a1c18}
+  #panel-productos .btn-sec:hover:not(:disabled){border-color:#2f4328;background:#eaf0e3}
+  #panel-productos .btn-icono{border-color:#6f7365}
+  #panel-productos .chip--gris{background:#dfe3d8;color:#33362e}
+  #panel-productos .chip--ok{background:#cdeec9;color:#0b5a0b}
+  #panel-productos .chip--warn{background:#ffe9a0;color:#6b4800}
+  #panel-productos .text-gris,#panel-productos .nota.text-gris{color:#4a4d42}
+  #panel-productos .tabla-scroll{border-color:#8b9080;background:#f6f7f3}
+  #panel-productos .tabla-fija th{background:#dfe6d6;color:#1a1c18;font-weight:700;border-bottom:2px solid #6f7365}
+  #panel-productos .tabla-fija td{border-bottom:1px solid #c3c7b8;border-right:1px solid #e1e4da}
+  #panel-productos .tabla-fija td:last-child{border-right:0}
+  #panel-productos .tabla-fija tbody tr:hover{background:#eef2e8}
+  #panel-productos .tabla-edit .fila-seccion td{background:#cfdcc3;color:#1a1c18;border-top:2px solid #6f7365;border-bottom:1px solid #8b9080;border-right:0}
+  #panel-productos .tabla-edit .fila-seccion .text-gris{color:#33362e}
+  #panel-productos .fila-aviso{background:#fff3c4;box-shadow:inset 3px 0 0 #b07d00}
+  #panel-productos .fila-off td:not(:first-child):not(:nth-child(2)){opacity:.7}
+  #panel-productos .fila-off{background:#eceee7}
 </style>
 </head>
 <body class="text-ink font-body">
