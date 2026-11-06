@@ -170,9 +170,12 @@ const htmlFilaPreciosFraccMd = r => {
   return `<div class="md-fr-fila"><span class="md-fr-iva">${r.conIva ? 'Con IVA' : 'Sin IVA'}</span>${precios}${chipDeltaFrMd(r)}${detalle}</div>`;
 };
 // Un pack/bulto: tipo en negrita con su PLU y sus unidades (y el aviso "revisar unidad" si corresponde), el nombre debajo y sus dos filas.
+// Nota discreta si el vinculado subió al piso del pack (regla "piso de vinculados"); sin pisoAplicado no hay nota.
+const htmlNotaPisoFraccMd = r => (!r || !r.pisoAplicado || r.pisoKg == null ? ''
+  : `<div class="md-sub md-fr-piso">Subió al piso del pack: antes ${r.netoSinPiso == null ? '—' : ESQ_FR_MD.pesosMd(r.netoSinPiso)}, piso ${ESQ_FR_MD.pesosMd(r.pisoKg)}/kg</div>`);
 const htmlCodigoMayoristaFraccMd = m => `<li class="md-fr-cod"><div class="md-fr-cod-cab"><b>${ESC_FR_MD(ESQ_FR_MD.TIPO_CANAL[m.tipo] || m.tipo)}</b> `
   + `<span class="md-sub">PLU ${ESC_FR_MD(m.plu)}${m.unidades ? ` · × ${ESC_FR_MD(m.unidades)}` : ''}</span>${ESQ_FR_MD.avisosCanalMd(m.filas[0])}</div>`
-  + `${m.nombre ? `<div class="md-fr-cod-nom">${ESC_FR_MD(m.nombre)}</div>` : ''}${m.filas.map(htmlFilaPreciosFraccMd).join('')}</li>`;
+  + `${m.nombre ? `<div class="md-fr-cod-nom">${ESC_FR_MD(m.nombre)}</div>` : ''}${m.filas.map(htmlFilaPreciosFraccMd).join('')}${htmlNotaPisoFraccMd(m.filas[0])}</li>`;
 const htmlCodigosMayoristasFraccMd = (mayoristas, etiqueta) => `<ul class="md-fr-cods" aria-label="${ESC_FR_MD(etiqueta)}">${mayoristas.map(htmlCodigoMayoristaFraccMd).join('')}</ul>`;
 // Bloque "Precio mayorista" de una presentación mayorista (p = la del listado; fuente = la del modal). El sugerido de la fila pública es el precio BULTO SIN IVA
 // (minorista.precio); el pack (neto y con IVA) es el paso intermedio. Con desglose (permiso de Configuración): base, descuentos y netos de pack y bulto; sin él,

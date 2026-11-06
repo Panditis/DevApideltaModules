@@ -515,7 +515,7 @@ test('PUT margenes Fraccionado: pack/bulto opcionales (sin ellas no es error y s
     const j = await a.pedir('PUT', `${url}?tipo=fraccionado`, { minorista: T_FRACC, mayorista: { descPackPct: 8, descBultoPct: 5 } });
     assert.strictEqual(j.error, undefined);
     const d = a.leer().fraccionado.margenes;
-    assert.deepStrictEqual([d.minorista, d.pack, d.bulto, d.mayorista], [T_FRACC, guardadas.pack, guardadas.bulto, { descPackPct: 8, descBultoPct: 5 }]);
+    assert.deepStrictEqual([d.minorista, d.pack, d.bulto, d.mayorista], [T_FRACC, guardadas.pack, guardadas.bulto, { descPackPct: 8, descBultoPct: 5, pisoVinculadoPct: 2 }]);
     await a.pedir('PUT', `${url}?tipo=fraccionado`, { minorista: T_FRACC, pack: T_FRACC });
     assert.deepStrictEqual(a.leer().fraccionado.margenes.pack, T_FRACC); // si viene, se valida y se guarda
     assert.match((await a.pedir('PUT', `${url}?tipo=fraccionado`, { minorista: T_FRACC, bulto: { minPct: 1 } })).error, /bulto/);
@@ -827,7 +827,7 @@ test('tabla manual: PUT sin filas las borra; ajustesPeso y descuentoDistribuidor
   try {
     await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC, descuentoDistribuidorPct: 4, ajustesPeso: { tramosG: [9], puntos: [1] } });
     assert.deepStrictEqual(a.leer().fraccionado.margenes, { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC, ajustesPeso: aj, descuentoDistribuidorPct: 4,
-      mayorista: { descPackPct: 10, descBultoPct: 10 } }); // sin mayorista en el body: se escribe el efectivo (default)
+      mayorista: { descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2 } }); // sin mayorista en el body: se escribe el efectivo (default)
   } finally { a.cerrar(); }
 });
 
@@ -836,11 +836,11 @@ test('margenes mayorista: GET trae default 10/10; PUT guarda, ausente conserva, 
   const tablas = { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC };
   const ver = async () => (await a.pedir('GET', '/api/precios/config/esquema?tipo=fraccionado')).margenes.mayorista;
   try {
-    assert.deepStrictEqual(await ver(), { descPackPct: 10, descBultoPct: 10 });
+    assert.deepStrictEqual(await ver(), { descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2 });
     const r = await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { ...tablas, mayorista: { descPackPct: 15, descBultoPct: 7.5 } });
-    assert.deepStrictEqual(r.margenes.mayorista, { descPackPct: 15, descBultoPct: 7.5 });
+    assert.deepStrictEqual(r.margenes.mayorista, { descPackPct: 15, descBultoPct: 7.5, pisoVinculadoPct: 2 });
     await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, tablas);
-    assert.deepStrictEqual(await ver(), { descPackPct: 15, descBultoPct: 7.5 });
+    assert.deepStrictEqual(await ver(), { descPackPct: 15, descBultoPct: 7.5, pisoVinculadoPct: 2 });
     const antes = a.leer();
     assert.match((await a.pedir('PUT', `${URL_MARG}?tipo=fraccionado`, { ...tablas, mayorista: { descPackPct: 100, descBultoPct: 1 } })).error, /mayorista\.descPackPct/);
     assert.deepStrictEqual(a.leer(), antes);

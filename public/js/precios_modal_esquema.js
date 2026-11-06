@@ -27,7 +27,7 @@ function filasCanales(fila, fuente) {
       const p = ok ? ok.mayoristas.find(x => x.plu === m.plu) : null;
       const base = { tipo: m.tipo, plu: m.plu, nombre: m.nombre, unidades: m.unidades, faltante: p ? p.faltante : null };
       filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} sin IVA`, conIva: false, vigente: m.vigente ?? null, sugerido: p ? p.neto : null,
-        deltaPct: p ? p.deltaPct : null, estado: p ? p.estado : null, revisarUnidad: !!(p && p.revisarUnidad), margenTotalPct: p ? p.margenTotalNetoPct : null });
+        deltaPct: p ? p.deltaPct : null, estado: p ? p.estado : null, revisarUnidad: !!(p && p.revisarUnidad), pisoAplicado: !!(p && p.pisoAplicado), pisoKg: p ? p.pisoKg ?? null : null, netoSinPiso: p ? p.netoSinPiso ?? null : null, margenTotalPct: p ? p.margenTotalNetoPct : null });
       filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} con IVA`, conIva: true, vigente: null, sugerido: p ? p.conIva : null, deltaPct: null, estado: null,
         margenTotalPct: p ? p.margenTotalIvaPct : null });
     }

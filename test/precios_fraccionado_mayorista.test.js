@@ -62,9 +62,9 @@ test('margenes.mayorista: descuentos validados, ausente conserva lo guardado o d
   const body = { minorista: T, pack: T, bulto: T };
   const guardado = cfgEsq.validarMargenes({ ...body, mayorista: { descPackPct: 12.5, descBultoPct: 0 } }, {}, 'fraccionado');
   assert.deepStrictEqual(guardado.mayorista, { descPackPct: 12.5, descBultoPct: 0 });
-  assert.deepStrictEqual(cfgEsq.validarMargenes(body, guardado, 'fraccionado').mayorista, guardado.mayorista);
-  assert.deepStrictEqual(cfgEsq.validarMargenes(body, {}, 'fraccionado').mayorista, { descPackPct: 10, descBultoPct: 10 });
-  assert.deepStrictEqual(cfgEsq.validarMargenes({ ...body, mayorista: null }, guardado, 'fraccionado').mayorista, { descPackPct: 10, descBultoPct: 10 });
+  assert.deepStrictEqual(cfgEsq.validarMargenes(body, guardado, 'fraccionado').mayorista, { ...guardado.mayorista, pisoVinculadoPct: 2 });
+  assert.deepStrictEqual(cfgEsq.validarMargenes(body, {}, 'fraccionado').mayorista, { descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2 });
+  assert.deepStrictEqual(cfgEsq.validarMargenes({ ...body, mayorista: null }, guardado, 'fraccionado').mayorista, { descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2 });
   assert.strictEqual('mayorista' in cfgEsq.validarMargenes({ ...body, mayorista: { descPackPct: 5, descBultoPct: 5 } }, {}, 'almacen'), false);
   for (const v of [-1, 100, NaN, Infinity, '10', null]) {
     assert.throws(() => cfgEsq.validarMargenes({ ...body, mayorista: { descPackPct: v, descBultoPct: 10 } }, {}, 'fraccionado'), /mayorista\.descPackPct/, String(v));
@@ -78,7 +78,7 @@ test('margenes.mayorista: descuentos validados, ausente conserva lo guardado o d
   assert.throws(() => cfgEsq.validarMargenes({ minorista: T, pack: { minPct: 1 } }, {}, 'fraccionado'), /pack/);
   assert.throws(() => cfgEsq.validarMargenes({ pack: T, bulto: T }, {}, 'fraccionado'), /minorista/);
   assert.throws(() => cfgEsq.validarMargenes({ minorista: T }, {}, 'almacen'), /pack/); // Reventa: siguen obligatorias
-  assert.deepStrictEqual(cfgEsq.configEsquemaDe({ fraccionado: { margenes: body } }, 'fraccionado').margenes.mayorista, { descPackPct: 10, descBultoPct: 10 });
+  assert.deepStrictEqual(cfgEsq.configEsquemaDe({ fraccionado: { margenes: body } }, 'fraccionado').margenes.mayorista, { descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2 });
 });
 
 // Ejemplo de control de la spec: costoCG 1000, margen 40 %, extras 0, IVA 21 %, redondeo 50.

@@ -293,8 +293,10 @@ function pintarQuiebresEsq(card) {
 }
 
 // Mayorista: descuentos de Fraccionado (sólo ese tipo). Pack = minorista $/kg sin IVA − descPackPct; bulto = pack − descBultoPct. Texto con coma o punto.
-const DESC_MAYORISTA_DEF = { descPackPct: 10, descBultoPct: 10 }; // ausente en la respuesta = 10 y 10
-const CAMPOS_MAYORISTA_ESQ = { descPackPct: 'Descuento precio pack', descBultoPct: 'Descuento precio bulto' };
+const DESC_MAYORISTA_DEF = { descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2 }; // ausente en la respuesta = 10, 10 y 2
+const CAMPOS_MAYORISTA_ESQ = { descPackPct: 'Descuento precio pack', descBultoPct: 'Descuento precio bulto', pisoVinculadoPct: 'Piso de vinculados sobre el pack' };
+const PISO_MAX_ESQ = 50; // pisoVinculadoPct: 0..50 inclusive (0 = piso igual al pack, sin colchón)
+const AYUDA_PISO_ESQ = 'Un bulto/pack vinculado de una presentación (ej. 400G Bulto) nunca sale más barato por kg que el pack mayorista más barato del granel más este %. 0 = igual al pack, sin colchón.';
 const AYUDA_MAYORISTA_ESQ = 'Pack = precio por kg minorista sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto. Aplica a las presentaciones mayoristas y a los productos pack y bulto vinculados. Si un granel tiene 2 presentaciones mayoristas, la de menor peso es pack y la mayor es bulto (salvo que marques el tipo a mano).';
 function pctDeTextoEsq(txt) { // "10,5" / "10.5" → 10.5; vacío o inválido → null
   const s = String(txt ?? '').trim().replace(',', '.');
@@ -304,6 +306,7 @@ const mayoristaEfectivoEsq = m => ({ ...DESC_MAYORISTA_DEF, ...Object.fromEntrie
 function validarMayoristaEsq(v) { // '' si está bien; si no, el mensaje del primer campo malo
   for (const [k, rotulo] of Object.entries(CAMPOS_MAYORISTA_ESQ)) {
     if (v[k] == null) return `${rotulo}: ingresá un número (coma o punto).`;
+    if (k === 'pisoVinculadoPct') { if (v[k] < 0 || v[k] > PISO_MAX_ESQ) return `${rotulo}: debe estar entre 0 y ${PISO_MAX_ESQ}.`; continue; }
     if (v[k] < 0 || v[k] >= 100) return `${rotulo}: debe ser mayor o igual a 0 y menor a 100.`;
   }
   return '';
@@ -312,7 +315,7 @@ const leerMayoristaEsq = card => Object.fromEntries(Object.keys(CAMPOS_MAYORISTA
 function htmlMayoristaEsq(m) {
   const v = mayoristaEfectivoEsq(m);
   const campo = k => `<div class="cfg-campo"><label for="esqMay-${k}">${CAMPOS_MAYORISTA_ESQ[k]} (%)</label>
-    ${campoU(`<input type="text" inputmode="decimal" id="esqMay-${k}" data-k="${k}" value="${esc(String(v[k]).replace('.', ','))}" aria-describedby="esqMayAyuda esqMayError">`, '%', { w: 'w-28' })}</div>`;
+    ${campoU(`<input type="text" inputmode="decimal" id="esqMay-${k}" data-k="${k}" value="${esc(String(v[k]).replace('.', ','))}" aria-describedby="${k === 'pisoVinculadoPct' ? 'esqMayPisoAyuda ' : ''}esqMayAyuda esqMayError">`, '%', { w: 'w-28' })}${k === 'pisoVinculadoPct' ? `<p class="cfg-ayuda max-w-xs" id="esqMayPisoAyuda">${AYUDA_PISO_ESQ}</p>` : ''}</div>`;
   return `<div class="cfg-card mt-4" data-mayorista><h3 class="cfg-h">Mayorista: descuentos</h3>
     <p class="cfg-ayuda" id="esqMayAyuda">${AYUDA_MAYORISTA_ESQ}</p>
     <div class="flex gap-6 flex-wrap">${Object.keys(CAMPOS_MAYORISTA_ESQ).map(campo).join('')}</div>

@@ -180,23 +180,35 @@ test('pctDeTextoEsq: coma o punto; vacío o inválido es null', () => {
   assert.strictEqual(pctDeTextoEsq('0'), 0);
   for (const x of ['', '  ', 'abc', '-1', '1e2', '1,2,3', null]) assert.strictEqual(pctDeTextoEsq(x), null, String(x));
 });
-test('mayoristaEfectivoEsq: ausente o incompleto = 10 y 10', () => {
-  assert.deepStrictEqual(plano(mayoristaEfectivoEsq(undefined)), { descPackPct: 10, descBultoPct: 10 });
-  assert.deepStrictEqual(plano(mayoristaEfectivoEsq({ descPackPct: 5 })), { descPackPct: 5, descBultoPct: 10 });
+test('mayoristaEfectivoEsq: ausente o incompleto = 10, 10 y piso 2', () => {
+  assert.deepStrictEqual(plano(mayoristaEfectivoEsq(undefined)), { descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2 });
+  assert.deepStrictEqual(plano(mayoristaEfectivoEsq({ descPackPct: 5 })), { descPackPct: 5, descBultoPct: 10, pisoVinculadoPct: 2 });
+  assert.strictEqual(mayoristaEfectivoEsq({ pisoVinculadoPct: 0 }).pisoVinculadoPct, 0); // 0 = piso sin colchón, no cae al default
 });
 test('validarMayoristaEsq: 0 <= x < 100', () => {
-  assert.strictEqual(validarMayoristaEsq({ descPackPct: 0, descBultoPct: 99.9 }), '');
-  assert.match(validarMayoristaEsq({ descPackPct: 100, descBultoPct: 10 }), /pack.*menor a 100/);
-  assert.match(validarMayoristaEsq({ descPackPct: 10, descBultoPct: null }), /bulto.*número/);
+  assert.strictEqual(validarMayoristaEsq({ descPackPct: 0, descBultoPct: 99.9, pisoVinculadoPct: 2 }), '');
+  assert.match(validarMayoristaEsq({ descPackPct: 100, descBultoPct: 10, pisoVinculadoPct: 2 }), /pack.*menor a 100/);
+  assert.match(validarMayoristaEsq({ descPackPct: 10, descBultoPct: null, pisoVinculadoPct: 2 }), /bulto.*número/);
+});
+test('validarMayoristaEsq: piso de vinculados 0..50 (inclusive), número obligatorio', () => {
+  const v = piso => ({ descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: piso });
+  for (const ok of [0, 2, 2.5, 50]) assert.strictEqual(validarMayoristaEsq(v(ok)), '', String(ok));
+  for (const mal of [-1, 50.1, 100]) assert.match(validarMayoristaEsq(v(mal)), /Piso de vinculados.*entre 0 y 50/, String(mal));
+  assert.match(validarMayoristaEsq(v(null)), /Piso de vinculados.*número/);
 });
 test('tarjeta mayorista: renderiza valores con coma y se lee como números', () => {
   const $ = cheerio.load(htmlMayoristaEsq({ descPackPct: 12.5, descBultoPct: 10 }));
   assert.strictEqual($('#esqMay-descPackPct').attr('value'), '12,5');
   assert.match($('#esqMayAyuda').text(), /Pack = precio por kg minorista sin IVA menos el descuento pack. Bulto = precio pack menos el descuento bulto. Aplica a las presentaciones mayoristas y a los productos pack y bulto vinculados/);
   const card = nodo($, $('[data-mayorista]').get(0));
-  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: 10 });
+  assert.strictEqual($('#esqMay-pisoVinculadoPct').attr('value'), '2'); // sin dato en la respuesta: default 2
+  assert.match($('#esqMayPisoAyuda').text(), /nunca sale más barato por kg que el pack mayorista más barato del granel más este %\. 0 = igual al pack, sin colchón\./);
+  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: 10, pisoVinculadoPct: 2 });
   $('#esqMay-descBultoPct').attr('value', 'x');
-  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: null });
+  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: null, pisoVinculadoPct: 2 });
+  $('#esqMay-pisoVinculadoPct').attr('value', '3,5');
+  assert.strictEqual(leerMayoristaEsq(card).pisoVinculadoPct, 3.5);
+  assert.strictEqual(cheerio.load(htmlMayoristaEsq({ pisoVinculadoPct: 0 }))('#esqMay-pisoVinculadoPct').attr('value'), '0');
 });
 
 // ── Fraccionado sin tablas pack/bulto; Reventa/Producción con las tres ──

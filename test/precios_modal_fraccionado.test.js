@@ -229,6 +229,16 @@ test('htmlPreciosFraccMd: los pack/bulto van DENTRO de la tarjeta de su presenta
   assert.ok(html.indexOf('PLU 201') < html.indexOf('Almendras 1Kg'));                        // el bulto de la 500G está en su tarjeta, antes que la 1Kg
 });
 
+test('htmlPreciosFraccMd: un vinculado que subió al piso del pack lleva su nota (antes y piso por kg); los que no, no', () => {
+  const g = granelPrecios();
+  const may = g.presentaciones.find(p => p.plu === '101').sugeridos.sistema.mayoristas.find(m => m.plu === '201');
+  Object.assign(may, { pisoAplicado: true, pisoKg: 2499, netoSinPiso: 950, conIvaSinPiso: 1149.5 });
+  const medio = cartaPres(htmlPreciosFraccMd(g, 'sistema'), 'Almendras 500G');
+  assert.match(medio, /<div class="md-sub md-fr-piso">Subió al piso del pack: antes \$ 950, piso \$ 2\.499\/kg<\/div>/);
+  delete may.pisoAplicado;
+  assert.doesNotMatch(cartaPres(htmlPreciosFraccMd(g, 'sistema'), 'Almendras 500G'), /Subió al piso/);
+});
+
 test('htmlPreciosFraccMd: una presentación sin pack/bulto no muestra el sub-bloque; varios códigos de una presentación van en su misma tarjeta', () => {
   const html = htmlPreciosFraccMd(granelVarios(), 'sistema');
   assert.strictEqual(cartas(html).filter(c => c.startsWith('md-fr-pres">')).length, 3);      // una tarjeta por presentación
