@@ -5,7 +5,7 @@
 const NUEVA_SECCION = '__nueva__';
 // [título, ancho, grupo]: PACK y BULTO se agrupan bajo una fila de encabezado superior.
 const COLUMNAS_TABLA = [
-  ['Orden', '76px'], ['Incl.', '56px'], ['Cod', '96px'], ['Nombre', 'auto'], ['Sección', '146px'],
+  ['Orden', '76px'], ['Incl.', '56px'], ['Cod', '136px'], ['Nombre', 'auto'], ['Sección', '146px'],
   ['Cantidad', '106px', 'pack'], ['Modo / PLU / descuento / precio', '284px', 'pack'], ['Cantidad', '106px', 'bulto'], ['PLU / precio', '112px', 'bulto'], ['Tipo y estado', '116px'],
 ];
 const GRUPOS_TABLA = [['Producto', 5, ''], ['PACK', 2, 'pack'], ['BULTO', 2, 'bulto'], ['', 1, '']];
@@ -35,6 +35,22 @@ function celdaCantidad(f, campo, etiqueta) {
   };
   const placeholder = campo === 'packQty' && modoDe(f) === 'descuento' ? 'obligatoria, ej. 12u' : null;
   return h('td', null, entrada(f, campo, { etiqueta, alCambiar, placeholder }), nota);
+}
+// COD de filas del sistema: editable, con aviso (no numérico / repetido) que se refresca en todas las filas al tipear.
+function refrescarCods() {
+  document.querySelectorAll('[data-cod-nota]').forEach(nota => {
+    const tr = nota.closest('tr'), fila = tp.filas.find(x => String(x._id) === tr.dataset.fila);
+    if (!fila) return;
+    nota.textContent = errorCod(fila) ? `⚠ ${errorCod(fila)}` : '';
+    tr.classList.toggle('fila-aviso', filaConAviso(fila));
+  });
+}
+function celdaCod(f) {
+  if (f.manual) return h('td', null, entrada(f, 'cod', { etiqueta: 'Código' }));
+  const e = errorCod(f);
+  return h('td', { title: 'Si cambiás el código, guardá antes de usar la vista previa' },
+    entrada(f, 'cod', { num: true, etiqueta: 'Código', alCambiar: refrescarCods }),
+    h('span', { class: 'nota text-crit font-semibold', 'data-cod-nota': '' }, e ? `⚠ ${e}` : ''));
 }
 function celdaPluOPrecio(f, tipo) {
   if (f.manual) return h('td', null, entrada(f, `${tipo}Price`, { num: true, etiqueta: `Precio fijo ${tipo}`, placeholder: 'Precio $' }));
@@ -118,7 +134,7 @@ function filaTabla(f, nombres, pos) {
     onchange: e => { actualizarFila(f._id, { incluido: e.target.checked }); e.target.closest('tr').classList.toggle('fila-off', !e.target.checked); actualizarBarra(); } });
   return h('tr', { 'data-fila': f._id, class: `${f.incluido ? '' : 'fila-off'} ${filaConAviso(f) ? 'fila-aviso' : ''} ${f.manual ? 'fila-manual' : ''}` },
     celdaOrden(f, pos), h('td', null, check),
-    f.manual ? h('td', null, entrada(f, 'cod', { etiqueta: 'Código' })) : h('td', { class: 'cod-fijo' }, f.cod),
+    celdaCod(f),
     h('td', null, h('div', { title: f.nombre || null }, entrada(f, 'nombre', { etiqueta: 'Nombre' }))), celdaSeccion(f, nombres),
     celdaCantidad(f, 'packQty', 'Cantidad pack'), f.manual ? celdaPluOPrecio(f, 'pack') : celdaPack(f),
     celdaCantidad(f, 'bultoQty', 'Cantidad bulto'), celdaPluOPrecio(f, 'bulto'), celdaTipo(f));

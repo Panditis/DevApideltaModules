@@ -33,7 +33,14 @@ function errorPack(f) {
   return normalizarCantidad(f.packQty).valor === '' ? 'Falta la cantidad mínima del pack' : '';
 }
 const cantidadInvalida = (f, c) => !(c === 'packQty' && modoDe(f) === 'ninguno') && normalizarCantidad(f[c]).valor === null;
-const filaConAviso = f => ['packQty', 'bultoQty'].some(c => cantidadInvalida(f, c)) || !!errorPack(f);
+// Cod de fila del sistema: sólo dígitos (1 a 12) y único en la tabla (el backend rechaza lo contrario al guardar).
+function errorCod(f) {
+  if (f.manual) return '';
+  const cod = String(f.cod ?? '').trim();
+  if (!/^\d{1,12}$/.test(cod)) return 'Solo números';
+  return tp.filas.some(x => x._id !== f._id && String(x.cod ?? '').trim() === cod) ? 'Código repetido' : '';
+}
+const filaConAviso = f => ['packQty', 'bultoQty'].some(c => cantidadInvalida(f, c)) || !!errorPack(f) || !!errorCod(f);
 
 // ── Operaciones (devuelven la lista nueva) ──
 function agrupar(filas) {
@@ -122,9 +129,9 @@ function filaParaGuardar(f) {
 }
 async function guardarTabla() {
   const boton = $('btnGuardarTabla');
-  const mala = tp.filas.find(f => errorPack(f));
+  const mala = tp.filas.find(f => errorPack(f) || errorCod(f));
   if (mala) {
-    $('tablaMsg').textContent = `No se guardó: ${etiquetaFila(mala)}: ${errorPack(mala)}`;
+    $('tablaMsg').textContent = `No se guardó: ${etiquetaFila(mala)}: ${errorPack(mala) || errorCod(mala)}`;
     return;
   }
   $('tablaMsg').textContent = '';
