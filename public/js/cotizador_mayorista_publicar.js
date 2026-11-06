@@ -43,8 +43,8 @@ function pintarEstadoPublicar() {
   const e = pub.estado;
   if (!e) return vaciar(cont);
   if (e.tipo === 'subiendo') return montar(cont, h('div', { class: 'loading', role: 'status' }, `Subiendo la versión v${e.version} por FTP…`));
-  if (e.tipo === 'ok') return montar(cont, h('div', { class: 'ok-box text-sm', role: 'status' }, `✔ Versión v${e.version} publicada a las ${horaCorta(e.publicadoEn)}`));
-  return montar(cont, h('div', { class: 'error text-sm', role: 'alert' }, `✖ No se pudo publicar la versión v${e.version}: ${e.msg}`));
+  if (e.tipo === 'ok') return montar(cont, h('div', { class: 'ok-box text-sm', role: 'status' }, `Versión v${e.version} publicada a las ${horaCorta(e.publicadoEn)}`));
+  return montar(cont, h('div', { class: 'error text-sm', role: 'alert' }, `No se pudo publicar la versión v${e.version}: ${e.msg}`));
 }
 
 // Publica una versión ya generada. Devuelve true si salió bien. Un solo publicar a la vez (el server responde 409 si no).

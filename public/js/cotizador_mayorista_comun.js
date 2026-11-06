@@ -65,7 +65,7 @@ const estadoError = (el, err) => montar(el, h('div', { class: 'error', role: 'al
 const chip = (txt, tono = '') => h('span', { class: `chip ${tono ? `chip--${tono}` : 'chip--gris'}` }, txt);
 
 function toast(msg, tono = 'ok') {
-  const t = h('div', { class: `toast toast--${tono}`, role: 'status' }, msg);
+  const t = h('div', { class: `toast toast--${tono}`, role: tono === 'crit' ? 'alert' : 'status' }, h('span', { class: 'toast-ico', 'aria-hidden': 'true' }, tono === 'crit' ? '✖' : '✔'), msg);
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 4500);
 }
