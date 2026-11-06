@@ -604,3 +604,23 @@ test('pasosMinoristaFraccMd: tipo pack termina en "Precio pack sin IVA (sugerido
   assert.strictEqual(pasos[pasos.length - 2][2], 1487.6); // el último "=" es el pack neto
   assert.ok(!txt.some(t => /bulto/i.test(t)));
 });
+
+// ── Escala por costo: el % del descuento puede venir de la escala (mayorista.escala = { pack, bulto }) ──
+const conEscala = escala => ({ ...DESGLOSE_MAY, minorista: { ...DESGLOSE_MAY.minorista, mayorista: { ...MAYORISTA_DESGLOSE, escala } } });
+test('escala por costo: el modal lo anota junto al % de pack y bulto sólo cuando el efectivo vino de la escala', () => {
+  const html = escala => htmlBloqueMayoristaFraccMd(datosMayoristaFraccMd(presMay({}, { desglose: conEscala(escala) }), 'sistema'));
+  const ambas = html({ pack: true, bulto: true });
+  assert.match(ambas, /Pack \(−10 %, escala por costo\)/);
+  assert.match(ambas, /Bulto sin IVA \(sugerido, −10 % sobre el pack, escala por costo\)/);
+  const soloPack = html({ pack: true, bulto: false });
+  assert.match(soloPack, /Pack \(−10 %, escala por costo\)/);
+  assert.doesNotMatch(soloPack, /sobre el pack, escala por costo/);
+  for (const sin of [{ pack: false, bulto: false }, undefined]) assert.doesNotMatch(html(sin), /escala por costo/);
+  assert.strictEqual(datosMayoristaFraccMd(presMay({}, { desglose: conEscala({ pack: true, bulto: false }) }), 'sistema').escala.pack, true);
+  assert.strictEqual(datosMayoristaFraccMd(presMay({}, { desglose: DESGLOSE_MAY }), 'sistema').escala, null);
+});
+test('escala por costo: "Cómo se conforma" anota los pasos de descuento', () => {
+  const txt = escala => pasosMinoristaFraccMd(conEscala(escala), 'Costo').map(p => p[1]).join('|');
+  assert.match(txt({ pack: true, bulto: true }), /Descuento pack −10 %, escala por costo\|.*Descuento bulto −10 % sobre el pack, escala por costo/);
+  assert.doesNotMatch(txt({ pack: false, bulto: false }), /escala por costo/);
+});

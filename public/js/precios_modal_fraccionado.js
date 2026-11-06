@@ -188,6 +188,7 @@ function datosMayoristaFraccMd(p, fuente) {
   const pk = m.pack || {}, b = m.bulto || {};
   const tipo = [m.tipoMayorista, may && may.tipoMayorista, p.mayoristaTipo].find(t => t === 'pack' || t === 'bulto') || 'bulto'; // sin dato = bulto (el default)
   return { fijo: false, tipo, conDesglose: !!may, base: may ? may.base : null, descPackPct: may ? may.descPackPct : null, descBultoPct: may ? may.descBultoPct : null,
+    escala: may && may.escala ? may.escala : null, // { pack, bulto }: true si el % efectivo vino de la escala por costo
     packNeto: tipo === 'pack' ? m.precio : (pk.neto ?? (may ? may.pack.precio : null)), packIva: pk.conIva ?? (may ? may.pack.conIva : null), packMargenPct: pk.margenPct ?? (may ? may.pack.margenPct : null),
     bultoNeto: tipo === 'bulto' ? m.precio : (b.neto ?? (may ? may.bulto.precio : null)), bultoIva: b.conIva ?? (may ? may.bulto.conIva : null), bultoMargenPct: b.margenPct ?? m.margenTotalPct ?? (may ? may.bulto.margenPct : null),
     antes: m.minoristaOriginal ?? null };
@@ -201,14 +202,15 @@ function htmlBloqueMayoristaFraccMd(d) {
   const fila = (txt, v, det = '') => `<div class="flex flex-wrap items-baseline justify-between gap-x-3"><span>${txt}</span><span class="text-right">${v}${det ? ` <span class="md-sub">${det}</span>` : ''}</span></div>`;
   const det = (...xs) => xs.filter(Boolean).join(' · ');
   const margen = n => (n == null ? '' : `margen ${pc(n)}`);
+  const ec = k => (d.escala && d.escala[k] ? ', escala por costo' : ''); // el % vino de la escala por costo
   const esPack = d.tipo === 'pack';
   const principal = n => `<b class="md-nuevo">${peso(n)}</b>`;
   const filaPack = esPack
-    ? fila(d.descPackPct == null ? 'Pack sin IVA (sugerido)' : `Pack sin IVA (sugerido, −${pc(d.descPackPct)} sobre el minorista)`, principal(d.packNeto), det(d.packIva == null ? '' : `con IVA ${ESQ_FR_MD.fmtSug(d.packIva)}`, margen(d.packMargenPct)))
-    : fila(d.descPackPct == null ? 'Pack' : `Pack (−${pc(d.descPackPct)})`, peso(d.packIva), det('con IVA', d.packNeto == null ? '' : `sin IVA ${ESQ_FR_MD.fmtSug(d.packNeto)}`, margen(d.packMargenPct)));
+    ? fila(d.descPackPct == null ? 'Pack sin IVA (sugerido)' : `Pack sin IVA (sugerido, −${pc(d.descPackPct)} sobre el minorista${ec('pack')})`, principal(d.packNeto), det(d.packIva == null ? '' : `con IVA ${ESQ_FR_MD.fmtSug(d.packIva)}`, margen(d.packMargenPct)))
+    : fila(d.descPackPct == null ? 'Pack' : `Pack (−${pc(d.descPackPct)}${ec('pack')})`, peso(d.packIva), det('con IVA', d.packNeto == null ? '' : `sin IVA ${ESQ_FR_MD.fmtSug(d.packNeto)}`, margen(d.packMargenPct)));
   const filaBulto = esPack
-    ? fila(d.descBultoPct == null ? 'Bulto' : `Bulto (−${pc(d.descBultoPct)} sobre el pack)`, peso(d.bultoIva), det('con IVA', d.bultoNeto == null ? '' : `sin IVA ${ESQ_FR_MD.fmtSug(d.bultoNeto)}`, margen(d.bultoMargenPct)))
-    : fila(d.descBultoPct == null ? 'Bulto sin IVA (sugerido)' : `Bulto sin IVA (sugerido, −${pc(d.descBultoPct)} sobre el pack)`, principal(d.bultoNeto), det(d.bultoIva == null ? '' : `con IVA ${ESQ_FR_MD.fmtSug(d.bultoIva)}`, margen(d.bultoMargenPct)));
+    ? fila(d.descBultoPct == null ? 'Bulto' : `Bulto (−${pc(d.descBultoPct)} sobre el pack${ec('bulto')})`, peso(d.bultoIva), det('con IVA', d.bultoNeto == null ? '' : `sin IVA ${ESQ_FR_MD.fmtSug(d.bultoNeto)}`, margen(d.bultoMargenPct)))
+    : fila(d.descBultoPct == null ? 'Bulto sin IVA (sugerido)' : `Bulto sin IVA (sugerido, −${pc(d.descBultoPct)} sobre el pack${ec('bulto')})`, principal(d.bultoNeto), det(d.bultoIva == null ? '' : `con IVA ${ESQ_FR_MD.fmtSug(d.bultoIva)}`, margen(d.bultoMargenPct)));
   const filas = [
     d.base == null ? '' : fila('Minorista por kg, sin IVA (base)', peso(d.base)),
     filaPack, filaBulto,
@@ -327,14 +329,14 @@ function pasosMinoristaFraccMd(d, costoTxt) {
   if (!may || !o) return ESQ_FR_MD.pasosMinoristaMd(d, costoTxt);
   const pasos = ESQ_FR_MD.pasosMinoristaMd({ ...d, minorista: { ...m, margenPct: o.margenPct, exacto: o.exacto, precio: o.precio } }, costoTxt);
   pasos[pasos.length - 1] = ['', 'Precio minorista de antes, con IVA (redondeado)', o.precio];
-  const pc = ESQ_FR_MD.pctMd;
+  const pc = ESQ_FR_MD.pctMd, ec = k => (may.escala && may.escala[k] ? ', escala por costo' : '');
   const tipo = [m.tipoMayorista, may.tipoMayorista].find(t => t === 'pack' || t === 'bulto') || 'bulto';
-  const hastaPack = [...pasos, ['×', `Descuento pack −${pc(may.descPackPct)}`, may.pack.exactoIva], ['=', 'Precio pack con IVA', may.pack.conIva]];
+  const hastaPack = [...pasos, ['×', `Descuento pack −${pc(may.descPackPct)}${ec('pack')}`, may.pack.exactoIva], ['=', 'Precio pack con IVA', may.pack.conIva]];
   if (tipo === 'pack') { // el pack es el resultado: sin IVA (÷ IVA) y sin aplicar el descuento de bulto
     return [...hastaPack, ['÷', `IVA ${pc(m.ivaPct)}`, may.pack.neto], ['=', 'Precio pack sin IVA (sugerido)', may.pack.precio], ['', `Margen efectivo del pack ${pc(may.pack.margenPct)}`, null]];
   }
   return [...hastaPack, ['', `Margen efectivo del pack ${pc(may.pack.margenPct)} (sin IVA ${ESQ_FR_MD.fmtSug(may.pack.precio)} por kg)`, null],
-    ['×', `Descuento bulto −${pc(may.descBultoPct)} sobre el pack`, may.bulto.exactoIva], ['÷', `IVA ${pc(m.ivaPct)}`, may.bulto.neto],
+    ['×', `Descuento bulto −${pc(may.descBultoPct)} sobre el pack${ec('bulto')}`, may.bulto.exactoIva], ['÷', `IVA ${pc(m.ivaPct)}`, may.bulto.neto],
     ['=', 'Precio bulto sin IVA (sugerido)', may.bulto.precio], ['', `Margen efectivo del bulto ${pc(may.bulto.margenPct)}`, null]];
 }
 function cuentasPrecioFraccMd(fila, fuente, { minorista = true } = {}) {

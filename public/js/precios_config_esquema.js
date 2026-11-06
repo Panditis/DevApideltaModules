@@ -200,7 +200,7 @@ function filasDeTablaEsq(t) { // las manuales guardadas, o las que da el generad
   return PreciosEsquema.validarTablaMargen(gen) ? [FILA_VACIA_ESQ] : PreciosEsquema.quiebres(gen);
 }
 // Agregar: antes de la última, con su margen y el corte vacío. Quitar: nunca la única; si era la última, la anterior pasa a "en adelante".
-const filasConNuevaEsq = filas => [...filas.slice(0, -1), { hasta: null, margenPct: filas[filas.length - 1].margenPct }, filas[filas.length - 1]];
+const filasConNuevaEsq = (filas, k = 'margenPct') => [...filas.slice(0, -1), { hasta: null, [k]: filas[filas.length - 1][k] }, filas[filas.length - 1]]; // k: columna que hereda (escalas: 'descPct')
 function filasSinEsq(filas, i) {
   if (filas.length < 2) return filas;
   const resto = filas.filter((_, j) => j !== i);
@@ -309,16 +309,20 @@ function validarMayoristaEsq(v) { // '' si está bien; si no, el mensaje del pri
     if (k === 'pisoVinculadoPct') { if (v[k] < 0 || v[k] > PISO_MAX_ESQ) return `${rotulo}: debe estar entre 0 y ${PISO_MAX_ESQ}.`; continue; }
     if (v[k] < 0 || v[k] >= 100) return `${rotulo}: debe ser mayor o igual a 0 y menor a 100.`;
   }
+  for (const [k, { rotulo }] of Object.entries(ESCALAS_ESQ)) if (v[k]) { const e = validarEscalaEsq(v[k], rotulo); if (e) return e; }
   return '';
 }
-const leerMayoristaEsq = card => Object.fromEntries(Object.keys(CAMPOS_MAYORISTA_ESQ).map(k => [k, pctDeTextoEsq(card.querySelector(`[data-k="${k}"]`).value)]));
+// Siempre manda las dos escalas: objeto (check prendido) o null (apagado = borrar y volver al descuento fijo).
+const leerMayoristaEsq = card => ({ ...Object.fromEntries(Object.keys(CAMPOS_MAYORISTA_ESQ).map(k => [k, pctDeTextoEsq(card.querySelector(`[data-k="${k}"]`).value)])),
+  ...Object.fromEntries(Object.keys(ESCALAS_ESQ).map(k => [k, leerEscalaEsq(card.querySelector(`[data-escala="${k}"]`))])) });
 function htmlMayoristaEsq(m) {
   const v = mayoristaEfectivoEsq(m);
   const campo = k => `<div class="cfg-campo"><label for="esqMay-${k}">${CAMPOS_MAYORISTA_ESQ[k]} (%)</label>
-    ${campoU(`<input type="text" inputmode="decimal" id="esqMay-${k}" data-k="${k}" value="${esc(String(v[k]).replace('.', ','))}" aria-describedby="${k === 'pisoVinculadoPct' ? 'esqMayPisoAyuda ' : ''}esqMayAyuda esqMayError">`, '%', { w: 'w-28' })}${k === 'pisoVinculadoPct' ? `<p class="cfg-ayuda max-w-xs" id="esqMayPisoAyuda">${AYUDA_PISO_ESQ}</p>` : ''}</div>`;
+    ${campoU(`<input type="text" inputmode="decimal" id="esqMay-${k}" data-k="${k}" value="${esc(String(v[k]).replace('.', ','))}" aria-describedby="${k === 'pisoVinculadoPct' ? 'esqMayPisoAyuda ' : ''}esqMayAyuda esqMayError">`, '%', { w: 'w-28' })}${k === 'pisoVinculadoPct' ? `<p class="cfg-ayuda max-w-xs" id="esqMayPisoAyuda">${AYUDA_PISO_ESQ}</p>` : ''}${notaFijoEsq(k, m)}</div>`;
   return `<div class="cfg-card mt-4" data-mayorista><h3 class="cfg-h">Mayorista: descuentos</h3>
     <p class="cfg-ayuda" id="esqMayAyuda">${AYUDA_MAYORISTA_ESQ}</p>
     <div class="flex gap-6 flex-wrap">${Object.keys(CAMPOS_MAYORISTA_ESQ).map(campo).join('')}</div>
+    ${Object.keys(ESCALAS_ESQ).map(k => htmlEscalaEsq(k, m && m[k], v[ESCALAS_ESQ[k].fijo])).join('')}
     <p class="esq-error-may text-xs text-crit mt-2" id="esqMayError" role="status" aria-live="polite"></p></div>`;
 }
 // Error en vivo de la tarjeta (aria-invalid en los campos); devuelve el mensaje ('' = válido).
@@ -328,7 +332,149 @@ function pintarMayoristaEsq(card) {
   const msg = card.closest('section').querySelector('.esq-msg');
   if (!err && msg.textContent.startsWith('Corregí')) msg.textContent = ''; // aviso de guardado bloqueado, ya resuelto
   card.querySelectorAll('[data-k]').forEach(i => i.setAttribute('aria-invalid', String(!!err && err.startsWith(CAMPOS_MAYORISTA_ESQ[i.dataset.k]))));
+  card.querySelectorAll('[data-escala]').forEach(b => {
+    const malo = String(!!err && err.startsWith(ESCALAS_ESQ[b.dataset.escala].rotulo));
+    b.querySelectorAll('[data-e], [data-f]').forEach(i => i.setAttribute('aria-invalid', malo));
+  });
   return err;
+}
+
+// ── Escala del descuento mayorista por costo (pack y bulto): más caro el producto, más descuento ──
+// Mismo patrón que la tabla de márgenes de Fraccionado: generador (mín/máx/escalones/rango) + filas editables (corte de costo $/kg y descuento %).
+// Check apagado = sin escala (se manda null y rige el % fijo). Una escala manual (data-manual) manda sus filas tal cual; Generar vuelve a automática.
+const ESCALAS_ESQ = {
+  escalaPack: { titulo: 'Escala del descuento del pack por costo', rotulo: 'Escala del pack', fijo: 'descPackPct' },
+  escalaBulto: { titulo: 'Escala del descuento del bulto por costo', rotulo: 'Escala del bulto', fijo: 'descBultoPct' },
+};
+const AYUDA_ESCALA_ESQ = 'Más caro el producto, más descuento. El costo es el costo por kg de la presentación. El tramo más barato lleva el descuento mínimo y el más caro, el máximo.';
+const NOTA_FIJO_ESQ = 'Se usa solo si no hay escala.';
+const ESCALONES_MAX_ESQ = 30;
+const FILA_ESCALA_VACIA_ESQ = { hasta: null, descPct: null };
+const pctEscalaOkEsq = v => v != null && v >= 0 && v < 100;
+
+// Defaults al prender el check: 0 %, el doble del fijo (10 si es 0), 5 escalones, rango típico.
+const escalaDefEsq = fijo => ({ minPct: 0, maxPct: fijo > 0 ? Math.min(fijo * 2, 99) : 10, escalones: 5, rango: { desde: 1000, hasta: 20000 } });
+
+function validarFilasEscalaEsq(filas, rot) {
+  if (!Array.isArray(filas) || filas.length < 1 || filas.length > ESCALONES_MAX_ESQ) return `${rot}: la tabla debe tener entre 1 y ${ESCALONES_MAX_ESQ} filas.`;
+  for (let i = 0; i < filas.length; i++) {
+    const f = filas[i] || {}, n = `${rot}, fila ${i + 1}: `;
+    if (i === filas.length - 1) { if (f.hasta != null) return `${n}la última fila no lleva corte (queda "en adelante").`; }
+    else if (f.hasta == null || !(f.hasta > 0)) return `${n}el corte debe ser un número mayor a 0.`;
+    else if (i > 0 && f.hasta <= filas[i - 1].hasta) return `${n}el corte debe ser mayor al de la fila anterior.`;
+    if (!pctEscalaOkEsq(f.descPct)) return `${n}el descuento debe ser mayor o igual a 0 y menor a 100.`;
+  }
+  return '';
+}
+function validarEscalaEsq(e, rot) { // '' si está bien; si no, el mensaje (empieza con el rótulo)
+  if (!pctEscalaOkEsq(e.minPct) || !pctEscalaOkEsq(e.maxPct)) return `${rot}: el descuento mínimo y el máximo deben ser números mayores o iguales a 0 y menores a 100.`;
+  if (e.minPct > e.maxPct) return `${rot}: el descuento mínimo no puede superar al máximo.`;
+  if (!Number.isInteger(e.escalones) || e.escalones < 1 || e.escalones > ESCALONES_MAX_ESQ) return `${rot}: los escalones deben ser un entero entre 1 y ${ESCALONES_MAX_ESQ}.`;
+  const r = e.rango || {};
+  if (!(r.desde > 0) || !(r.hasta > r.desde)) return `${rot}: el rango de costos debe tener desde mayor a 0 y hasta mayor que desde.`;
+  return e.filas != null ? validarFilasEscalaEsq(e.filas, rot) : '';
+}
+// Espejo del motor: cortes logarítmicos entre desde y hasta; el tramo más barato = mínimo, el más caro = máximo (lineal). La última fila es "en adelante".
+function escalaQuiebresEsq(e) {
+  if (Array.isArray(e.filas)) return e.filas.map(f => ({ hasta: f.hasta ?? null, descPct: f.descPct }));
+  const n = e.escalones, { desde, hasta } = e.rango, paso = n > 1 ? (e.maxPct - e.minPct) / (n - 1) : 0, r2 = PreciosEsquema.r2;
+  return Array.from({ length: n }, (_, i) => ({ hasta: i < n - 1 ? r2(desde * Math.pow(hasta / desde, (i + 1) / n)) : null, descPct: r2(e.minPct + i * paso) }));
+}
+
+const textoPctEsq = v => String(v ?? '').replace('.', ',');
+function htmlFilaEscalaEsq(f, i, n, clave) {
+  const donde = `${ESCALAS_ESQ[clave].rotulo}, fila ${i + 1}`;
+  const corte = i === n - 1 ? '<span class="text-sm text-gris">en adelante</span>'
+    : campoU(`<input type="number" step="any" min="0" data-f="hasta" value="${esc(f.hasta ?? '')}" aria-label="${donde}: costo menor a ($/kg)">`, '$', { pre: true, w: 'w-28' });
+  return `<tr class="esq-esc-fila"><td>${corte}</td>
+    <td>${campoU(`<input type="text" inputmode="decimal" data-f="descPct" value="${esc(textoPctEsq(f.descPct))}" aria-label="${donde}: descuento (%)">`, '%', { w: 'w-24' })}</td>
+    <td><button type="button" class="esq-esc-quitar btn-quitar" aria-label="Quitar ${donde}"${n === 1 ? ' disabled' : ''}>✕</button></td></tr>`;
+}
+const htmlFilasEscalaEsq = (clave, filas) => filas.map((f, i) => htmlFilaEscalaEsq(f, i, filas.length, clave)).join('');
+const filasDeEscalaEsq = e => (Array.isArray(e.filas) ? e.filas : validarEscalaEsq(e, '') ? [FILA_ESCALA_VACIA_ESQ] : escalaQuiebresEsq(e));
+// Nota bajo el campo fijo: visible sólo con la escala prendida (el campo no se deshabilita, se sigue guardando).
+const notaFijoEsq = (k, m) => {
+  const clave = Object.keys(ESCALAS_ESQ).find(c => ESCALAS_ESQ[c].fijo === k);
+  return clave ? `<p class="cfg-nota" data-nota-fijo="${k}"${m && m[clave] ? '' : ' hidden'}>${NOTA_FIJO_ESQ}</p>` : '';
+};
+
+function htmlEscalaEsq(clave, escala, fijo) {
+  const { titulo } = ESCALAS_ESQ[clave], on = !!escala, e = escala || escalaDefEsq(fijo), r = e.rango || {}, id = `esqEsc-${clave}`;
+  const campo = (k, rotulo, v, u, extra = '', pre = false, pct = false) => `<div class="cfg-campo"><label for="${id}-${k}">${rotulo}</label>
+    ${campoU(pct ? `<input type="text" inputmode="decimal" id="${id}-${k}" data-e="${k}" value="${esc(textoPctEsq(v))}">` : `<input type="number" step="any" id="${id}-${k}" data-e="${k}" value="${esc(v ?? '')}" ${extra}>`, u, { pre, w: 'w-28' })}</div>`;
+  const manual = on && Array.isArray(e.filas);
+  return `<div class="mt-4 pt-3 border-t border-borde" data-escala="${clave}"${manual ? ' data-manual' : ''}${on ? '' : ' data-nueva'}>
+    <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" data-escala-on${on ? ' checked' : ''}> ${titulo}</label>
+    <div class="esq-esc-cuerpo mt-2"${on ? '' : ' hidden'}>
+      <p class="cfg-ayuda">${AYUDA_ESCALA_ESQ}</p>
+      <div class="flex gap-6 flex-wrap">${campo('minPct', 'Descuento mínimo <span class="cfg-nota">costos bajos</span>', e.minPct, '%', '', false, true)}
+        ${campo('maxPct', 'Descuento máximo <span class="cfg-nota">costos altos</span>', e.maxPct, '%', '', false, true)}
+        ${campo('escalones', 'Escalones', e.escalones, '#', `min="1" max="${ESCALONES_MAX_ESQ}" step="1"`)}
+        ${campo('desde', 'Rango desde', r.desde, '$', 'min="0"', true)}
+        ${campo('hasta', 'Rango hasta', r.hasta, '$', 'min="0"', true)}</div>
+      <table class="cfg-tabla fr-filas w-full mt-3"><thead><tr><th class="text-left">Costo menor a ($/kg)</th><th class="text-left">Descuento (%)</th><th><span class="sr-only">Quitar</span></th></tr></thead>
+        <tbody>${htmlFilasEscalaEsq(clave, filasDeEscalaEsq(e))}</tbody></table>
+      <button type="button" class="esq-esc-agregar cfg-btn2 mt-2">+ Agregar fila</button>
+      <button type="button" class="esq-esc-generar cfg-btn2 mt-2">Generar</button>
+      <p class="esq-esc-aviso text-xs text-gris mt-2">${manual ? AVISO_MANUAL_ESQ : ''}</p></div></div>`;
+}
+
+const leerGeneradorEscalaEsq = b => {
+  const v = k => b.querySelector(`[data-e="${k}"]`).value;
+  return { minPct: pctDeTextoEsq(v('minPct')), maxPct: pctDeTextoEsq(v('maxPct')), escalones: numOrNull(v('escalones')), rango: { desde: numOrNull(v('desde')), hasta: numOrNull(v('hasta')) } };
+};
+const leerFilasEscalaEsq = b => [...b.querySelectorAll('.esq-esc-fila')].map(tr => {
+  const lee = (k, f) => { const i = tr.querySelector(`[data-f="${k}"]`); return i ? f(i.value) : null; };
+  return { hasta: lee('hasta', numOrNull), descPct: lee('descPct', pctDeTextoEsq) };
+});
+const esManualEscalaEsq = b => b.hasAttribute('data-manual');
+// null = check apagado. Manual: manda `filas` (ordenadas por corte); automática: el generador solo.
+const leerEscalaEsq = b => (b.querySelector('[data-escala-on]').checked
+  ? { ...leerGeneradorEscalaEsq(b), ...(esManualEscalaEsq(b) ? { filas: ordenarFilasEsq(leerFilasEscalaEsq(b)) } : {}) } : null);
+
+function marcarManualEscEsq(b, manual) {
+  if (esManualEscalaEsq(b) === manual) return;
+  b.toggleAttribute('data-manual', manual);
+  b.querySelector('.esq-esc-aviso').textContent = manual ? AVISO_MANUAL_ESQ : '';
+}
+const pintarFilasEscalaEsq = (b, filas) => { b.querySelector('tbody').innerHTML = htmlFilasEscalaEsq(b.dataset.escala, filas); };
+// Check, nota del fijo y filas automáticas (siguen al generador). La primera vez que se prende toma los defaults según el % fijo de ese momento.
+function pintarEscalaEsq(b) {
+  const on = b.querySelector('[data-escala-on]').checked, may = b.closest('[data-mayorista]');
+  b.querySelector('.esq-esc-cuerpo').hidden = !on;
+  may.querySelector(`[data-nota-fijo="${ESCALAS_ESQ[b.dataset.escala].fijo}"]`).hidden = !on;
+  if (!on) return;
+  if (b.hasAttribute('data-nueva')) {
+    b.removeAttribute('data-nueva');
+    const d = escalaDefEsq(pctDeTextoEsq(may.querySelector(`[data-k="${ESCALAS_ESQ[b.dataset.escala].fijo}"]`).value));
+    b.querySelector('[data-e="maxPct"]').value = textoPctEsq(d.maxPct);
+  }
+  const gen = leerGeneradorEscalaEsq(b);
+  if (!esManualEscalaEsq(b) && !validarEscalaEsq(gen, '')) pintarFilasEscalaEsq(b, escalaQuiebresEsq(gen));
+}
+async function clickEscalaEsq(sec, e) {
+  const b = e.target.closest('[data-escala]'), btn = e.target.closest('button');
+  if (!btn) return;
+  const may = b.closest('[data-mayorista]'), clave = b.dataset.escala, filas = leerFilasEscalaEsq(b);
+  const cambiar = (nuevas, foco) => {
+    pintarFilasEscalaEsq(b, nuevas); marcarManualEscEsq(b, true); marcarSucio(sec); pintarMayoristaEsq(may);
+    const fila = b.querySelectorAll('.esq-esc-fila')[foco], campo = fila && (fila.querySelector('[data-f="hasta"]') || fila.querySelector('[data-f="descPct"]'));
+    if (campo) campo.focus();
+  };
+  if (btn.classList.contains('esq-esc-agregar')) cambiar(filasConNuevaEsq(filas, 'descPct'), filas.length - 1);
+  else if (btn.classList.contains('esq-esc-quitar')) {
+    const i = [...b.querySelectorAll('.esq-esc-fila')].indexOf(btn.closest('tr')), nuevas = filasSinEsq(filas, i);
+    cambiar(nuevas, Math.min(i, nuevas.length - 1));
+  } else if (btn.classList.contains('esq-esc-generar')) {
+    const gen = leerGeneradorEscalaEsq(b), err = validarEscalaEsq(gen, ESCALAS_ESQ[clave].rotulo);
+    if (err) { may.querySelector('.esq-error-may').textContent = `No se puede generar: ${err}`; return; }
+    const eraManual = esManualEscalaEsq(b);
+    if (eraManual && !(await confirmar(`¿Reemplazar las filas de la ${ESCALAS_ESQ[clave].rotulo.toLowerCase()} por las generadas? Se pierde lo editado a mano.`, { textoOk: 'Reemplazar' }))) return;
+    marcarManualEscEsq(b, false);
+    pintarFilasEscalaEsq(b, escalaQuiebresEsq(gen));
+    pintarMayoristaEsq(may);
+    if (eraManual) marcarSucio(sec);
+  }
 }
 
 // Reventa/Producción: las tres tablas y el descuento al distribuidor. Fraccionado: la tabla del minorista y los descuentos mayoristas (sin descuento al distribuidor).
@@ -392,6 +538,7 @@ async function generarFilasEsq(sec, card) {
   if (eraManual) marcarSucio(sec);
 }
 function clickFilasEsq(sec, e) {
+  if (e.target.closest('[data-escala]')) { clickEscalaEsq(sec, e); return; }
   const card = e.target.closest('[data-canal]'), b = e.target.closest('button');
   if (!card || !b || !esEditableEsq(card)) return;
   const filas = leerFilasEsq(card);
@@ -412,7 +559,12 @@ function pintarMargenesEsq(panel, cfg) {
   // oninput (no addEventListener): el panel persiste entre cargas y no hay que acumular listeners.
   panel.oninput = e => {
     const may = e.target.closest('[data-mayorista]');
-    if (may) { pintarMayoristaEsq(may); return; }
+    if (may) {
+      const b = e.target.closest('[data-escala]');
+      if (b) { if (e.target.closest('.esq-esc-fila')) marcarManualEscEsq(b, true); pintarEscalaEsq(b); } // editar una fila la pasa a manual
+      pintarMayoristaEsq(may);
+      return;
+    }
     const c = e.target.closest('[data-canal]');
     if (!c) return;
     if (e.target.closest('.esq-fila')) marcarManualEsq(c, true); // editar una fila la pasa a manual
@@ -432,7 +584,7 @@ function pintarMargenesEsq(panel, cfg) {
 }
 
 // Helpers de la tabla manual de Fraccionado para test (puros, y los que leen una tarjeta).
-if (typeof module === 'object' && module.exports) module.exports = { htmlMargenesEsq, htmlValorEnergiaEsq, htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
+if (typeof module === 'object' && module.exports) module.exports = { escalaDefEsq, validarEscalaEsq, escalaQuiebresEsq, leerEscalaEsq, htmlEscalaEsq, htmlMargenesEsq, htmlValorEnergiaEsq, htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq,
   filasConNuevaEsq, filasSinEsq, ordenarFilasEsq, textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq,
   canalesMargenEsq, pctDeTextoEsq, mayoristaEfectivoEsq, validarMayoristaEsq, leerMayoristaEsq, htmlMayoristaEsq };
 

@@ -25,7 +25,8 @@ const ctx = vm.createContext({ module: { exports: {} }, esc, fmtMoney, numOrNull
 vm.runInContext(fs.readFileSync(RUTA, 'utf8'), ctx, { filename: RUTA });
 const { htmlTablaMargenEsq, htmlFilaMargenEsq, htmlFilasMargenEsq, filasDeTablaEsq, filasConNuevaEsq, filasSinEsq, ordenarFilasEsq,
   textoManualesEsq, esManualEsq, leerFilasEsq, leerGeneradorEsq, leerTablaEsq,
-  pctDeTextoEsq, mayoristaEfectivoEsq, validarMayoristaEsq, leerMayoristaEsq, htmlMayoristaEsq } = ctx.module.exports;
+  pctDeTextoEsq, mayoristaEfectivoEsq, validarMayoristaEsq, leerMayoristaEsq, htmlMayoristaEsq,
+  escalaDefEsq, validarEscalaEsq, escalaQuiebresEsq, leerEscalaEsq, htmlEscalaEsq } = ctx.module.exports;
 const plano = x => JSON.parse(JSON.stringify(x)); // objetos del vm → del realm del test (deepStrictEqual compara prototipos)
 
 const GEN = { minPct: 20, maxPct: 50, escalones: 3, rango: { desde: 100, hasta: 10000 } };
@@ -35,7 +36,7 @@ const FILAS = [{ hasta: 500, margenPct: 45 }, { hasta: 2000, margenPct: 35 }, { 
 function nodo($, el) {
   return {
     hasAttribute: a => $(el).attr(a) !== undefined,
-    querySelector: s => { const x = $(el).find(s).first(); return x.length ? { value: x.attr('value') ?? '' } : null; },
+    querySelector: s => { const x = $(el).find(s).first(); return x.length ? { ...nodo($, x.get(0)), value: x.attr('value') ?? '', checked: x.attr('checked') !== undefined } : null; },
     querySelectorAll: s => $(el).find(s).toArray().map(e => nodo($, e)),
   };
 }
@@ -203,9 +204,9 @@ test('tarjeta mayorista: renderiza valores con coma y se lee como números', () 
   const card = nodo($, $('[data-mayorista]').get(0));
   assert.strictEqual($('#esqMay-pisoVinculadoPct').attr('value'), '2'); // sin dato en la respuesta: default 2
   assert.match($('#esqMayPisoAyuda').text(), /nunca sale más barato por kg que el pack mayorista más barato del granel más este %\. 0 = igual al pack, sin colchón\./);
-  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: 10, pisoVinculadoPct: 2 });
+  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: 10, pisoVinculadoPct: 2, escalaPack: null, escalaBulto: null });
   $('#esqMay-descBultoPct').attr('value', 'x');
-  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: null, pisoVinculadoPct: 2 });
+  assert.deepStrictEqual(plano(leerMayoristaEsq(card)), { descPackPct: 12.5, descBultoPct: null, pisoVinculadoPct: 2, escalaPack: null, escalaBulto: null });
   $('#esqMay-pisoVinculadoPct').attr('value', '3,5');
   assert.strictEqual(leerMayoristaEsq(card).pisoVinculadoPct, 3.5);
   assert.strictEqual(cheerio.load(htmlMayoristaEsq({ pisoVinculadoPct: 0 }))('#esqMay-pisoVinculadoPct').attr('value'), '0');
@@ -241,4 +242,106 @@ test('Márgenes de Reventa/Producción: siguen las tres tablas (minorista, pack 
 test('validarMargenes(fraccionado): pack y bulto son opcionales (sólo minorista y mayorista no es error)', () => {
   const t = plano(leerTablaEsq(tarjeta(htmlTablaMargenEsq('minorista', { ...GEN, filas: FILAS }, true)).card));
   assert.doesNotThrow(() => validarMargenes({ minorista: t, mayorista: { descPackPct: 10, descBultoPct: 10 } }, {}, 'fraccionado'));
+});
+
+// ── Escalas del descuento mayorista por costo (pack y bulto) ──
+const ESC = { minPct: 0, maxPct: 20, escalones: 4, rango: { desde: 1000, hasta: 16000 } };
+const FILAS_ESC = [{ hasta: 3000, descPct: 2 }, { hasta: 9000, descPct: 6 }, { hasta: null, descPct: 12 }];
+const bloqueEsc = (clave, escala, fijo = 10) => { const $ = cheerio.load(htmlEscalaEsq(clave, escala, fijo)); return { $, b: nodo($, $('[data-escala]').get(0)) }; };
+
+test('escalaDefEsq: defaults al prender (0, fijo x2 o 10 si es 0, 5 escalones, 1000..20000)', () => {
+  assert.deepStrictEqual(plano(escalaDefEsq(12.5)), { minPct: 0, maxPct: 25, escalones: 5, rango: { desde: 1000, hasta: 20000 } });
+  assert.strictEqual(escalaDefEsq(0).maxPct, 10);
+  assert.strictEqual(escalaDefEsq(null).maxPct, 10);
+  assert.ok(escalaDefEsq(80).maxPct < 100);
+});
+test('escalaQuiebresEsq: cortes logarítmicos, el tramo barato lleva el mínimo y el caro el máximo; última en adelante', () => {
+  const q = plano(escalaQuiebresEsq(ESC));
+  assert.deepStrictEqual(q.map(x => x.hasta), [2000, 4000, 8000, null]); // 1000 * 16^(i/4), i = 1..3
+  assert.deepStrictEqual(q.map(x => x.descPct), [0, 6.67, 13.33, 20]);
+  assert.strictEqual(q[0].descPct, ESC.minPct);
+  assert.strictEqual(q[q.length - 1].descPct, ESC.maxPct);
+  assert.deepStrictEqual(plano(escalaQuiebresEsq({ ...ESC, escalones: 1 })), [{ hasta: null, descPct: 0 }]);
+  assert.deepStrictEqual(plano(escalaQuiebresEsq({ ...ESC, filas: FILAS_ESC })), FILAS_ESC);
+});
+test('validarEscalaEsq: pct 0..<100, mín<=máx, escalones 1..30, rango y filas, con el rótulo en el mensaje', () => {
+  const v = (x, r = 'Escala del pack') => validarEscalaEsq({ ...ESC, ...x }, r);
+  assert.strictEqual(v({}), '');
+  assert.strictEqual(v({ minPct: 0, maxPct: 99.9 }), '');
+  for (const mal of [{ minPct: -1 }, { maxPct: 100 }, { minPct: null }, { maxPct: null }]) assert.match(v(mal), /^Escala del pack: .*menores a 100/, JSON.stringify(mal));
+  assert.match(v({ minPct: 30 }), /^Escala del pack: el descuento mínimo no puede superar/);
+  for (const mal of [0, 31, 2.5, null]) assert.match(v({ escalones: mal }), /escalones deben ser un entero entre 1 y 30/, String(mal));
+  assert.match(v({ rango: { desde: 0, hasta: 10 } }), /desde mayor a 0/);
+  assert.match(v({ rango: { desde: 100, hasta: 100 } }), /hasta mayor que desde/);
+  assert.match(v({ rango: { desde: null, hasta: 100 } }), /desde mayor a 0/);
+  assert.match(v({ filas: [] }), /entre 1 y 30 filas/);
+  assert.match(v({ filas: [{ hasta: 5, descPct: 1 }, { hasta: 5, descPct: 2 }, { hasta: null, descPct: 3 }] }), /fila 2: el corte debe ser mayor al de la fila anterior/);
+  assert.match(v({ filas: [{ hasta: 5, descPct: 1 }, { hasta: 9, descPct: 2 }] }), /fila 2: la última fila no lleva corte/);
+  assert.match(v({ filas: [{ hasta: null, descPct: 100 }] }), /fila 1: el descuento debe ser mayor o igual a 0 y menor a 100/);
+  assert.match(v({ filas: [{ hasta: null, descPct: null }] }), /fila 1: el descuento/);
+  assert.match(v({ filas: [{ hasta: null, descPct: 1 }, { hasta: null, descPct: 1 }] }, 'Escala del bulto'), /^Escala del bulto, fila 1: el corte debe ser un número mayor a 0/);
+  assert.strictEqual(v({ filas: FILAS_ESC }), '');
+  assert.match(validarMayoristaEsq({ descPackPct: 10, descBultoPct: 10, pisoVinculadoPct: 2, escalaPack: null, escalaBulto: { ...ESC, minPct: 50 } }), /^Escala del bulto: el descuento mínimo no puede superar/);
+  assert.match(validarMayoristaEsq({ descPackPct: 200, descBultoPct: 10, pisoVinculadoPct: 2, escalaPack: { ...ESC, minPct: 50 } }), /^Descuento precio pack/); // primero los fijos
+});
+test('htmlEscalaEsq sin escala: check apagado, cuerpo oculto, defaults según el % fijo y filas del generador', () => {
+  const { $, b } = bloqueEsc('escalaPack', undefined, 12);
+  assert.strictEqual($('[data-escala-on]').attr('checked'), undefined);
+  assert.notStrictEqual($('.esq-esc-cuerpo').attr('hidden'), undefined);
+  assert.strictEqual($('[data-escala]').attr('data-manual'), undefined);
+  assert.strictEqual($('[data-e="maxPct"]').attr('value'), '24');
+  assert.strictEqual($('[data-e="escalones"]').attr('value'), '5');
+  assert.strictEqual($('[data-e="desde"]').attr('value'), '1000');
+  assert.strictEqual($('.esq-esc-fila').length, 5);
+  assert.match($('label').first().text(), /Escala del descuento del pack por costo/);
+  assert.match($('.cfg-ayuda').text(), /Más caro el producto, más descuento\. El costo es el costo por kg de la presentación\./);
+  assert.strictEqual(leerEscalaEsq(b), null);
+});
+test('htmlEscalaEsq con escala: check prendido, valores con coma, filas del generador; con filas guardadas = manual con aviso', () => {
+  const auto = bloqueEsc('escalaBulto', { ...ESC, maxPct: 12.5 });
+  assert.strictEqual(auto.$('[data-escala-on]').attr('checked'), 'checked');
+  assert.strictEqual(auto.$('.esq-esc-cuerpo').attr('hidden'), undefined);
+  assert.strictEqual(auto.$('[data-e="maxPct"]').attr('value'), '12,5');
+  assert.strictEqual(auto.$('.esq-esc-fila').length, 4);
+  assert.strictEqual(auto.$('[data-escala]').attr('data-manual'), undefined);
+  assert.strictEqual(auto.$('.esq-esc-fila').last().find('[data-f="hasta"]').length, 0);
+  assert.deepStrictEqual(plano(leerEscalaEsq(auto.b)), { minPct: 0, maxPct: 12.5, escalones: 4, rango: { desde: 1000, hasta: 16000 } }); // automática: sin filas
+  const man = bloqueEsc('escalaBulto', { ...ESC, filas: FILAS_ESC });
+  assert.strictEqual(man.$('[data-escala]').attr('data-manual'), '');
+  assert.match(man.$('.esq-esc-aviso').text(), /Tabla manual: estos valores no cambian las filas\. Generar las reemplaza\./);
+  assert.strictEqual(man.$('.esq-esc-fila').length, 3);
+  assert.deepStrictEqual(plano(leerEscalaEsq(man.b)).filas, FILAS_ESC);
+});
+test('leerEscalaEsq manual: filas ordenadas por corte, con coma, y lo inválido queda null', () => {
+  const { $, b } = bloqueEsc('escalaPack', { ...ESC, filas: FILAS_ESC });
+  tipear($, '[data-f="hasta"]', 0, '9500'); tipear($, '[data-f="hasta"]', 1, '3000'); tipear($, '[data-f="descPct"]', 2, '12,5');
+  const f = plano(leerEscalaEsq(b)).filas;
+  assert.deepStrictEqual(f.map(x => x.hasta), [3000, 9500, null]);
+  assert.strictEqual(f[2].descPct, 12.5);
+  tipear($, '[data-f="descPct"]', 0, 'x');
+  assert.ok(plano(leerEscalaEsq(b)).filas.some(x => x.descPct == null)); // la validación lo rechaza
+});
+test('tarjeta mayorista con escalas: payload manda SIEMPRE las dos claves (null con check apagado, objeto con check prendido)', () => {
+  const $ = cheerio.load(htmlMayoristaEsq({ descPackPct: 10, descBultoPct: 8, escalaPack: ESC }));
+  const card = nodo($, $('[data-mayorista]').get(0));
+  const r = plano(leerMayoristaEsq(card));
+  assert.deepStrictEqual(Object.keys(r).sort(), ['descBultoPct', 'descPackPct', 'escalaBulto', 'escalaPack', 'pisoVinculadoPct']);
+  assert.deepStrictEqual(r.escalaPack, ESC);
+  assert.strictEqual(r.escalaBulto, null);
+  assert.strictEqual(r.descPackPct, 10); // el fijo se sigue guardando con la escala prendida
+  assert.strictEqual(validarMayoristaEsq(r), '');
+  $('[data-escala="escalaPack"] [data-escala-on]').removeAttr('checked');
+  assert.strictEqual(leerMayoristaEsq(card).escalaPack, null);
+});
+test('tarjeta mayorista: nota "se usa solo si no hay escala" visible sólo con la escala del campo fijo prendida', () => {
+  const $ = cheerio.load(htmlMayoristaEsq({ descPackPct: 10, descBultoPct: 8, escalaBulto: ESC }));
+  assert.notStrictEqual($('[data-nota-fijo="descPackPct"]').attr('hidden'), undefined);
+  assert.strictEqual($('[data-nota-fijo="descBultoPct"]').attr('hidden'), undefined);
+  assert.match($('[data-nota-fijo="descBultoPct"]').text(), /Se usa solo si no hay escala\./);
+  assert.strictEqual($('[data-nota-fijo="pisoVinculadoPct"]').length, 0);
+  assert.strictEqual($('[data-escala]').length, 2);
+});
+test('filasConNuevaEsq con columna descPct hereda el descuento de la última fila', () => {
+  assert.deepStrictEqual(plano(filasConNuevaEsq(FILAS_ESC, 'descPct')), [FILAS_ESC[0], FILAS_ESC[1], { hasta: null, descPct: 12 }, FILAS_ESC[2]]);
+  assert.deepStrictEqual(plano(filasConNuevaEsq(FILAS)), [FILAS[0], FILAS[1], { hasta: null, margenPct: 25 }, FILAS[2]]);
 });
