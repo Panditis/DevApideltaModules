@@ -76,7 +76,16 @@ async function autocompletarCodigos() {
   }
 }
 
+// GET /codigos.xlsx: lectura, descarga como attachment (mismo mecanismo de <a download> que la pestaña Exportar).
+function descargarCodigos() {
+  const a = h('a', { href: `${API}/codigos.xlsx`, download: '' }); // el nombre con fecha lo manda el servidor (Content-Disposition)
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function iniciarImportar() {
+  $('btnDescargarCodigos').addEventListener('click', descargarCodigos);
   $('btnAutocompletar').addEventListener('click', autocompletarCodigos);
   const input = $('importArchivo');
   $('btnImportar').addEventListener('click', () => input.click());

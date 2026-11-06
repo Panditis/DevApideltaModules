@@ -49,6 +49,11 @@
 //        Sube catalogo.csv y después version.json, cada uno como .tmp + verificación de tamaño + rename. Resultado en meta.json.publicado.
 //   GET  /api/cotizador-mayorista/publicaciones/:version/catalogo.csv | version.json → descarga (attachment)
 //   GET  /api/cotizador-mayorista/comparacion  → { iguales, difieren, sinDato, conDecision, detalle: [...] } (sistema vs planilla)
+//   GET  /api/cotizador-mayorista/codigos.xlsx → descarga cotizador_codigos_AAAA-MM-DD.xlsx (hoja 'codigos', sólo lectura)
+//        Columnas: Codigo, Producto, CodigoPack, Cantidad pack, CodigoBulto, CantidadBulto. Una fila por fila de la tabla
+//        (incluidas o no), orden del catálogo. PLU = explícito o vínculo SIGA; manual sin PLU; pack vacío en 'ninguno'/'descuento'.
+//        Cantidad normalizada ("12u", "10kg") o el texto crudo si no se reconoce. Si listadosVigentes falla: sólo PLU explícitos.
+//        Error al generar → 500 { error }.
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -294,6 +299,26 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
     const ruta = path.join(dirVersion(v), archivo);
     if (!fs.existsSync(ruta)) return res.status(404).json({ error: `No existe la versión ${v}` });
     return res.download(ruta, archivo);
+  });
+
+  router.get('/api/cotizador-mayorista/codigos.xlsx', async (req, res) => {
+    try {
+      let indice = new Map();
+      try { indice = C.indicePrecios(await listadosVigentes()); } catch (err) {
+        console.error('[cotizador-mayorista] codigos.xlsx sin vínculos SIGA:', err.message); // sigue con los PLU explícitos
+      }
+      const ws = XLSX.utils.aoa_to_sheet(C.filasExportarCodigos(leerTabla().filas, indice));
+      ws['!cols'] = [12, 45, 12, 14, 12, 14].map(wch => ({ wch }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'codigos');
+      const d = new Date(), p = n => String(n).padStart(2, '0');
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="cotizador_codigos_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.xlsx"`);
+      return res.send(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    } catch (err) {
+      console.error('[cotizador-mayorista] codigos.xlsx:', err.message);
+      return res.status(500).json({ error: 'No se pudo generar el Excel de códigos' });
+    }
   });
 
   router.get('/api/cotizador-mayorista/comparacion', apiRoute(async () => {

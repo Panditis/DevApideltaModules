@@ -159,6 +159,8 @@ function actualizarBarra() {
   ['btnAgregarManual', 'btnImportar'].forEach(i => { $(i).disabled = !tp.puede || !tp.cargada; $(i).title = motivo; });
   $('btnAutocompletar').disabled = !tp.puede || !tp.cargada || sucio;
   $('btnAutocompletar').title = tp.puede ? (sucio ? 'Guardá o descartá los cambios antes de autocompletar' : '') : motivo;
+  $('btnDescargarCodigos').disabled = !tp.cargada;
+  $('btnDescargarCodigos').title = sucio ? 'Incluye solo lo guardado; guardá antes para incluir tus cambios' : '';
   $('tablaSucio').classList.toggle('hidden', !sucio);
   if (!sucio) $('tablaMsg').textContent = '';
   const grupos = agrupar(tp.filas);
