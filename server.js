@@ -2744,7 +2744,8 @@ app.get('/js/cotizador_mayorista_comparacion.js', (_req, res) => res.sendFile(pa
 app.get('/js/cotizador_mayorista_publicar.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_publicar.js')));
 app.get('/js/cotizador_mayorista_init.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_init.js')));
 app.get('/cotizador-mayorista', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'cotizador_mayorista.html')));
-app.use(require('./routes/rutas_cotizador_mayorista')({ apiRoute, DATA_DIR, listadosVigentes: rutasPreciosEsquema.listadosVigentes, tienePermiso: auth.tienePermiso }));
+app.use(require('./routes/rutas_cotizador_mayorista')({ apiRoute, DATA_DIR, listadosVigentes: rutasPreciosEsquema.listadosVigentes, tienePermiso: auth.tienePermiso,
+  usosComoFormula: require('./lib/precios_consultas').crearConsultasPrecios({ query, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }).usosComoFormula }));
 // Precios › Configuración › Costeo Fraccionado (máquinas, tramos de tiempo, min/kg por subrubro, min/kg y máquina por granel, insumos por peso): /api/precios/config/esquema/fraccionado/*.
 app.use(require('./routes/rutas_precios_fraccionado')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
 

@@ -33,10 +33,15 @@
 //        El CSV exportado no cambia: sólo cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price.
 //        importar: fila no manual sin 'Codigo Pack' ni pack_price → modoPack 'ninguno'; si no, 'plu' (nunca 'descuento').
 //        comparacion: pack en 'ninguno' no figura; en 'descuento' sistema = pack calculado, origen 'descuento', plu null.
-//   POST /api/cotizador-mayorista/autocompletar (permiso precios-config) → { filas: [Fila], completadas: [{ cod, nombre, tipo, plu }],
-//        sinVincular: [{ cod, nombre, faltan: ['pack'|'bulto'] }] }  (guarda la tabla). Completa packPlu/bultoPlu vacíos de filas
+//   POST /api/cotizador-mayorista/autocompletar (permiso precios-config) → { filas: [Fila], completadas: [{ cod, nombre, tipo, plu, origen }],
+//        sinVincular: [{ cod, nombre, faltan: ['pack'|'bulto'], motivo? }] }  (guarda la tabla). Completa packPlu/bultoPlu vacíos de filas
 //        no manuales con cantidad (pack sólo en modoPack 'plu'): vínculo SIGA o, si no hay, presentación mayorista de fraccionado
-//        de Precios (cod = granel o cualquier presentación del grupo). No pisa PLU ya cargados.
+//        de Precios (cod = granel o cualquier presentación del grupo) o, si tampoco, producto de SIGA (cualquier rubro) cuya
+//        fórmula activa es sólo el cod (nombre Pack/Bulto/Caja manda; si no, único → bulto, dos → menor pack / mayor bulto).
+//        No pisa PLU ya cargados. completadas[].origen: 'sigaVinculo' | 'presentacion' | 'formula'. sinVincular[].motivo
+//        (opcional): candidatos por fórmula ambiguos, no asignados. Si la consulta por fórmula falla, sigue sin esa fuente.
+//        Limitación: los PLU por fórmula no son vínculos de Precios (no están en el índice): su precio en el catálogo sale
+//        del respaldo (último exportado) con motivo "PLU X sin precio en el módulo"; no se inventan precios.
 //   POST /api/cotizador-mayorista/exportar     → { version, generado, sha256, productos, diff, revisar }   (errores → { error })
 //   GET  /api/cotizador-mayorista/historial    → [{ version, generado, usuario, productos, sha256, nuevos, quitados, cambiados,
 //        publicado: { fecha, ok, error? } | null, metaIlegible? }]   (meta.json corrupto → fila con nulls y metaIlegible: true)
@@ -66,7 +71,7 @@ const HOJA = 'apidelta_precios';
 
 const FTP_TIMEOUT_MS = 30000;
 
-module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, listadosVigentes, tienePermiso,
+module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, listadosVigentes, tienePermiso, usosComoFormula = async () => [],
   // ponytail: basic-ftp 5.x a propósito; el aviso de npm audit (DoS en Client.list()) no aplica, no usamos list()
   crearClienteFtp = () => new (require('basic-ftp').Client)(FTP_TIMEOUT_MS) }) {
   const router = express.Router();
@@ -127,7 +132,12 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
   router.post('/api/cotizador-mayorista/autocompletar', conPermiso(apiRoute(async () => {
     const indice = C.indicePrecios(await listadosVigentes());
     const tabla = leerTabla(); // leída después del await
-    const r = C.autocompletarVinculos(tabla.filas, indice);
+    const sinSiga = C.autocompletarVinculos(tabla.filas, indice).sinVincular.map(s => s.cod).filter(c => /^\d{1,12}$/.test(c));
+    let usos = [];
+    if (sinSiga.length) {
+      try { usos = await usosComoFormula(sinSiga); } catch (err) { console.error('[cotizador-mayorista] usosComoFormula falló, sigo sin esa fuente:', err.message); }
+    }
+    const r = C.autocompletarVinculos(tabla.filas, indice, C.candidatosPorFormula(usos));
     let filas;
     try { filas = C.validarTabla(r.filas); } catch (err) { return { error: err.message }; }
     guardarTabla({ ...tabla, filas });
