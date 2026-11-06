@@ -98,7 +98,7 @@ function adoptarFilas(filas) {
   tp.cargada = true;
 }
 async function cargarTabla() {
-  estadoCarga($('tablaCont'), 'Cargando productos…');
+  cargandoTabla($('tablaCont'));
   try {
     const [t, puede] = await Promise.all([api('/tabla'), permisoEditar]);
     tp.puede = puede;
@@ -166,6 +166,24 @@ function actualizarBarra() {
   const grupos = agrupar(tp.filas);
   $('tablaCuenta').textContent = tp.cargada
     ? `${fmtNum(tp.filas.length)} filas · ${fmtNum(grupos.length)} secciones · ${fmtNum(tp.filas.filter(f => f.incluido).length)} incluidas${tp.puede ? '' : ' · Solo lectura: no tenés el permiso de configuración de Precios'}` : '';
+  actualizarFiltros();
+}
+// Filtro de estado segmentado: contadores por opción y estado activo; #tablaEstado queda oculto y sincronizado.
+function actualizarFiltros() {
+  const cuenta = {
+    todos: tp.filas.length, incluidos: tp.filas.filter(f => f.incluido).length, excluidos: tp.filas.filter(f => !f.incluido).length,
+    manuales: tp.filas.filter(f => f.manual).length, avisos: tp.filas.filter(filaConAviso).length,
+  };
+  $('tablaEstado').value = tp.estado;
+  if ($('tablaBuscar').value !== tp.q) $('tablaBuscar').value = tp.q;
+  document.querySelectorAll('#tablaEstadoSeg .seg-b').forEach(b => {
+    const on = b.dataset.estado === tp.estado;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+    const n = b.querySelector('.seg-n');
+    n.textContent = tp.cargada ? fmtNum(cuenta[b.dataset.estado]) : '0';
+    n.classList.toggle('hay', b.dataset.estado === 'avisos' && cuenta.avisos > 0);
+  });
 }
 function llenarSecciones() {
   const sel = $('tablaSeccion');
@@ -183,7 +201,12 @@ function pintarTabla() {
 function iniciarTabla() {
   $('tablaBuscar').addEventListener('input', e => { tp.q = e.target.value; pintarFilas(); });
   $('tablaSeccion').addEventListener('change', e => { tp.seccion = e.target.value; pintarFilas(); });
-  $('tablaEstado').addEventListener('change', e => { tp.estado = e.target.value; pintarFilas(); });
+  $('tablaEstado').addEventListener('change', e => { tp.estado = e.target.value; pintarFilas(); actualizarFiltros(); });
+  document.querySelectorAll('#tablaEstadoSeg .seg-b').forEach(b => b.addEventListener('click', () => {
+    tp.estado = b.dataset.estado;
+    pintarFilas();
+    actualizarFiltros();
+  }));
   $('btnGuardarTabla').addEventListener('click', guardarTabla);
   $('btnDescartarTabla').addEventListener('click', descartarCambios);
   $('btnAgregarManual').addEventListener('click', agregarFilaManual);
