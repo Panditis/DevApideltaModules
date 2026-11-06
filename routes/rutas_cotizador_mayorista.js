@@ -33,6 +33,10 @@
 //        El CSV exportado no cambia: sólo cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price.
 //        importar: fila no manual sin 'Codigo Pack' ni pack_price → modoPack 'ninguno'; si no, 'plu' (nunca 'descuento').
 //        comparacion: pack en 'ninguno' no figura; en 'descuento' sistema = pack calculado, origen 'descuento', plu null.
+//   POST /api/cotizador-mayorista/autocompletar (permiso precios-config) → { filas: [Fila], completadas: [{ cod, nombre, tipo, plu }],
+//        sinVincular: [{ cod, nombre, faltan: ['pack'|'bulto'] }] }  (guarda la tabla). Completa packPlu/bultoPlu vacíos de filas
+//        no manuales con cantidad (pack sólo en modoPack 'plu'): vínculo SIGA o, si no hay, presentación mayorista de fraccionado
+//        de Precios (cod = granel o cualquier presentación del grupo). No pisa PLU ya cargados.
 //   POST /api/cotizador-mayorista/exportar     → { version, generado, sha256, productos, diff, revisar }   (errores → { error })
 //   GET  /api/cotizador-mayorista/historial    → [{ version, generado, usuario, productos, sha256, nuevos, quitados, cambiados,
 //        publicado: { fecha, ok, error? } | null, metaIlegible? }]   (meta.json corrupto → fila con nulls y metaIlegible: true)
@@ -113,6 +117,16 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
     try { filas = C.validarTabla((req.body || {}).filas); } catch (err) { return { error: err.message }; }
     guardarTabla({ ...leerTabla(), filas });
     return { filas };
+  })));
+
+  router.post('/api/cotizador-mayorista/autocompletar', conPermiso(apiRoute(async () => {
+    const indice = C.indicePrecios(await listadosVigentes());
+    const tabla = leerTabla(); // leída después del await
+    const r = C.autocompletarVinculos(tabla.filas, indice);
+    let filas;
+    try { filas = C.validarTabla(r.filas); } catch (err) { return { error: err.message }; }
+    guardarTabla({ ...tabla, filas });
+    return { filas, completadas: r.completadas, sinVincular: r.sinVincular };
   })));
 
   router.put('/api/cotizador-mayorista/subida', conPermiso(apiRoute(async (req) => {

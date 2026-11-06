@@ -50,7 +50,34 @@ async function importarArchivo(archivo) {
   }
 }
 
+// POST /autocompletar: el backend completa packPlu/bultoPlu faltantes desde Precios y guarda la tabla solo.
+async function autocompletarCodigos() {
+  const boton = $('btnAutocompletar');
+  boton.disabled = true;
+  boton.textContent = 'Autocompletando…';
+  try {
+    const r = await apiJson('/autocompletar', 'POST');
+    adoptarFilas(r.filas);
+    pintarTabla();
+    const n = (r.completadas || []).length;
+    toast(n ? `${fmtNum(n)} códigos completados` : 'No faltaba ningún código');
+    const sin = r.sinVincular || [];
+    if (sin.length) {
+      montar($('importResultado'), h('div', { class: 'space-y-2' },
+        h('div', { class: 'flex items-center' }, h('strong', null, 'Autocompletar: quedaron productos sin vincular'),
+          h('button', { type: 'button', class: 'btn-sec btn-chico ml-auto', onclick: () => vaciar($('importResultado')) }, 'Cerrar')),
+        listaSinVincular(sin)));
+    } else vaciar($('importResultado'));
+  } catch (err) {
+    toast(err.message, 'crit');
+  } finally {
+    boton.textContent = 'Autocompletar códigos';
+    actualizarBarra();
+  }
+}
+
 function iniciarImportar() {
+  $('btnAutocompletar').addEventListener('click', autocompletarCodigos);
   const input = $('importArchivo');
   $('btnImportar').addEventListener('click', () => input.click());
   input.addEventListener('change', () => {

@@ -157,6 +157,8 @@ function actualizarBarra() {
   $('btnGuardarTabla').title = motivo;
   $('btnDescartarTabla').disabled = !sucio;
   ['btnAgregarManual', 'btnImportar'].forEach(i => { $(i).disabled = !tp.puede || !tp.cargada; $(i).title = motivo; });
+  $('btnAutocompletar').disabled = !tp.puede || !tp.cargada || sucio;
+  $('btnAutocompletar').title = tp.puede ? (sucio ? 'Guardá o descartá los cambios antes de autocompletar' : '') : motivo;
   $('tablaSucio').classList.toggle('hidden', !sucio);
   if (!sucio) $('tablaMsg').textContent = '';
   const grupos = agrupar(tp.filas);
