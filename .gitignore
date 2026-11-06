@@ -5,6 +5,7 @@ node_modules/
 *.bak-*
 data/
 iniciar_servidor_dev.bat
+iniciar_servidor.bat
 config.json
 docs/
 pruebas_stock_claude/
