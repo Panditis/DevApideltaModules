@@ -6,6 +6,7 @@ const PESTANAS = {
   productos: { iniciar: () => { iniciarTabla(); return cargarTabla(); } },
   historial: { iniciar: () => { iniciarHistorial(); return cargarHistorial(); } },
   comparacion: { iniciar: () => { iniciarComparacion(); return cargarComparacion(); } },
+  codigos: { iniciar: () => { iniciarCodigos(); return cargarCodigos(); } },
 };
 const iniciadas = new Set();
 

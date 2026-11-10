@@ -1,10 +1,11 @@
 'use strict';
-// ── Cotizador mayorista · pestaña "Comparación con la planilla actual" (GET /comparacion) ──
-// Diagnóstico: precio de la planilla (Excel) contra el del sistema (decisión o, si no hay, sugerido).
+// ── Cotizador mayorista · pestaña "Comparación con lo publicado" (GET /comparacion) ──
+// Diagnóstico: precios vigentes del sistema contra el último catalogo.csv exportado.
 
 const cmp = { detalle: [], estado: 'todos', tipo: '', q: '' };
-const CMP_ESTADOS = [['todos', 'Todos'], ['igual', 'Iguales'], ['difiere', 'Difieren'], ['sin dato', 'Sin dato']];
-const CMP_TONO = { igual: 'ok', difiere: 'warn', 'sin dato': 'gris' };
+const CMP_ESTADOS = [['todos', 'Todos'], ['igual', 'Iguales'], ['cambió', 'Cambiaron'], ['nuevo', 'Nuevos'], ['quitado', 'Quitados'], ['sin dato', 'Sin dato']];
+const CMP_TONO = { igual: 'ok', cambió: 'warn', nuevo: 'info', quitado: 'warn', 'sin dato': 'gris' };
+const CMP_TXT = { igual: 'Igual', cambió: 'Cambió', nuevo: 'Nuevo', quitado: 'Quitado', 'sin dato': 'Sin dato' };
 const cmpTipoTxt = t => (t === 'pack' ? 'Pack' : 'Bulto');
 
 const cmpTabla = crearTabla({
@@ -13,11 +14,11 @@ const cmpTabla = crearTabla({
     { key: 'cod', titulo: 'Cod', ancho: '90px', valor: f => f.cod },
     { key: 'nombre', titulo: 'Nombre', ancho: 'auto', valor: f => f.nombre },
     { key: 'tipo', titulo: 'Tipo', ancho: '76px', valor: f => f.tipo, celda: f => cmpTipoTxt(f.tipo) },
-    { key: 'excel', titulo: 'Excel', ancho: '96px', num: true, valor: f => f.excel, celda: f => fmtPrecio(f.excel) },
+    { key: 'publicado', titulo: 'Publicado', ancho: '110px', num: true, valor: f => f.publicado, celda: f => fmtPrecio(f.publicado) },
     { key: 'sistema', titulo: 'Sistema', ancho: '96px', num: true, valor: f => f.sistema, celda: f => fmtPrecio(f.sistema) },
     { key: 'origen', titulo: 'Origen', ancho: '170px', valor: f => f.origen || '', celda: f => (f.origen === 'descuento' ? chip('Descuento', 'warn') : f.origen || '—') },
     { key: 'pct', titulo: '%', ancho: '80px', num: true, valor: f => f.pct, celda: f => h('span', { class: diffClasePct(f.pct) }, fmtPct(f.pct)) },
-    { key: 'estado', titulo: 'Estado', ancho: '92px', valor: f => f.estado, celda: f => chip(f.estado === 'igual' ? 'Igual' : f.estado === 'difiere' ? 'Difiere' : 'Sin dato', CMP_TONO[f.estado]) },
+    { key: 'estado', titulo: 'Estado', ancho: '92px', valor: f => f.estado, celda: f => chip(CMP_TXT[f.estado] || f.estado, CMP_TONO[f.estado]) },
   ],
 });
 cmpTabla.el.classList.add('tabla-scroll--alta');
@@ -43,21 +44,38 @@ function pintarComparacion() {
 
 function resumenComparacion(r) {
   return h('div', { class: 'stat-cards' },
-    statCard('ok', 'verde', 'Iguales', r.iguales, 'Planilla y sistema coinciden'),
-    statCard('rev', 'warn', 'Difieren', r.difieren, 'Hay que mirar cuál está bien'),
+    statCard('ok', 'verde', 'Iguales', r.iguales, 'Sistema y catálogo coinciden'),
+    statCard('rev', 'warn', 'Cambiaron', r.cambiaron, 'El precio vigente ya no es el publicado'),
+    statCard('resp', 'info', 'Nuevos', r.nuevos, 'Están en el sistema y no en el catálogo'),
+    statCard('rev', 'warn', 'Quitados', r.quitados, 'Estaban en el catálogo y ya no'),
     statCard('resp', 'info', 'Sin dato', r.sinDato, 'Falta el precio de un lado'),
     statCard('prod', 'verde', 'Con decisión', r.conDecision, 'El sistema usa una decisión vigente'));
 }
 
+function encabezadoComparacion(r) {
+  const ftp = !r.publicado ? 'no subida por FTP'
+    : r.publicado.ok ? `subida por FTP el ${fmtFecha(r.publicado.fecha)}`
+    : `falló la subida por FTP${r.publicado.error ? `: ${r.publicado.error}` : ''}`;
+  return h('p', { class: 'text-sm text-gris' }, `Catálogo v${r.version} · generado ${fmtFecha(r.generado)} · ${ftp}`);
+}
+
+const avisoErrores = errores => h('div', { class: 'aviso-amarillo', role: 'alert' },
+  h('strong', null, 'Hubo problemas al comparar'), h('ul', null, errores.map(e => h('li', null, e))));
+
 async function cargarComparacion() {
   const cont = $('cmpCont');
-  estadoCarga(cont, 'Comparando con la planilla…');
+  estadoCarga(cont, 'Comparando con lo publicado…');
   $('cmpResumen').replaceChildren();
+  cmp.detalle = [];
   try {
     const r = await api('/comparacion');
+    if (r.sinPublicaciones) return estadoVacio(cont, 'Todavía no hay catálogo exportado: exportá una versión para poder comparar');
     cmp.detalle = Array.isArray(r.detalle) ? r.detalle : [];
-    montar($('cmpResumen'), resumenComparacion(r));
-    if (!cmp.detalle.length) return estadoVacio(cont, 'No hay datos de la planilla para comparar. Importá el Excel en "Productos y secciones".');
+    const th = cmpTabla.el.querySelectorAll('thead th')[3].querySelector('button');
+    if (th) th.firstChild.textContent = `Publicado v${r.version}`;
+    montar($('cmpResumen'), encabezadoComparacion(r),
+      Array.isArray(r.errores) && r.errores.length ? avisoErrores(r.errores) : null, resumenComparacion(r));
+    if (!cmp.detalle.length) return estadoVacio(cont, 'No hay productos para comparar.');
     montar(cont, cmpTabla.el);
     return pintarComparacion();
   } catch (err) {
@@ -69,8 +87,8 @@ const csvCelda = v => { const s = v == null ? '' : String(v); return /[";\r\n]/.
 // ';' y BOM: así Excel en español lo abre con las columnas y las tildes bien.
 function exportarComparacionCsv() {
   const filas = cmpVisibles();
-  const lineas = [['cod', 'nombre', 'tipo', 'excel', 'sistema', 'origen', 'pct', 'estado'], ...filas.map(f => [f.cod, f.nombre, f.tipo, f.excel, f.sistema, f.origen, f.pct, f.estado])];
-  descargarBlob('comparacion_planilla.csv', `﻿${lineas.map(l => l.map(csvCelda).join(';')).join('\r\n')}\r\n`, 'text/csv;charset=utf-8');
+  const lineas = [['cod', 'nombre', 'tipo', 'publicado', 'sistema', 'origen', 'pct', 'estado'], ...filas.map(f => [f.cod, f.nombre, f.tipo, f.publicado, f.sistema, f.origen, f.pct, f.estado])];
+  descargarBlob('comparacion_publicado.csv', `﻿${lineas.map(l => l.map(csvCelda).join(';')).join('\r\n')}\r\n`, 'text/csv;charset=utf-8');
 }
 
 function iniciarComparacion() {

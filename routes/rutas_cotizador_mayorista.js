@@ -59,7 +59,12 @@
 //        → 400 versión inválida · 404 versión inexistente · 409 ya hay una publicación en curso · 403 sin permiso
 //        Sube catalogo.csv y después version.json, cada uno como .tmp + verificación de tamaño + rename. Resultado en meta.json.publicado.
 //   GET  /api/cotizador-mayorista/publicaciones/:version/catalogo.csv | version.json → descarga (attachment)
-//   GET  /api/cotizador-mayorista/comparacion  → { iguales, difieren, sinDato, conDecision, detalle: [...] } (sistema vs planilla)
+//   GET  /api/cotizador-mayorista/comparacion  → catálogo de hoy (el mismo de /preview: armarCatalogo + listadosVigentes) vs el
+//        último publicado (vNNN más alta). { sinPublicaciones, version, generado, publicado: { fecha, ok, error? } | null,
+//        iguales, cambiaron, sinDato, nuevos, quitados, conDecision, errores: [string],
+//        detalle: [{ cod, nombre, tipo: 'pack'|'bulto', publicado, sistema, origen, pct, estado: 'igual'|'cambió'|'nuevo'|'sin dato'|'quitado' }] }
+//        Sin versiones → sinPublicaciones: true, contadores 0 y detalle []. Columna sin precio en ambos lados no figura.
+//        Producto que hoy no sale (sin precio, cantidad inválida sin respaldo, error) y sí estaba publicado → 'quitado'.
 //   GET  /api/cotizador-mayorista/codigos.xlsx → descarga cotizador_codigos_AAAA-MM-DD.xlsx (hoja 'codigos', sólo lectura)
 //        Columnas: Codigo, Producto, CodigoPack, Cantidad pack, CodigoBulto, CantidadBulto, NombrePack, NombreBulto
 //        (nombre del PLU de CodigoPack/CodigoBulto: índice de Precios o SIGA; vacío si no se encuentra o falla). Una fila por fila de la tabla
@@ -117,12 +122,15 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
     ? new Map(anterior.filas.map(f => [f.cod, f]))
     : new Map(tabla.filas.filter(f => f.planilla).map(f => [f.cod, f.planilla])));
 
-  async function vistaPrevia() {
+  // Devuelve la vista pública y las filas de la publicación que usó (una sola lectura: versión y filas coinciden).
+  async function armarVista() {
     const listados = await listadosVigentes();
     const tabla = leerTabla(), anterior = ultima(); // leídos después del await
     const r = C.armarCatalogo({ tabla, indice: C.indicePrecios(listados), respaldos: respaldosDe(tabla, anterior) });
-    return { ...r, diff: C.diffCatalogo(anterior.filas, r.filas), ultimaVersion: anterior.version, productos: r.filas.length };
+    return { vista: { ...r, diff: C.diffCatalogo(anterior.filas, r.filas), ultimaVersion: anterior.version, productos: r.filas.length },
+      anteriorFilas: anterior.filas };
   }
+  const vistaPrevia = async () => (await armarVista()).vista;
   // Índice de Precios y nombres SIGA de los PLU explícitos que no están en él; cada fuente que falla se loguea y se omite.
   async function indiceYNombres(filas, ctx) {
     let indice = new Map(), nombres = {};
@@ -144,6 +152,17 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
     const { filas } = leerTabla();
     const { indice, nombres } = await indiceYNombres(filas, 'vinculos');
     return { vinculos: C.vinculosResueltos(leerTabla().filas, indice, nombres) };
+  }));
+
+  // GET comparacion-codigos (solo lectura): PLU pack/bulto cargados en la tabla vs vínculo del sistema, por fila no manual.
+  // → { iguales, distintos, soloCatalogo, soloSistema, sinDato, detalle: [{ cod, nombre, seccion,
+  //     pack: { catalogo: {plu,nombre}|null, sistema: {plu,nombre,origen:'sigaVinculo'|'presentacion'}|null,
+  //             estado: 'igual'|'distinto'|'solo catálogo'|'solo sistema'|'sin dato'|'no aplica', sinCantidad?: true }, bulto: {...} }] }
+  // 'no aplica' = pack en modoPack 'ninguno'/'descuento'. Contadores suman pack+bulto. Sin SIGA → sistema null (se loguea).
+  router.get('/api/cotizador-mayorista/comparacion-codigos', apiRoute(async () => {
+    const { filas } = leerTabla();
+    const { indice, nombres } = await indiceYNombres(filas, 'comparacion-codigos');
+    return C.compararCodigos(filas, indice, nombres);
   }));
 
   router.get('/api/cotizador-mayorista/nombres', apiRoute(async (req) => {
@@ -361,8 +380,12 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
   });
 
   router.get('/api/cotizador-mayorista/comparacion', apiRoute(async () => {
-    const indice = C.indicePrecios(await listadosVigentes());
-    return C.compararConPlanilla(leerTabla().filas, indice);
+    const { vista: p, anteriorFilas } = await armarVista(); // mismo catálogo que /preview y /exportar
+    if (p.ultimaVersion == null) return { sinPublicaciones: true, version: null, generado: null, publicado: null,
+      iguales: 0, cambiaron: 0, sinDato: 0, nuevos: 0, quitados: 0, conDecision: 0, detalle: [], errores: p.errores };
+    const m = leerMeta(p.ultimaVersion) || {};
+    const r = C.compararConPublicado(anteriorFilas, p.filas);
+    return { sinPublicaciones: false, version: p.ultimaVersion, generado: m.generado ?? null, publicado: m.publicado ?? null, ...r, errores: p.errores };
   }));
 
   return router;

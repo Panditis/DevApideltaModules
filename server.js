@@ -2741,6 +2741,7 @@ app.get('/js/cotizador_mayorista_tabla_filas.js', (_req, res) => res.sendFile(pa
 app.get('/js/cotizador_mayorista_importar.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_importar.js')));
 app.get('/js/cotizador_mayorista_historial.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_historial.js')));
 app.get('/js/cotizador_mayorista_comparacion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_comparacion.js')));
+app.get('/js/cotizador_mayorista_codigos_cmp.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_codigos_cmp.js')));
 app.get('/js/cotizador_mayorista_publicar.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_publicar.js')));
 app.get('/js/cotizador_mayorista_init.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'cotizador_mayorista_init.js')));
 app.get('/cotizador-mayorista', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'cotizador_mayorista.html')));

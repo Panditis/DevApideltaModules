@@ -75,11 +75,19 @@ test('vínculos: descuento y ninguno no figuran como pack sin vincular', () => {
   assert.deepStrictEqual(v.sinVincular.map(x => x.faltan), [['bulto'], ['bulto'], ['pack', 'bulto']]);
 });
 
-test('comparación: descuento = pack calculado; ninguno no muestra pack', () => {
-  const idx = C.indicePrecios(listado(1210));
-  const d = C.compararConPlanilla(C.validarTabla([fila({ modoPack: 'descuento', descuentoPack: 10, planilla: { pack_price: 900, bulto_price: '' } })]), idx);
-  const pack = d.detalle.find(x => x.tipo === 'pack');
-  assert.deepStrictEqual([pack.sistema, pack.origen, pack.plu, pack.estado], [900, 'descuento', null, 'igual']);
-  const n = C.compararConPlanilla(C.validarTabla([fila({ modoPack: 'ninguno', planilla: { pack_price: 900, bulto_price: 900 } })]), idx);
-  assert.deepStrictEqual(n.detalle.map(x => x.tipo), ['bulto']);
+test('comparación: catálogo armado vs último publicado, por cod+tipo', () => {
+  const pub = C.parsearCsv('cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price\n100,S,Miel,12u,900,32u,900\n200,S,Vieja,,,5u,50\n');
+  const d = C.compararConPublicado(pub, armar(fila({ modoPack: 'descuento', descuentoPack: 10 })).filas);
+  const por = Object.fromEntries(d.detalle.map(x => [`${x.cod}:${x.tipo}`, x]));
+  assert.deepStrictEqual([por['100:pack'].publicado, por['100:pack'].sistema, por['100:pack'].origen, por['100:pack'].estado], [900, 900, 'descuento', 'igual']);
+  assert.deepStrictEqual([por['100:bulto'].estado, por['100:bulto'].pct], ['igual', 0]);
+  assert.deepStrictEqual([por['200:bulto'].estado, por['200:bulto'].sistema, por['200:bulto'].publicado], ['quitado', null, 50]);
+  assert.strictEqual(por['200:pack'], undefined); // sin precio de ningún lado → no figura
+  const c = C.compararConPublicado(C.parsearCsv('cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price\n100,S,Miel,12u,800,32u,\n'),
+    armar(fila({})).filas);
+  const pc = Object.fromEntries(c.detalle.map(x => [x.tipo, x]));
+  assert.deepStrictEqual([pc.pack.estado, pc.pack.pct, pc.bulto.estado], ['cambió', 25, 'sin dato']);
+  assert.deepStrictEqual([c.iguales, c.cambiaron, c.sinDato, c.nuevos, c.quitados], [0, 1, 1, 0, 0]);
+  const n = C.compararConPublicado([], armar(fila({ modoPack: 'ninguno' })).filas);
+  assert.deepStrictEqual(n.detalle.map(x => [x.tipo, x.estado]), [['bulto', 'nuevo']]);
 });

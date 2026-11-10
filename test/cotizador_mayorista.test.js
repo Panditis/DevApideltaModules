@@ -150,6 +150,19 @@ test('rutas: tabla, preview, exportar guarda versión, descarga e historial', as
   } finally { cerrar(ctx); }
 });
 
+test('rutas: comparacion sin publicaciones y contra la última versión', async () => {
+  const ctx = await montar();
+  try {
+    await pedir(ctx.base, 'PUT', '/tabla', { filas: tabla.filas });
+    const vacia = (await pedir(ctx.base, 'GET', '/comparacion')).data;
+    assert.deepStrictEqual([vacia.sinPublicaciones, vacia.version, vacia.detalle.length], [true, null, 0]);
+    await pedir(ctx.base, 'POST', '/exportar');
+    const r = (await pedir(ctx.base, 'GET', '/comparacion')).data;
+    assert.deepStrictEqual([r.sinPublicaciones, r.version, r.cambiaron, r.nuevos, r.quitados], [false, 1, 0, 0, 0]);
+    assert.ok(r.generado && r.detalle.length && r.detalle.every(d => d.estado === 'igual' && d.publicado === d.sistema));
+  } finally { cerrar(ctx); }
+});
+
 test('rutas: si falla la escritura no se pierde la versión anterior', async (t) => {
   const ctx = await montar();
   try {
@@ -161,4 +174,34 @@ test('rutas: si falla la escritura no se pierde la versión anterior', async (t)
     assert.ok(fs.existsSync(path.join(ctx.dir, 'cotizador_publicaciones', 'v001', 'catalogo.csv')));
     assert.ok(!fs.existsSync(path.join(ctx.dir, 'cotizador_publicaciones', 'v002.tmp')));
   } finally { cerrar(ctx); }
+});
+
+test('compararCodigos: catálogo (PLU de la tabla) vs sistema (vínculo sin lo explícito)', () => {
+  const indice = C.indicePrecios(listados);
+  const filas = [
+    { cod: '100', seccion: 'Mieles', nombre: 'Miel', packQty: '8u', bultoQty: '32u', packPlu: '101', bultoPlu: '999' },
+    { cod: '200', seccion: 'T', nombre: 'Tambor', packQty: '', bultoQty: '300kg', modoPack: 'ninguno' },
+    { cod: '300', seccion: 'T', nombre: 'Otro', packQty: '6u', bultoPlu: '555' },
+    { cod: 'M', seccion: 'T', nombre: 'Manual', manual: true },
+  ];
+  const r = C.compararCodigos(filas, indice, { 999: 'Bulto viejo' });
+  assert.deepStrictEqual(r.detalle.map(d => d.cod), ['100', '200', '300']);
+  const [a, b, c] = r.detalle;
+  assert.deepStrictEqual(a.pack, { catalogo: { plu: '101', nombre: null }, sistema: { plu: '101', nombre: null, origen: 'sigaVinculo' }, estado: 'igual' });
+  assert.deepStrictEqual([a.bulto.estado, a.bulto.catalogo.nombre, a.bulto.sistema.plu], ['distinto', 'Bulto viejo', '102']);
+  assert.deepStrictEqual([b.pack.estado, b.bulto.estado, b.bulto.sistema.plu, b.bulto.catalogo], ['no aplica', 'solo sistema', '202', null]);
+  assert.deepStrictEqual([c.pack.estado, c.bulto.estado, c.bulto.sinCantidad, c.pack.sinCantidad], ['sin dato', 'solo catálogo', true, undefined]);
+  assert.deepStrictEqual([r.iguales, r.distintos, r.soloCatalogo, r.soloSistema, r.sinDato], [1, 1, 1, 1, 1]);
+  assert.strictEqual(filas[0].packPlu, '101'); // sin mutar
+});
+
+test('rutas: GET comparacion-codigos', async () => {
+  const m = await montar();
+  try {
+    fs.writeFileSync(path.join(m.dir, 'cotizador_mayorista.json'), JSON.stringify(tabla));
+    const r = await pedir(m.base, 'GET', '/comparacion-codigos');
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.data.detalle.map(d => d.cod), ['100', '200']);
+    assert.strictEqual(r.data.detalle[0].bulto.estado, 'solo sistema');
+  } finally { cerrar(m); }
 });
