@@ -6,7 +6,7 @@ const NUEVA_SECCION = '__nueva__';
 // [título, ancho, grupo]: PACK y BULTO se agrupan bajo una fila de encabezado superior.
 const COLUMNAS_TABLA = [
   ['Orden', '70px'], ['Incl.', '50px'], ['Cod', '128px'], ['Nombre', 'auto'], ['Sección', '150px'],
-  ['Cantidad', '106px', 'pack'], ['Modo / PLU / descuento / precio', '290px', 'pack'], ['Cantidad', '106px', 'bulto'], ['PLU / precio', '200px', 'bulto'], ['Tipo y estado', '112px'],
+  ['Cantidad', '106px', 'pack'], ['Modo / PLU / descuento / precio', '290px', 'pack'], ['Cantidad', '106px', 'bulto'], ['PLU / precio', '200px', 'bulto'], ['Tipo y estado', '164px'],
 ];
 const GRUPOS_TABLA = [['Producto', 5, ''], ['PACK', 2, 'pack'], ['BULTO', 2, 'bulto'], ['', 1, '']];
 
@@ -58,9 +58,11 @@ const CAMPO_QTY = { packPlu: 'packQty', bultoPlu: 'bultoQty' };
 const sinNombre = () => h('span', { class: 'plu-nombre__aviso' }, 'PLU sin nombre en SIGA');
 function contenidoNombre(f, campo) {
   const e = tp.vinculos && tp.vinculos[f.cod];
-  if (!e || normalizarCantidad(f[CAMPO_QTY[campo]]).valor === '') return null;
-  const v = e[campo === 'packPlu' ? 'pack' : 'bulto'];
+  if (normalizarCantidad(f[CAMPO_QTY[campo]]).valor === '') return null;
   const plu = String(f[campo] ?? '').trim();
+  // Fila sin guardar (sin entrada en /vinculos): solo se puede resolver un PLU explícito.
+  if (!e) return /^\d+$/.test(plu) && tp.nombres[plu] !== undefined ? { texto: tp.nombres[plu], auto: false } : null;
+  const v = e[campo === 'packPlu' ? 'pack' : 'bulto'];
   if (plu) {
     if (!/^\d+$/.test(plu)) return null;
     const nombre = v && String(v.plu) === plu ? v.nombre : tp.nombres[plu];
@@ -187,11 +189,32 @@ function celdaOrden(f, pos) {
     botonMover('▼', `Bajar ${etiquetaFila(f)}`, 1, bloqueado || pos.ultima, () => moverFila(f._id, 1))));
 }
 // Los chips de estado (aviso / no incluida) los muestra el CSS según la clase de la fila: no hace falta repintar al editar.
+// Pasa una fila manual a fila del sistema: exige un cod numérico y no repetido (mismas reglas que errorCod).
+function vincularAlSistema(f) {
+  const cod = String(f.cod ?? '').trim();
+  const motivo = errorCod({ ...f, manual: false, cod });
+  if (motivo) return toast(motivo === 'Solo números' ? 'Poné primero el código de sistema en Cod (solo números)' : `Ese código ya está en la tabla: ${cod}`, 'crit');
+  tp.filas = tp.filas.map(x => {
+    if (x._id !== f._id) return x;
+    const { packPrice, bultoPrice, ...resto } = x;
+    return { ...resto, cod, manual: false, modoPack: 'plu' };
+  });
+  pintarTabla();
+  actualizarBarra();
+  // PLU ya tipeados antes de vincular: pedir sus nombres (la fila aún no tiene entrada en /vinculos).
+  for (const campo of ['packPlu', 'bultoPlu']) {
+    const nota = document.querySelector(`tr[data-fila="${f._id}"] [data-nota-plu="${campo}"]`);
+    if (nota && f[campo] != null) consultarNombre({ value: String(f[campo]) }, nota);
+  }
+  toast(`Fila ${cod} vinculada al sistema; guardá para ver los PLU y nombres`);
+}
 function celdaTipo(f) {
   const estados = [h('span', { class: 'est est-aviso' }, '⚠ Revisar'), h('span', { class: 'est est-off' }, 'No incluida')];
   if (!f.manual) return h('td', null, h('div', { class: 'est-col' }, chip('Sistema'), estados));
   return h('td', null, h('div', { class: 'est-col' }, h('div', { class: 'est-fila' }, chip('Manual', 'warn'),
-    botonMover('✕', `Quitar la fila manual ${etiquetaFila(f)}`, 0, !tp.puede, () => quitarFila(f._id))), estados));
+    botonMover('✕', `Quitar la fila manual ${etiquetaFila(f)}`, 0, !tp.puede, () => quitarFila(f._id))),
+    h('button', { type: 'button', class: 'btn-sec btn-chico', disabled: !tp.puede, title: 'Convierte la fila en una del sistema usando el código de Cod',
+      'aria-label': `Vincular ${etiquetaFila(f)} al sistema`, onclick: () => vincularAlSistema(f) }, 'Vincular al sistema'), estados));
 }
 
 function filaTabla(f, nombres, pos) {
