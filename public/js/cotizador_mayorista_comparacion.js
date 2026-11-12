@@ -16,7 +16,7 @@ const cmpTabla = crearTabla({
     { key: 'tipo', titulo: 'Tipo', ancho: '76px', valor: f => f.tipo, celda: f => cmpTipoTxt(f.tipo) },
     { key: 'publicado', titulo: 'Publicado', ancho: '110px', num: true, valor: f => f.publicado, celda: f => fmtPrecio(f.publicado) },
     { key: 'sistema', titulo: 'Sistema', ancho: '96px', num: true, valor: f => f.sistema, celda: f => fmtPrecio(f.sistema) },
-    { key: 'origen', titulo: 'Origen', ancho: '170px', valor: f => f.origen || '', celda: f => (f.origen === 'descuento' ? chip('Descuento', 'warn') : f.origen || '—') },
+    { key: 'origen', titulo: 'Origen', ancho: '170px', valor: f => f.origen || '', celda: f => (f.origen === 'descuento' ? chip('Descuento', 'warn') : f.origen === 'vigente' ? chip('Vigente SIGA', 'gris') : f.origen || '—') },
     { key: 'pct', titulo: '%', ancho: '80px', num: true, valor: f => f.pct, celda: f => h('span', { class: diffClasePct(f.pct) }, fmtPct(f.pct)) },
     { key: 'estado', titulo: 'Estado', ancho: '92px', valor: f => f.estado, celda: f => chip(CMP_TXT[f.estado] || f.estado, CMP_TONO[f.estado]) },
   ],
@@ -49,7 +49,8 @@ function resumenComparacion(r) {
     statCard('resp', 'info', 'Nuevos', r.nuevos, 'Están en el sistema y no en el catálogo'),
     statCard('rev', 'warn', 'Quitados', r.quitados, 'Estaban en el catálogo y ya no'),
     statCard('resp', 'info', 'Sin dato', r.sinDato, 'Falta el precio de un lado'),
-    statCard('prod', 'verde', 'Con decisión', r.conDecision, 'El sistema usa una decisión vigente'));
+    statCard('prod', 'verde', 'Con decisión', r.conDecision, 'El sistema usa una decisión vigente'),
+    statCard('prod', 'verde', 'Con precio vigente', r.conVigente || 0, 'El sistema usa el precio vigente de SIGA'));
 }
 
 function encabezadoComparacion(r) {

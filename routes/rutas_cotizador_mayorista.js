@@ -24,7 +24,7 @@
 //   GET  /api/cotizador-mayorista/preview      → { filas: [FilaCsv + origen { pack, bulto }], revisar: [{ cod, nombre, motivos, respaldo }],
 //        avisos: [string], errores: [string], diff: { nuevos, quitados, cambiados: [{ cod, nombre, campo, antes, despues, pct }] },
 //        ultimaVersion: number|null, productos }
-//        origen: 'decision' | 'manual' | 'descuento' (sólo pack) | 'respaldo' (último exportado o planilla) | null (columna vacía)
+//        origen: 'decision' | 'vigente' (lista 0 de SIGA, sin decisión) | 'manual' | 'descuento' (sólo pack) | 'respaldo' (último exportado o planilla) | null (columna vacía)
 //        Cada fila armada trae además modoPack ('plu'|'descuento'|'ninguno') y, en 'descuento',
 //        descuento: { pct, minoristaFinal, ivaPct, minoristaNeto, pack } (pack = Math.round(minoristaNeto × (1 − pct/100)),
 //        minoristaNeto = minoristaFinal / (1 + ivaPct/100), minorista con la decisión vigente del producto). Filas que salen del
@@ -61,7 +61,7 @@
 //   GET  /api/cotizador-mayorista/publicaciones/:version/catalogo.csv | version.json → descarga (attachment)
 //   GET  /api/cotizador-mayorista/comparacion  → catálogo de hoy (el mismo de /preview: armarCatalogo + listadosVigentes) vs el
 //        último publicado (vNNN más alta). { sinPublicaciones, version, generado, publicado: { fecha, ok, error? } | null,
-//        iguales, cambiaron, sinDato, nuevos, quitados, conDecision, errores: [string],
+//        iguales, cambiaron, sinDato, nuevos, quitados, conDecision, conVigente, errores: [string],
 //        detalle: [{ cod, nombre, tipo: 'pack'|'bulto', publicado, sistema, origen, pct, estado: 'igual'|'cambió'|'nuevo'|'sin dato'|'quitado' }] }
 //        Sin versiones → sinPublicaciones: true, contadores 0 y detalle []. Columna sin precio en ambos lados no figura.
 //        Producto que hoy no sale (sin precio, cantidad inválida sin respaldo, error) y sí estaba publicado → 'quitado'.
@@ -382,7 +382,7 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
   router.get('/api/cotizador-mayorista/comparacion', apiRoute(async () => {
     const { vista: p, anteriorFilas } = await armarVista(); // mismo catálogo que /preview y /exportar
     if (p.ultimaVersion == null) return { sinPublicaciones: true, version: null, generado: null, publicado: null,
-      iguales: 0, cambiaron: 0, sinDato: 0, nuevos: 0, quitados: 0, conDecision: 0, detalle: [], errores: p.errores };
+      iguales: 0, cambiaron: 0, sinDato: 0, nuevos: 0, quitados: 0, conDecision: 0, conVigente: 0, detalle: [], errores: p.errores };
     const m = leerMeta(p.ultimaVersion) || {};
     const r = C.compararConPublicado(anteriorFilas, p.filas);
     return { sinPublicaciones: false, version: p.ultimaVersion, generado: m.generado ?? null, publicado: m.publicado ?? null, ...r, errores: p.errores };

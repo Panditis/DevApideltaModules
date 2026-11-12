@@ -33,7 +33,7 @@ function resumenPrevia(p) {
   const ausentes = (p.revisar || []).filter(r => !cods.has(r.cod)).length;
   return h('div', { class: 'stat-cards' },
     statCard('prod', 'info', 'Productos en el catálogo', p.productos, p.ultimaVersion != null ? `Última versión: v${p.ultimaVersion}` : 'Todavía no hay versiones'),
-    statCard('ok', 'verde', 'Con precio del sistema', filas.length - conRespaldo, 'Decisión vigente o precio fijo manual'),
+    statCard('ok', 'verde', 'Con precio del sistema', filas.length - conRespaldo, 'Decisión, precio vigente de SIGA o manual'),
     statCard('resp', 'warn', 'Con respaldo', conRespaldo, 'Usan el último precio publicado'),
     statCard('rev', (p.revisar || []).length ? 'crit' : 'verde', 'A revisar', (p.revisar || []).length, ausentes ? `${fmtNum(ausentes)} no salen en el catálogo` : 'Todos salen en el catálogo'));
 }
