@@ -69,6 +69,16 @@ body{font-size:14px;line-height:1.55}
 .tile-sub svg{width:12px;height:12px;opacity:.75}
 .tile:hover .tile-arrow{transform:translateX(3px);color:#405936}
 
+/* Grupo de módulos (ej. Precios): una tarjeta con varios accesos adentro. */
+.tile-group{cursor:default}
+.tile-group:hover{transform:none;border-color:rgba(26,28,24,.16)}
+.group-links{display:flex;flex-direction:column;gap:6px;margin-top:2px}
+.group-link{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;border:1px solid rgba(26,28,24,.12);background:var(--accent-soft,#f4f4ee);color:var(--accent-ink,#242423);text-decoration:none;font-size:.88rem;font-weight:600;transition:border-color .15s ease,background .15s ease}
+.group-link:hover{border-color:var(--accent,#405936);background:#fff}
+.group-link:focus-visible{outline:none;border-color:#FFCC00;box-shadow:0 0 0 3px rgba(255,204,0,.35)}
+.group-link svg{width:16px;height:16px;flex-shrink:0}
+.group-link .tile-arrow{margin-left:auto;color:inherit;opacity:.5}
+
 /* Tarjeta "próximamente" — no interactiva */
 .tile-soon{
   border-style:dashed;border-color:#d3d3cb;background:#fbfbf8;cursor:default;
@@ -208,6 +218,7 @@ const ESTILOS = {
   'cuentas-corrientes':  { desc:'Deuda viva de clientes: saldo por cliente, antigüedad y detalle de comprobantes con su saldo pendiente.', accent:'#a03d5c', soft:'#f7dde5', ink:'#4e1a2b' },
   'precios-historico':   { desc:'Qué precio tenía cada producto cada día de un mes: se elige mes y año, sale la planilla por PLU y se descarga en xlsx.', accent:'#7d5c2f', soft:'#f2e6d3', ink:'#3f2e14' },
   'ml-precios':          { desc:'Control de precios de Mercado Libre: se sube la bajada de publicaciones y se compara cada precio contra el esperado según la lista de SIGA, los márgenes y los gastos de ML.', accent:'#b59a1f', soft:'#f6efc6', ink:'#443a0c' },
+  'tn-precios':          { desc:'Control de precios de Tienda Nube: se sube la bajada CSV de productos, se compara cada precio contra el esperado según la carta de SIGA y se exporta un CSV reimportable con los precios corregidos.', accent:'#2a6f9e', soft:'#d5e8f4', ink:'#0f3350' },
   'precios':             { desc:'Armado de precios de venta: costos, márgenes, precio final y simulador por producto, con el costeo del fraccionado incluido.', accent:'#a0492a', soft:'#f6dfd5', ink:'#4a1d0d' },
   'cotizador-mayorista': { desc:'Arma y publica la lista de precios mayoristas del cotizador web a partir de los precios decididos: importa desde Excel, muestra vista previa de cambios e historial de versiones.', accent:'#b5772a', soft:'#f8e8d0', ink:'#4d300e' },
   'tickets':             { desc:'Pedidos de cambios al sistema: cualquier usuario carga y comenta tickets, y se les hace seguimiento por estado en tablero o lista.', accent:'#4b6cb7', soft:'#dde5f6', ink:'#1c2c52' },
@@ -268,6 +279,53 @@ function tileHTML(m, logueado){
        aria-label="Abrir ${m.titulo}">${cuerpo}
     </a>
   </li>`;
+}
+
+// Grupos: varios módulos del catálogo bajo una sola tarjeta. Cada acceso respeta
+// sus permisos; un módulo que no existe en el catálogo simplemente no aparece.
+const GRUPOS = [
+  { ref:'grupo-precios', titulo:'Precios', icon:'tags', desc:'Armado de precios, cotizador mayorista y control de precios de Tienda Nube y Mercado Libre.',
+    accent:'#a0492a', soft:'#f6dfd5', ink:'#4a1d0d',
+    miembros:['precios', 'cotizador-mayorista', 'tn-precios', 'ml-precios'] },
+];
+const esAccesible = m => !(m.requiereAuth && !m.permitido);
+
+function groupHTML(g, items, logueado){
+  // Logueado: solo los accesos permitidos (si no hay ninguno, no hay grupo).
+  // Anónimo: todos, llevan al login como el resto de las tarjetas.
+  const visibles = logueado ? items.filter(esAccesible) : items;
+  if (!visibles.length) return '';
+  const links = visibles.map(m => {
+    const href = esAccesible(m) ? m.href : ('/login?next=' + encodeURIComponent(m.href));
+    return `<a class="group-link" href="${href}"><i data-lucide="${m.icon}" aria-hidden="true"></i><span>${m.titulo}</span><span class="tile-arrow" aria-hidden="true"><i data-lucide="arrow-right"></i></span></a>`;
+  }).join('');
+  return `
+  <li role="listitem">
+    <section class="tile tile-group fade-up h-full" aria-label="${g.titulo}"
+       style="--accent:${g.accent};--accent-soft:${g.soft};--accent-ink:${g.ink}">
+      <div class="flex items-start justify-between gap-3">
+        <span class="tile-icon" aria-hidden="true"><i data-lucide="${g.icon}"></i></span>
+        <span class="badge badge-live"><span class="status-dot ok" style="box-shadow:none"></span>${visibles.length} módulos</span>
+      </div>
+      <div>
+        <h2 class="tile-title">${g.titulo}</h2>
+        <p class="tile-desc mt-1">${g.desc}</p>
+      </div>
+      <div class="group-links">${links}</div>
+    </section>
+  </li>`;
+}
+
+function tilesHTML(tiles, logueado){
+  const grupoDe = new Map(GRUPOS.flatMap(g => g.miembros.map(r => [r, g])));
+  const emitidos = new Set();
+  return tiles.map(m => {
+    const g = grupoDe.get(m.ref);
+    if (!g) return tileHTML(m, logueado);
+    if (emitidos.has(g.ref)) return '';
+    emitidos.add(g.ref); // el grupo ocupa el lugar de su primer miembro
+    return groupHTML(g, g.miembros.map(r => tiles.find(t => t.ref === r)).filter(Boolean), logueado);
+  }).join('');
 }
 
 const soonHTML = `
@@ -368,7 +426,7 @@ async function initHub(){
   let mods = [];
   try { const r = await fetch('/api/modulos'); if (r.ok) mods = await r.json(); } catch(e){ mods = []; }
   const tiles = (Array.isArray(mods) ? mods : []).map(m => ({ ...(ESTILOS[m.ref] || ESTILO_DEFAULT), ...m }));
-  grid.innerHTML = tiles.map(m => tileHTML(m, !!user)).join('') + soonHTML;
+  grid.innerHTML = tilesHTML(tiles, !!user) + soonHTML;
   [...grid.querySelectorAll('.fade-up')].forEach((el,i)=>{ el.style.animationDelay = (i*55)+'ms'; });
   if (window.lucide) lucide.createIcons();
 }
