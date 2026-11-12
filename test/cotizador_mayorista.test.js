@@ -30,13 +30,13 @@ const listados = {
 const tabla = { filas: [
   { cod: '100', seccion: 'Mieles', nombre: 'Miel, "pet"', packQty: 'caja x 8u', bultoQty: '4 cajas x 32u' },
   { cod: '200', seccion: 'Tambores', nombre: 'Tambor 300kg', packQty: '—', bultoQty: '300kg' },
-  { cod: 'PALLET', seccion: 'Mieles', nombre: 'Pallet', packQty: '', bultoQty: '1250u', manual: true, packPrice: null, bultoPrice: 2030 },
+  { cod: '9001', seccion: 'Mieles', nombre: 'Pallet', packQty: '', bultoQty: '1250u', manual: true, packPrice: null, bultoPrice: 2030 },
 ] };
 
 test('armarCatalogo: decisión, solo bulto, manual, respaldo y orden por sección', () => {
   const indice = C.indicePrecios(listados);
   const sin = C.armarCatalogo({ tabla, indice });
-  assert.deepStrictEqual(sin.filas.map(f => f.cod), ['100', 'PALLET']); // 200 sin decisión ni respaldo: no sale
+  assert.deepStrictEqual(sin.filas.map(f => f.cod), ['100', '9001']); // 200 sin decisión ni respaldo: no sale
   assert.strictEqual(sin.revisar[0].cod, '200');
   const f = sin.filas[0];
   assert.deepStrictEqual([f.pack_qty, f.pack_price, f.bulto_qty, f.bulto_price], ['8u', 1000, '32u', 900]);
@@ -49,12 +49,12 @@ test('armarCatalogo: decisión, solo bulto, manual, respaldo y orden por secció
 
 test('armarCatalogo: cod repetido es error, cantidad rara va a revisar, bulto > pack avisa', () => {
   const r = C.armarCatalogo({ tabla: { filas: [
-    { cod: 'X', seccion: 'S', nombre: 'a', bultoQty: '1u', manual: true, packPrice: 10, packQty: '1u', bultoPrice: 20 },
-    { cod: 'X', seccion: 'S', nombre: 'b', manual: true, bultoQty: '1u', bultoPrice: 5 },
-    { cod: 'Y', seccion: 'S', nombre: 'c', manual: true, bultoQty: 'docena', bultoPrice: 5 },
+    { cod: '9002', seccion: 'S', nombre: 'a', bultoQty: '1u', manual: true, packPrice: 10, packQty: '1u', bultoPrice: 20 },
+    { cod: '9002', seccion: 'S', nombre: 'b', manual: true, bultoQty: '1u', bultoPrice: 5 },
+    { cod: '9003', seccion: 'S', nombre: 'c', manual: true, bultoQty: 'docena', bultoPrice: 5 },
   ] } });
-  assert.deepStrictEqual(r.errores, ['cod repetido: X']);
-  assert.strictEqual(r.revisar[0].cod, 'Y');
+  assert.deepStrictEqual(r.errores, ['cod repetido: 9002']);
+  assert.strictEqual(r.revisar[0].cod, '9003');
   assert.strictEqual(r.avisos.length, 1);
 });
 
@@ -182,7 +182,7 @@ test('compararCodigos: catálogo (PLU de la tabla) vs sistema (vínculo sin lo e
     { cod: '100', seccion: 'Mieles', nombre: 'Miel', packQty: '8u', bultoQty: '32u', packPlu: '101', bultoPlu: '999' },
     { cod: '200', seccion: 'T', nombre: 'Tambor', packQty: '', bultoQty: '300kg', modoPack: 'ninguno' },
     { cod: '300', seccion: 'T', nombre: 'Otro', packQty: '6u', bultoPlu: '555' },
-    { cod: 'M', seccion: 'T', nombre: 'Manual', manual: true },
+    { cod: '9004', seccion: 'T', nombre: 'Manual', manual: true },
   ];
   const r = C.compararCodigos(filas, indice, { 999: 'Bulto viejo' });
   assert.deepStrictEqual(r.detalle.map(d => d.cod), ['100', '200', '300']);

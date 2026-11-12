@@ -35,7 +35,6 @@ function errorPack(f) {
 const cantidadInvalida = (f, c) => !(c === 'packQty' && modoDe(f) === 'ninguno') && normalizarCantidad(f[c]).valor === null;
 // Cod de fila del sistema: sólo dígitos (1 a 12) y único en la tabla (el backend rechaza lo contrario al guardar).
 function errorCod(f) {
-  if (f.manual) return '';
   const cod = String(f.cod ?? '').trim();
   if (!/^\d{1,12}$/.test(cod)) return 'Solo números';
   return tp.filas.some(x => x._id !== f._id && String(x.cod ?? '').trim() === cod) ? 'Código repetido' : '';
@@ -79,7 +78,7 @@ function renombrarSeccion(viejo, nuevo) {
 }
 function agregarFilaManual() {
   const seccion = tp.seccion || (tp.filas[0] && tp.filas[0].seccion) || 'Otros';
-  const fila = { _id: tp.sig++, cod: '', seccion, nombre: '', packQty: '', bultoQty: '', incluido: true, manual: true, packPrice: null, bultoPrice: null };
+  const fila = { _id: tp.sig++, cod: '', seccion, nombre: '', packQty: '', bultoQty: '', incluido: true, manual: false, modoPack: 'plu' };
   tp.filas = [...tp.filas, fila];
   tp.q = '';
   tp.estado = 'todos';

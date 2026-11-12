@@ -19,7 +19,7 @@ const filas = [
   { cod: '300', seccion: 'A', nombre: 'SinCant', packQty: '', bultoQty: '', packPlu: '301', bultoPlu: '302' },
   { cod: '400', seccion: 'A', nombre: 'Desc', packQty: '4', bultoQty: '8', modoPack: 'descuento', packPlu: '401', bultoPlu: '201' },
   { cod: '500', seccion: 'A', nombre: 'Ninguno', packQty: '4', bultoQty: '8', modoPack: 'ninguno', packPlu: '501' },
-  { cod: 'X1', seccion: 'A', nombre: 'Manual', packQty: '4', bultoQty: '8', manual: true, packPlu: '9', bultoPlu: '8' },
+  { cod: '9005', seccion: 'A', nombre: 'Manual', packQty: '4', bultoQty: '8', manual: true, packPlu: '9', bultoPlu: '8' },
 ];
 
 test('vinculosResueltos: explícito (fila), automático (siga), sin cantidad, descuento/ninguno, manual ausente', () => {
@@ -29,7 +29,7 @@ test('vinculosResueltos: explícito (fila), automático (siga), sin cantidad, de
   assert.deepStrictEqual(r['300'], { pack: null, bulto: null });
   assert.deepStrictEqual(r['400'], { pack: null, bulto: { plu: '201', nombre: 'Doscientos uno', origen: 'fila' } });
   assert.deepStrictEqual(r['500'].pack, null);
-  assert.ok(!('X1' in r));
+  assert.ok(!('9005' in r));
   assert.deepStrictEqual(C.vinculosResueltos(filas, indice())['200'].pack, { plu: '201', nombre: null, origen: 'fila' });
 });
 

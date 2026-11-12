@@ -46,7 +46,7 @@ function cargarCotizador() {
 const especiales = [
   { cod: '1', seccion: 'Mieles', nombre: 'Miel, "pet" 1/2', pack_qty: '12u', pack_price: 2760, bulto_qty: '36u', bulto_price: 2500 },
   { cod: '2', seccion: 'Ñandú áéí', nombre: 'Línea1\nLínea2', pack_qty: '', pack_price: '', bulto_qty: '300kg', bulto_price: 150000 },
-  { cod: 'PALLET', seccion: 'Mieles', nombre: '=HYPERLINK("x")', pack_qty: '', pack_price: '', bulto_qty: '1250u', bulto_price: 2030 },
+  { cod: '9001', seccion: 'Mieles', nombre: '=HYPERLINK("x")', pack_qty: '', pack_price: '', bulto_qty: '1250u', bulto_price: 2030 },
 ];
 
 test('CSV con comas, comillas, saltos, tildes y ñ: round-trip propio y sha256 igual a WebCrypto', async () => {
@@ -67,7 +67,7 @@ test('contrato con el cotizador web real: columnas, precios, cantidades y versio
   assert.deepStrictEqual(Array.from(secciones, s => s.name), ['Mieles', 'Ñandú áéí']);
   const [miel, pallet] = secciones[0].products;
   assert.deepStrictEqual([miel.name, miel.packMin, miel.packPrice, miel.bultoMin, miel.bultoPrice], ['Miel, "pet" 1/2', 12, 2760, 36, 2500]);
-  assert.deepStrictEqual([pallet.cod, pallet.packPrice, pallet.bultoMin, pallet.bultoPrice], ['PALLET', null, 1250, 2030]);
+  assert.deepStrictEqual([pallet.cod, pallet.packPrice, pallet.bultoMin, pallet.bultoPrice], ['9001', null, 1250, 2030]);
   const tambor = secciones[1].products[0];
   assert.deepStrictEqual([tambor.name, tambor.packPrice, tambor.bultoQty, tambor.bultoPrice], ['Línea1\nLínea2', null, '300kg', 150000]);
   const ver = JSON.parse(JSON.stringify(C.generarVersion({ version: 7, csv, productos: 3, usuario: 'qa' })));

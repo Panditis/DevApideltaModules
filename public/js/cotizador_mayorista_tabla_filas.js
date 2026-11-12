@@ -267,7 +267,7 @@ function pintarFilas() {
   const todos = agrupar(tp.filas);
   const nombres = todos.map(g => g.seccion);
   const visibles = todos.map((g, i) => ({ g, i, filas: g.filas.filter(pasaFiltro) })).filter(x => x.filas.length);
-  if (!tp.filas.length) return vacioTabla(cont, { icono: 'lista', titulo: 'La tabla está vacía', detalle: 'Importá el Excel de la planilla o agregá filas manuales con el botón “Fila manual”.' });
+  if (!tp.filas.length) return vacioTabla(cont, { icono: 'lista', titulo: 'La tabla está vacía', detalle: 'Importá el Excel de la planilla o agregá productos con el botón “Agregar producto”.' });
   if (!visibles.length) {
     return vacioTabla(cont, { icono: 'lupa', titulo: 'Sin resultados', detalle: 'Ninguna fila coincide con la búsqueda o los filtros.',
       accion: h('button', { type: 'button', class: 'btn-sec', onclick: limpiarFiltros }, 'Limpiar búsqueda y filtros') });

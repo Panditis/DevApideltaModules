@@ -58,7 +58,7 @@ test('modoPack ninguno: pack vacío sin error, aviso ni revisar; CSV con cabecer
 });
 
 test('filas manuales no llevan modoPack', () => {
-  const [m] = C.validarTabla([{ cod: 'PALLET', seccion: 'S', nombre: 'Pallet', manual: true, packQty: '', bultoQty: '10u', bultoPrice: 5, modoPack: 'descuento' }]);
+  const [m] = C.validarTabla([{ cod: '9001', seccion: 'S', nombre: 'Pallet', manual: true, packQty: '', bultoQty: '10u', bultoPrice: 5, modoPack: 'descuento' }]);
   assert.strictEqual(m.modoPack, undefined);
   assert.strictEqual(m.descuentoPack, undefined);
 });
@@ -90,4 +90,17 @@ test('comparación: catálogo armado vs último publicado, por cod+tipo', () => 
   assert.deepStrictEqual([c.iguales, c.cambiaron, c.sinDato, c.nuevos, c.quitados], [0, 1, 1, 0, 0]);
   const n = C.compararConPublicado([], armar(fila({ modoPack: 'ninguno' })).filas);
   assert.deepStrictEqual(n.detalle.map(x => [x.tipo, x.estado]), [['bulto', 'nuevo']]);
+});
+
+test('validarTabla: cod no numérico se rechaza, manual o no', () => {
+  for (const manual of [true, false])
+    assert.throws(() => C.validarTabla([{ cod: 'ABC', seccion: 'S', nombre: 'n', manual, bultoQty: '1u', bultoPrice: 5 }]), /cod debe ser numérico/);
+  assert.strictEqual(C.validarTabla([{ cod: '9001', seccion: 'S', nombre: 'n', manual: true, bultoQty: '1u', bultoPrice: 5 }])[0].bultoPrice, 5);
+});
+
+test('filasDesdePlanilla: cod no numérico se descarta (no crea manual)', () => {
+  const r = C.filasDesdePlanilla([{ cod: '1', nombre: 'a' }, { cod: 'PALLET', nombre: 'b', bulto_price: 5 }]);
+  assert.deepStrictEqual(r.filas.map(f => f.cod), ['1']);
+  assert.deepStrictEqual(r.descartadas, [3]);
+  assert.ok(!r.filas.some(f => f.manual));
 });
