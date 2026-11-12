@@ -670,6 +670,7 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
 app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
 app.get('/js/ml_precios.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'ml_precios.js')));
+app.get('/js/tn_precios.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'tn_precios.js')));
 app.get('/js/precios_produccion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion.js')));
 app.get('/js/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_detalle.js')));
 app.get('/js/precios_produccion_presentaciones.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_presentaciones.js')));
@@ -2718,6 +2719,8 @@ app.use(require('./routes/rutas_carteles_pesables')({ apiRoute, query, LISTA_PRE
 app.use(require('./routes/rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
 // Control de precios ML: carta de SIGA (lista 0) vs bajada de publicaciones; escribe solo data/ml_*.json.
 app.use(require('./routes/rutas_ml_precios')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA }));
+// Control de precios Tienda Nube: carta de SIGA vs bajada CSV; escribe solo data/tn_*.{json,csv}.
+app.use(require('./routes/rutas_tn_precios')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, tienePermiso: auth.tienePermiso }));
 
 // Precios (costeo sugerido, Fase 0 — sólo esqueleto): mismo motivo de deps tardíos
 // que los routers vecinos, se registra acá junto con el resto del clúster de precios.

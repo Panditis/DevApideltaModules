@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de precios Tienda Nube - Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+  [hidden] { display: none !important; }
+  .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  /* Base de componentes (el theme compartido no trae card/chip/tabla base) */
+  .card { background: #fff; border: 1px solid rgba(26,28,24,.16); border-radius: 12px; padding: 16px; }
+  .error { background: #fde7e9; color: #a4262c; border: 1px solid #f6c6c2; padding: 12px; border-radius: 8px; }
+  .loading, .empty { color: #5c5f52; padding: 28px 16px; text-align: center; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(26,28,24,.16); vertical-align: middle; }
+  th { color: #5c5f52; font-weight: 600; font-size: 12px; }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Botones */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 14px;
+    border-radius: 8px; font: inherit; font-size: 14px; font-weight: 600; border: 1px solid transparent; cursor: pointer; white-space: nowrap; }
+  .btn-primario { background: #405936; color: #fff; }
+  .btn-primario:hover:not(:disabled) { background: #4f6e42; }
+  .btn-secundario { background: #fff; color: #242423; border-color: rgba(26,28,24,.24); }
+  .btn-secundario:hover:not(:disabled) { background: #f5f8f1; border-color: #405936; }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled, header button:disabled { opacity: .55; cursor: not-allowed; }
+  .btn:focus-visible, .scroll:focus-visible, .campo input:focus-visible, .campo select:focus-visible, .celda-input:focus-visible,
+  .chipf:focus-visible, .kpi:focus-visible, th button:focus-visible, header button:focus-visible, summary:focus-visible { outline: 2px solid #405936; outline-offset: 2px; }
+  header button:focus-visible { outline-color: #FFCC00; }
+
+  /* Campos */
+  .campo { display: flex; flex-direction: column; gap: 4px; }
+  .campo label { font-size: 13px; font-weight: 600; }
+  .campo input, .campo select, .celda-input { height: 36px; padding: 0 10px; font: inherit; font-size: 14px; background: #fff;
+    border: 1px solid rgba(26,28,24,.32); border-radius: 8px; font-variant-numeric: tabular-nums; }
+  .campo .ayuda { font-size: 12px; color: #5c5f52; }
+  .campo input:hover:not(:disabled), .campo select:hover:not(:disabled), .celda-input:hover:not(:disabled) { border-color: #405936; }
+  .campo input::placeholder, .celda-input::placeholder { color: #5c5f52; opacity: 1; font-weight: 400; }
+  .celda-input:disabled { background: #ecede8; color: #5c5f52; cursor: wait; }
+  .campo input[aria-invalid="true"], .celda-input[aria-invalid="true"] { border-color: #a4262c; background: #fff8f8; }
+
+  /* Estado de la bajada */
+  .bajada { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
+  .bajada dl { display: flex; flex-wrap: wrap; gap: 4px 28px; margin: 0; }
+  .bajada dt { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #5c5f52; }
+  .bajada dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* KPI con tono por estado */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .kpi { font: inherit; padding: 12px 14px; }
+  .kpi .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #5c5f52; }
+  .kpi .val { font-size: 28px; font-weight: 800; line-height: 1.15; color: var(--tono, #405936); font-variant-numeric: tabular-nums; }
+  .kpi.estatico { cursor: default; }
+  .kpi.estatico:hover { box-shadow: none; }
+  .kpi.on { background: rgba(64,89,54,.08); }
+  .kpi.t-crit:not(.estatico) { border-color: rgba(164,38,44,.4); } .kpi.t-warn:not(.estatico) { border-color: rgba(138,93,0,.4); }
+  .kpi.t-ok { --tono: #0e700e; } .kpi.t-crit { --tono: #a4262c; } .kpi.t-warn { --tono: #8a5d00; } .kpi.t-gris { --tono: #5c5f52; }
+
+  /* Chips de filtro */
+  .chipf { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 600;
+    background: #fff; border: 1px solid rgba(26,28,24,.24); color: #242423; cursor: pointer; }
+  .chipf:hover:not([aria-pressed="true"]) { border-color: #405936; background: #f5f8f1; }
+  .chipf[aria-pressed="true"] { background: #405936; border-color: #405936; color: #fff; }
+  .chipf[aria-pressed="true"]:hover { background: #4f6e42; }
+  .chipf .n { font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: rgba(26,28,24,.08); }
+  .chipf[aria-pressed="true"] .n { background: rgba(255,255,255,.22); }
+
+  /* Badges de estado */
+  .badge-e { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .badge-e::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .be-ok { background: #dff6dd; color: #0e700e; } .be-crit { background: #fde7e9; color: #a4262c; }
+  .be-warn { background: #fff4ce; color: #8a5d00; } .be-gris { background: #ecede8; color: #5c5f52; }
+  .tag-oculta { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #ecede8; color: #5c5f52; vertical-align: 1px; }
+
+  /* Tabla */
+  .scroll { max-height: 66vh; overflow: auto; }
+  .scroll thead th { position: sticky; top: 0; background: #f5f8f1; z-index: 2; white-space: nowrap; box-shadow: inset 0 -1px 0 rgba(26,28,24,.16); }
+  th button { display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; background: none; border: 0; padding: 2px 4px; margin: -2px -4px; border-radius: 6px; cursor: pointer; }
+  th button:hover { color: #405936; }
+  th[aria-sort="ascending"] button, th[aria-sort="descending"] button { color: #405936; }
+  th[aria-sort="ascending"] button::after { content: "\25B2"; font-size: 9px; }
+  th[aria-sort="descending"] button::after { content: "\25BC"; font-size: 9px; }
+  th.num button { flex-direction: row-reverse; }
+  td.nowrap { white-space: nowrap; }
+  .prod { max-width: 340px; }
+  .prod .n1 { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prod .n2 { font-size: 12px; color: #5c5f52; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vinc { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+  .vinc .por { color: #5c5f52; font-size: 12px; }
+  .vinc-meta { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 3px; font-size: 11px; color: #5c5f52; }
+  .tag-manual { padding: 1px 8px; border-radius: 999px; font-weight: 700; background: #fff4ce; color: #8a5d00; }
+  .link-btn { font: inherit; font-size: 11px; font-weight: 600; background: none; border: 0; padding: 2px 4px; color: #405936; text-decoration: underline; cursor: pointer; border-radius: 4px; }
+  .link-btn:focus-visible { outline: 2px solid #405936; outline-offset: 2px; }
+  .celda-input.v-codigo, .celda-input.c-codigo { width: 112px; background: #fbfcf9; text-align: left; }
+  .celda-input.manual { border-color: #8a5d00; background: #fffaf0; }
+  .vinc-nombre { font-size: 11px; color: #5c5f52; max-width: 190px; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .celda-input { height: 30px; width: 84px; text-align: right; padding: 0 8px; }
+  .celda-input.unid { width: 52px; }
+  tr.fila-desviada { background: rgba(164,38,44,.06); }
+  tr.fila-sin_codigo { background: rgba(138,93,0,.07); }
+  tr.guardando { opacity: .6; }
+  .t-ok { color: #0e700e; } .t-crit { color: #a4262c; font-weight: 600; } .t-muted { color: #5c5f52; }
+
+  /* Pestañas */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(26,28,24,.16); }
+  .tab { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; font: inherit; font-size: 14px; font-weight: 600; color: #5c5f52; text-transform: none; letter-spacing: 0;
+    background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; border-radius: 8px 8px 0 0; }
+  .tab:hover { color: #405936; background: #f5f8f1; }
+  .tab[aria-selected="true"] { color: #405936; border-bottom-color: #405936; }
+  .tab:focus-visible { outline: 2px solid #405936; outline-offset: -2px; }
+  .tab .n { font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: rgba(26,28,24,.08); }
+  .punto-alerta { width: 8px; height: 8px; border-radius: 50%; background: #a4262c; }
+
+  /* Combos */
+  .combos { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+  .combo { border: 1px solid rgba(26,28,24,.16); border-radius: 10px; background: #fff; }
+  .combo-sin_componentes { border-color: rgba(138,93,0,.55); background: rgba(138,93,0,.06); }
+  .combo-desviada { border-color: rgba(164,38,44,.5); background: rgba(164,38,44,.05); }
+  .combo summary { display: grid; grid-template-columns: 18px minmax(220px, 1fr) repeat(3, minmax(110px, auto)) auto; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; list-style: none; }
+  .combo summary::-webkit-details-marker { display: none; }
+  .combo summary:hover { background: rgba(64,89,54,.06); border-radius: 10px; }
+  .combo summary::before { content: "\25B8"; color: #5c5f52; transition: transform .15s; }
+  .combo[open] summary::before { transform: rotate(90deg); }
+  .combo-tit { display: flex; flex-direction: column; min-width: 0; }
+  .combo-tit .n1 { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .combo-tit .n2 { font-size: 12px; color: #5c5f52; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .combo-dato { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .combo-dato .lbl { font-size: 11px; font-weight: 400; color: #5c5f52; text-transform: uppercase; letter-spacing: .04em; }
+  .combo-cuerpo { padding: 4px 14px 14px 44px; border-top: 1px solid rgba(26,28,24,.1); }
+  table.comp { margin-top: 8px; }
+  .btn-chico { height: 30px; padding: 0 10px; font-size: 13px; }
+  .tot { display: flex; flex-wrap: wrap; gap: 4px 28px; margin: 10px 0 0; }
+  .tot dt { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #5c5f52; }
+  .tot dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .combo-acciones { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+  .combo-acciones .error { padding: 6px 10px; font-size: 13px; }
+  .combo summary:focus-visible { outline: 2px solid #405936; outline-offset: -2px; border-radius: 10px; }
+
+  /* Config */
+  .config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px 16px; }
+  .formula { font-size: 14px; background: #f5f8f1; border: 1px dashed rgba(64,89,54,.45); border-radius: 8px; padding: 10px 14px; }
+  .formula b { color: #405936; font-variant-numeric: tabular-nums; }
+
+  /* Diálogo de exportación */
+  dialog#dlg-export { position: fixed; inset: 0; margin: auto; border: none; border-radius: 16px; padding: 0; width: 92vw; max-width: 460px; height: fit-content; max-height: 90vh; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+  dialog#dlg-export::backdrop { background: rgba(23,23,18,.45); }
+  .dlg-cuerpo { padding: 22px 24px 20px; display: flex; flex-direction: column; gap: 12px; }
+  .dlg-cuerpo h2 { font-size: 1.1rem; font-weight: 800; margin: 0; }
+  .dlg-cuerpo p { margin: 0; }
+  .dlg-aviso { background: #fff4ce; color: #5c3f00; border-radius: 8px; padding: 10px 12px; }
+  .dlg-botones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  .loading { display: flex; align-items: center; justify-content: center; gap: 10px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body class="font-body text-ink">
+
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold">Control de precios Tienda Nube</h1>
+    <span id="importado" class="text-sm"></span>
+    <div class="ml-auto flex items-center gap-2">
+      <input type="file" id="archivo" accept=".csv" class="sr-only" tabindex="-1" aria-label="Bajada de Tienda Nube (csv)">
+      <button type="button" id="importar" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold">Importar bajada de TN</button>
+      <button type="button" id="exportar" class="px-3 py-1.5 rounded-lg border border-borde text-sm" disabled>Exportar CSV corregido</button>
+      <a href="/" class="text-sm">← Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5 flex flex-col gap-4">
+  <div id="aviso" role="status" aria-live="polite" hidden></div>
+
+  <section id="bajada" class="card bajada" aria-label="Estado de la bajada" hidden></section>
+
+  <section aria-label="Resumen" id="kpis" class="kpis"></section>
+
+  <details id="cfg" class="acordeon" style="padding:0">
+    <summary id="cfg-tit"><span class="caret" aria-hidden="true"></span><span class="font-semibold">Configuración de cálculo</span><span id="cfg-resumen" class="text-sm text-gris ml-3"></span></summary>
+    <div class="cuerpo">
+      <form id="cfg-form" class="mt-3" novalidate>
+        <div class="config-grid">
+          <div class="campo"><label for="c-recargo">Recargo sobre la carta (%)</label><input id="c-recargo" inputmode="decimal" autocomplete="off"><span class="ayuda">Suma al precio de carta.</span></div>
+          <div class="campo"><label for="c-tol">Tolerancia de desvío (%)</label><input id="c-tol" inputmode="decimal" autocomplete="off"><span class="ayuda">Hasta este desvío la fila está ok.</span></div>
+          <div class="campo"><label for="c-paso">Redondeo ($)</label><input id="c-paso" inputmode="decimal" autocomplete="off"><span class="ayuda">0 = sin redondeo.</span></div>
+        </div>
+        <p id="cfg-formula" class="formula mt-3" aria-live="polite"></p>
+        <div id="cfg-error" class="error mt-3" role="alert" hidden></div>
+        <div class="mt-4 flex items-center gap-3">
+          <button type="submit" id="cfg-guardar" class="btn btn-primario">Guardar configuración</button>
+          <span class="text-sm text-gris">Al guardar se recalcula la tabla.</span>
+        </div>
+      </form>
+    </div>
+  </details>
+
+  <div id="tabs" class="tabs" role="tablist" aria-label="Tipo de producto"></div>
+
+  <section class="card" aria-label="Filtros">
+    <div class="flex flex-wrap items-end gap-3">
+      <div class="campo" style="min-width:260px;flex:1 1 260px"><label for="f-buscar">Buscar</label><input id="f-buscar" type="search" placeholder="Nombre, variante, SKU o URL" autocomplete="off"></div>
+      <div class="campo"><label for="f-visible">Visibilidad</label>
+        <select id="f-visible"><option value="">Todas</option><option value="visible">Visibles</option><option value="oculta">Ocultas</option></select></div>
+      <div class="campo"><label for="f-stock">Stock</label>
+        <select id="f-stock"><option value="">Todos</option><option value="con">Con stock</option><option value="sin">Sin stock</option></select></div>
+      <button type="button" id="f-limpiar" class="btn btn-secundario" hidden>Limpiar filtros</button>
+    </div>
+    <div id="chips" class="flex flex-wrap gap-2 mt-3" role="group" aria-label="Filtrar por estado de control"></div>
+  </section>
+
+  <section id="panel-tabla" role="tabpanel" aria-labelledby="tab-productos" class="bg-card border border-borde rounded-xl shadow-fluent overflow-hidden" aria-label="Listado">
+    <div class="px-4 py-2 border-b border-borde text-sm text-gris flex items-center justify-between">
+      <span id="cuenta" aria-live="polite"></span>
+      <span>Código y unidades se guardan al salir del campo o con Enter.</span>
+    </div>
+    <div id="tabla-wrap" class="scroll" tabindex="0" role="region" aria-label="Tabla de productos" aria-busy="true"><p class="loading"><span class="spin" aria-hidden="true"></span>Cargando control de precios...</p></div>
+  </section>
+</main>
+
+<dialog id="dlg-export" aria-labelledby="dlg-tit">
+  <div class="dlg-cuerpo">
+    <h2 id="dlg-tit" class="font-disp">Exportar CSV corregido</h2>
+    <p id="dlg-resumen" class="text-sm"></p>
+    <p class="text-sm dlg-aviso">
+      Antes de subirlo todo, probá la reimportación en Tienda Nube con <strong>un solo producto</strong>: no está verificado que TN acepte el formato de precio
+      ni que una reimportación parcial deje intactos los productos ausentes. El archivo lleva el stock y los datos del momento de la bajada.
+    </p>
+    <div class="dlg-botones">
+      <button type="button" id="dlg-cancelar" class="btn btn-secundario" autofocus>Cancelar</button>
+      <button type="button" id="dlg-confirmar" class="btn btn-primario">Descargar CSV</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="/js/tn_precios.js"></script>
+</body>
+</html>

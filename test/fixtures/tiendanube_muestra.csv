@@ -1,0 +1,171 @@
+"Identificador de URL";Nombre;Categorías;"Nombre de propiedad 1";"Valor de propiedad 1";"Nombre de propiedad 2";"Valor de propiedad 2";"Nombre de propiedad 3";"Valor de propiedad 3";Precio;"Precio promocional";"Peso (kg)";"Alto (cm)";"Ancho (cm)";"Profundidad (cm)";Stock;SKU;"Código de barras";"Mostrar en tienda";"Envío sin cargo";Descripción;Tags;"Título para SEO";"Descripción para SEO";Marca;"Producto Físico";"MPN (Número de pieza del fabricante)";Sexo;"Rango de edad";Costo;Visibilidad
+combo-experiencia-apidelta;"Combo: Experiencia Apidelta";"Combos ";;;;;;;98,740.00;;0.00;0.00;0.00;0.00;9;;;SI;NO;;;;;;SI;;;;;Visible
+combo-full-nutricional-total;"Combo: Full Nutricional Total";"Combos ";;;;;;;79,595.00;;0.00;0.00;0.00;0.00;5;;;SI;NO;;;;;;SI;;;;;Visible
+combo-desayuno-keto;"Combo: Desayuno Keto";"Combos , Keto";;;;;;;67,410.00;;0.00;0.00;0.00;0.00;4;;;SI;NO;;;;;;SI;;;;;Visible
+combo-desayuno-matero;"Combo: Desayuno Matero";"Combos ";;;;;;;54,400.00;;0.00;0.00;0.00;0.00;2;;;SI;NO;;;;;;SI;;;;;Visible
+castanas-caju-tostada-sin-sal-w4;"Castañas Caju Tostada sin Sal W4";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;100gr;;;;;2,700.00;;0.10;0.00;0.00;0.00;15;1206;;SI;NO;;;;;;SI;;;;;Visible
+castanas-caju-tostada-sin-sal-w4;;;Presentación;"500 gr";;;;;11,100.00;;0.50;0.00;0.00;0.00;19;1208;;;;;;;;;;;;;;
+almendra-partida;"Almendra Partida";"Keto, Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;100gr;;;;;3,020.00;;0.10;0.00;0.00;0.00;19;1166;;SI;NO;;;;;;SI;;;;;Visible
+almendra-partida;;;Presentación;200gr;;;;;5,550.00;;0.20;0.00;0.00;0.00;19;4455;;;;;;;;;;;;;;
+almendra-partida;;;Presentación;"500 gr";;;;;13,510.00;;0.50;0.00;0.00;0.00;20;4456;;;;;;;;;;;;;;
+almendra-partida;;;Presentación;"1 kg";;;;;24,700.00;;1.00;0.00;0.00;0.00;2;1168;;;;;;;;;;;;;;
+almendra-non-pareil-mediana;"Almendra Non Pareil Mediana";"Keto, Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;7,250.00;;0.20;0.00;0.00;0.00;15;5310;;SI;NO;;;;;;SI;;;;;Visible
+almendra-non-pareil-mediana;;;Presentación;500gr;;;;;16,850.00;;0.50;0.00;0.00;0.00;8;5311;;;;;;;;;;;;;;
+almendra-non-pareil-mediana;;;Presentación;"1 kg";;;;;31,350.00;;0.10;0.00;0.00;0.00;0;3589;;;;;;;;;;;;;;
+pasa-uva-sulta-s-sem;"Pasa Uva Sulta Sin Semilla";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;250gr;;;;;2,200.00;;0.25;0.00;0.00;0.00;9;1395;;SI;NO;;;;;;SI;;;;;Visible
+pasa-uva-sulta-s-sem;;;Presentación;"500 gr";;;;;4,050.00;;0.50;0.00;0.00;0.00;9;554;;;;;;;;;;;;;;
+pasa-uva-sulta-s-sem;;;Presentación;"1 kg";;;;;7,350.00;;1.00;0.00;0.00;0.00;1;1394;;;;;;;;;;;;;;
+pasa-uva-rubia;"Pasa Uva Rubia";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;250gr;;;;;3,400.00;;0.25;0.00;0.00;0.00;7;552;;SI;NO;;;;;;SI;;;;;Visible
+pasa-uva-rubia;;;Presentación;"500 gr";;;;;6,550.00;;0.50;0.00;0.00;0.00;6;553;;;;;;;;;;;;;;
+pasa-uva-rubia;;;Presentación;"1 kg";;;;;12,100.00;;1.00;0.00;0.00;0.00;5;1391;;;;;;;;;;;;;;
+pasa-uva-jumbo-s-sem;"Pasa Uva Jumbo Sin Semilla";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;250gr;;;;;2,250.00;;0.25;0.00;0.00;0.00;2;1385;;SI;NO;;;;;;SI;;;;;Visible
+pasa-uva-jumbo-s-sem;;;Presentación;500gr;;;;;4,400.00;;0.50;0.00;0.00;0.00;2;551;;;;;;;;;;;;;;
+pasa-uva-jumbo-s-sem;;;Presentación;"1 kg";;;;;8,050.00;;1.00;0.00;0.00;0.00;2;1384;;;;;;;;;;;;;;
+c-caju-tostada-c-sal-w;"Castañas Caju Tostada Con Sal W4";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;100gr;;;;;2,700.00;;0.10;0.00;0.00;0.00;8;1206;;SI;NO;;;;;;SI;;;;;Visible
+c-caju-tostada-c-sal-w;;;Presentación;"500 gr";;;;;11,100.00;;0.50;0.00;0.00;0.00;8;1208;;;;;;;;;;;;;;
+c-caju-cruda-entera-w;"Castañas Caju Cruda Entera W4";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;100gr;;;;;2,500.00;;0.10;0.00;0.00;0.00;9;1200;;SI;NO;;;;;;SI;;;;;Visible
+c-caju-cruda-entera-w;;;Presentación;200gr;;;;;4,750.00;;0.20;0.00;0.00;0.00;9;91116;;;;;;;;;;;;;;
+c-caju-cruda-entera-w;;;Presentación;"500 gr";;;;;10,150.00;;0.50;0.00;0.00;0.00;10;1201;;;;;;;;;;;;;;
+avellanas;Avellanas;"Keto, Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;100gr;;;;;6,950.00;;0.10;0.00;0.00;0.00;18;1191;;SI;NO;;;;;;SI;;;;;Visible
+avellanas;;;Presentación;500gr;;;;;30,000.00;;0.50;0.00;0.00;0.00;20;1193;;;;;;;;;;;;;;
+pistacho-pelado-nat;"Pistacho Pelado Natural 100gr";"Despensa Saludable y Funcional > Mixs y Frutos Secos";;;;;;;10,600.00;;0.10;0.00;0.00;0.00;17;1403;;SI;NO;;;;;;SI;;;;;Visible
+pistacho-cascara-sal;"Pistacho Cascara Salado";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;100gr;;;;;5,150.00;;0.10;0.00;0.00;0.00;20;1406;;SI;NO;;;;;;SI;;;;;Visible
+pistacho-cascara-sal;;;Presentación;"500 gr";;;;;21,900.00;;0.50;0.00;0.00;0.00;19;1407;;;;;;;;;;;;;;
+mani-repelado-sin-sal;"Mani Repelado Sin Sal";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;1,100.00;;0.20;0.00;0.00;0.00;13;946;;SI;NO;;;;;;SI;;;;;Visible
+mani-repelado-sin-sal;;;Presentación;"500 gr";;;;;2,550.00;;0.50;0.00;0.00;0.00;18;586;;;;;;;;;;;;;;
+mani-repelado-sin-sal;;;Presentación;"1 kg";;;;;4,650.00;;1.00;0.00;0.00;0.00;19;945;;;;;;;;;;;;;;
+mani-repelado-con-sal;"Mani Repelado Con Sal";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;1,100.00;;0.20;0.00;0.00;0.00;20;944;;SI;NO;;;;;;SI;;;;;Visible
+mani-repelado-con-sal;;;Presentación;"500 gr";;;;;2,550.00;;0.50;0.00;0.00;0.00;20;3066;;;;;;;;;;;;;;
+mani-repelado-con-sal;;;Presentación;"1 kg";;;;;4,650.00;;1.00;0.00;0.00;0.00;20;943;;;;;;;;;;;;;;
+nuez-mariposa-extra-light;"Nuez Mariposa Extra Light";"Keto, Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;100gr;;;;;3,150.00;;0.10;0.00;0.00;0.00;19;1352;;SI;NO;;;;;;SI;;;;;Visible
+nuez-mariposa-extra-light;;;Presentación;200gr;;;;;5,950.00;;0.20;0.00;0.00;0.00;19;4467;;;;;;;;;;;;;;
+nuez-mariposa-extra-light;;;Presentación;"500 gr";;;;;14,400.00;;0.50;0.00;0.00;0.00;19;4468;;;;;;;;;;;;;;
+nuez-mariposa-extra-light;;;Presentación;"1 kg";;;;;28,400.00;;1.00;0.00;0.00;0.00;19;1354;;;;;;;;;;;;;;
+pimenton-ahumado;"Pimenton Ahumado 500G";"Conservas y Condimentos > Condimentos";;;;;;;7,650.00;;0.50;0.00;0.00;0.00;20;1109;;NO;NO;;;;;;SI;;;;;Oculto
+pimienta-blanca-molida;"Pimienta Blanca Molida 500G";"Conservas y Condimentos > Condimentos";;;;;;;13,300.00;;0.50;0.00;0.00;0.00;20;1115;;NO;NO;;;;;;SI;;;;;Oculto
+pimienta-negra-molida;"Pimienta Negra Molida 500G";"Conservas y Condimentos > Condimentos";;;;;;;21,650.00;;0.50;0.00;0.00;0.00;20;1125;;SI;NO;;;;;;SI;;;;;Visible
+provenzal-premium;"Provenzal Premium 500G";"Conservas y Condimentos > Condimentos";;;;;;;7,250.00;;0.50;0.00;0.00;0.00;20;1131;;NO;NO;;;;;;SI;;;;;Oculto
+pepas-apidelta-membrillo;"Pepas Apidelta Integrales";"Snacks y Bebidas > Apinuez / Apimaní / Pepas Integrales";Relleno;Membrillo;;;;;3,575.00;;0.18;0.00;0.00;0.00;13;8103;;SI;NO;;;;;;SI;;;;;Visible
+pepas-apidelta-membrillo;;;Relleno;Batata;;;;;3,575.00;;0.18;0.00;0.00;0.00;14;7106;;;;;;;;;;;;;;
+pepas-apidelta-membrillo;;;Relleno;"Dulce de leche";;;;;3,735.00;;0.18;0.00;0.00;0.00;10;91426;;;;;;;;;;;;;;
+mix-cervecero;"Mix Cervecero";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;2,000.00;;0.20;0.00;0.00;0.00;20;1514;;SI;NO;;;"Mix Cervecero Artesanal -- Maní, Maíz Frito y Semillas | Apidelta";;;SI;;;;;Visible
+mix-cervecero;;;Presentación;"500 gr";;;;;4,650.00;;0.50;0.00;0.00;0.00;18;3799;;;;;;;;;;;;;;
+mix-cervecero;;;Presentación;"1 kg";;;;;8,950.00;;1.00;0.00;0.00;0.00;20;1513;;;;;;;;;;;;;;
+mix-cervecero-premium;"Mix Cervecero Premium";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;2,600.00;;0.00;0.00;0.00;0.00;20;1518;;NO;NO;;;"Mix Cervecero Premium con frutos secos y maíz frito";"Descubrí el Mix Cervecero Premium: frutos secos selectos y maíz frito, sin conservantes. Ideal para picadas gourmet. ¡Probalo ya!";;SI;;;;;Oculto
+mix-cervecero-premium;;;Presentación;"500 gr";;;;;6,100.00;;0.00;0.00;0.00;0.00;20;3801;;;;;;;;;;;;;;
+mix-cervecero-premium;;;Presentación;"1 kg";;;;;11,900.00;;0.00;0.00;0.00;0.00;20;1517;;;;;;;;;;;;;;
+aceto-balsamico-apidelta;"Aceto Balsamico Apidelta 500cc";"Aceites y Aderezos";;;;;;;7,900.00;;0.50;0.00;0.00;0.00;19;5027;;SI;NO;;;"Aceto Balsámico Artesanal Mendoza 500cc -- Malbec, Bonarda y Caberne";"Aceto balsámico artesanal elaborado en Godoy Cruz, Mendoza, con uvas Malbec, Bonarda y Cabernet. Criado en barrica más de 9 meses. Color caoba, sabor frutado y amaderado.";;SI;;;;;Visible
+aceite-oliva-apidelta-vid;"Aceite Oliva Apidelta Vidrio 500CC";"Aceites y Aderezos";;;;;;;12,650.00;;0.50;0.00;0.00;0.00;18;1777;;SI;NO;;;;;;SI;;;;;Visible
+aceite-oliva-apidelta-tomillo-500cc;"Aceite Oliva Apidelta Tomillo 500cc";"Aceites y Aderezos";;;;;;;14,500.00;;0.50;0.00;0.00;0.00;0;4884;;NO;NO;;;;;;SI;;;;;Oculto
+aceite-oliva-apidelta-romero-500cc;"Aceite Oliva Apidelta Romero 500cc";"Aceites y Aderezos";;;;;;;14,500.00;;0.50;0.00;0.00;0.00;0;4944;;NO;NO;;;;;;SI;;;;;Oculto
+aceite-oliva-apidelta-albahaca-500cc;"Aceite Oliva Apidelta Albahaca 500cc";"Aceites y Aderezos";;;;;;;14,500.00;;0.50;0.00;0.00;0.00;0;4883;;NO;NO;;;;;;SI;;;;;Oculto
+aceite-oliva-apidelta-ajo-500cc;"Aceite Oliva Apidelta Ajo 500cc";"Aceites y Aderezos";;;;;;;14,500.00;;0.50;0.00;0.00;0.00;0;4891;;NO;NO;;;;;;SI;;;;;Oculto
+apinuez-negro-x6-unidades;"Apinuez Negro x6 unidades";"Snacks y Bebidas > Apinuez / Apimaní / Pepas Integrales";;;;;;;5,450.00;;0.00;0.00;0.00;0.00;0;2839;;SI;NO;;;;;;SI;;;;;Visible
+te-matcha1;"Té Matcha";"Despensa Saludable y Funcional > Té Matcha";Presentación;30gr;;;;;5,830.00;;0.03;0.00;0.00;0.00;2;5060;;SI;NO;;;;;;SI;;;;;Visible
+te-matcha1;;;Presentación;60gr;;;;;10,900.00;;0.06;0.00;0.00;0.00;0;90806;;;;;;;;;;;;;;
+apinuez-blanco-x5-unidades;"Apinuez Blanco x6 unidades";"Snacks y Bebidas > Apinuez / Apimaní / Pepas Integrales";;;;;;;5,450.00;;0.00;0.00;0.00;0.00;0;2849;;SI;NO;;;;;;SI;;;;;Visible
+apimani-mani-endulzado-con-miel-y-finas-hierbas;"Apimaní (Maní endulzado con miel y finas hierbas)";"Snacks y Bebidas > Apinuez / Apimaní / Pepas Integrales";Presentación;200gr;;;;;2,550.00;;0.20;0.00;0.00;0.00;19;2892;;SI;NO;;;;;;SI;;;;;Visible
+apimani-mani-endulzado-con-miel-y-finas-hierbas;;;Presentación;390gr;;;;;3,850.00;;0.39;0.00;0.00;0.00;17;2891;;;;;;;;;;;;;;
+azucar-de-coco;"Azúcar de Coco";"Despensa Saludable y Funcional > Endulzantes Naturales";Presentación;230gr;;;;;4,650.00;;0.23;0.00;0.00;0.00;0;2053;;SI;NO;;;;;;SI;;;;;Visible
+jugo-de-arandanos-con-stevia-1lt;"Jugo de Arándanos con Stevia 1Lt";"Snacks y Bebidas > Jugo de Arándanos";;;;;;;5,775.00;;0.00;0.00;0.00;0.00;5;91218;;SI;NO;;;;;;SI;;;;;Visible
+miel-trebol;"Miel Trebol";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;10;4112;;SI;NO;;;;;;SI;;;;;Visible
+miel-trebol;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;10;4124;;;;;;;;;;;;;;
+miel-trebol;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;3;4109;;;;;;;;;;;;;;
+miel-trebol;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4116;;;;;;;;;;;;;;
+miel-trebol;;;Presentación;"10 kg";;;;;84,985.00;;10.00;0.00;0.00;0.00;0;4106;;;;;;;;;;;;;;
+miel-pradera;"Miel Pradera";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;2291;;SI;NO;;;;;;SI;;;;;Visible
+miel-pradera;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;9;2294;;;;;;;;;;;;;;
+miel-pradera;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;2288;;;;;;;;;;;;;;
+miel-pradera;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;2276;;;;;;;;;;;;;;
+miel-pradera;;;Presentación;"10 kg";;;;;84,985.00;;10.00;0.00;0.00;0.00;0;2279;;;;;;;;;;;;;;
+miel-naranjo;"Miel Naranjo";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;4182;;SI;NO;;;;;;SI;;;;;Visible
+miel-naranjo;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;0;4194;;;;;;;;;;;;;;
+miel-naranjo;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;4179;;;;;;;;;;;;;;
+miel-naranjo;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4186;;;;;;;;;;;;;;
+miel-naranjo;;;Presentación;"10 kg";;;;;103,730.00;;10.00;0.00;0.00;0.00;0;4176;;;;;;;;;;;;;;
+miel-limon;"Miel Limón";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;;;SI;NO;;;;;;SI;;;;;Visible
+miel-limon;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;0;;;;;;;;;;;;;;;
+miel-limon;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;;;;;;;;;;;;;;;
+miel-limon;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;;;;;;;;;;;;;;;
+miel-limon;;;Presentación;"10 kg";;;;;103,730.00;;10.00;0.00;0.00;0.00;0;;;;;;;;;;;;;;;
+miel-eucaliptus;"Miel Eucaliptus";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;4322;;SI;NO;;;;;;SI;;;;;Visible
+miel-eucaliptus;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;4;4334;;;;;;;;;;;;;;
+miel-eucaliptus;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;3;4319;;;;;;;;;;;;;;
+miel-eucaliptus;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4326;;;;;;;;;;;;;;
+miel-eucaliptus;;;Presentación;"10 kg";;;;;84,985.00;;10.00;0.00;0.00;0.00;0;4316;;;;;;;;;;;;;;
+miel-citrus;"Miel Citrus";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;8;4357;;SI;NO;;;;;;SI;;;;;Visible
+miel-citrus;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;5;4369;;;;;;;;;;;;;;
+miel-citrus;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;4354;;;;;;;;;;;;;;
+miel-citrus;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4361;;;;;;;;;;;;;;
+miel-citrus;;;Presentación;"10 kg";;;;;103,730.00;;10.00;0.00;0.00;0.00;0;4351;;;;;;;;;;;;;;
+miel-caatay;"Miel Flores De Isla";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;4252;;SI;NO;;;;;;SI;;;;;Visible
+miel-caatay;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;0;4267;;;;;;;;;;;;;;
+miel-caatay;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;4249;;;;;;;;;;;;;;
+miel-caatay;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4256;;;;;;;;;;;;;;
+miel-caatay;;;Presentación;"10 kg";;;;;84,985.00;;10.00;0.00;0.00;0.00;0;4246;;;;;;;;;;;;;;
+miel-aliso;"Miel Aliso";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;4680;;SI;NO;;;;;;SI;;;;;Visible
+miel-aliso;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;0;4699;;;;;;;;;;;;;;
+miel-aliso;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;4695;;;;;;;;;;;;;;
+miel-aliso;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4682;;;;;;;;;;;;;;
+miel-aliso;;;Presentación;"10 kg";;;;;84,985.00;;10.00;0.00;0.00;0.00;0;4681;;;;;;;;;;;;;;
+miel-algarrobo;"Miel Algarrobo";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;4007;;SI;NO;;;;;;SI;;;;;Visible
+miel-algarrobo;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;0;4019;;;;;;;;;;;;;;
+miel-algarrobo;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;4004;;;;;;;;;;;;;;
+miel-algarrobo;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4011;;;;;;;;;;;;;;
+miel-algarrobo;;;Presentación;"10 kg";;;;;103,730.00;;10.00;0.00;0.00;0.00;0;4001;;;;;;;;;;;;;;
+miel-alfalfa;"Miel Alfalfa";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;5;4147;;SI;NO;;;;;;SI;;;;;Visible
+miel-alfalfa;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;4;4159;;;;;;;;;;;;;;
+miel-alfalfa;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;4144;;;;;;;;;;;;;;
+miel-alfalfa;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4151;;;;;;;;;;;;;;
+miel-alfalfa;;;Presentación;"10 kg";;;;;84,985.00;;10.00;0.00;0.00;0.00;0;4141;;;;;;;;;;;;;;
+miel-acacia;"Miel Acacia";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,740.00;;0.25;0.00;0.00;0.00;0;4042;;SI;NO;;;;;;SI;;;;;Visible
+miel-acacia;;;Presentación;500gr;;;;;5,930.00;;0.50;0.00;0.00;0.00;0;4054;;;;;;;;;;;;;;
+miel-acacia;;;Presentación;"1 kg";;;;;9,900.00;;1.00;0.00;0.00;0.00;0;4039;;;;;;;;;;;;;;
+miel-acacia;;;Presentación;"2 kg";;;;;20,350.00;;2.00;0.00;0.00;0.00;0;4046;;;;;;;;;;;;;;
+miel-acacia;;;Presentación;"10 kg";;;;;103,730.00;;10.00;0.00;0.00;0.00;0;4036;;;;;;;;;;;;;;
+ghee-manteca-clarificada;"Manteca Clarificada Ghee (280gr)";"Keto, Aceites y Aderezos";;;;;;;6,950.00;;0.00;0.00;0.00;0.00;0;141;;SI;NO;;;;;;SI;;;;;Visible
+aceite-coco-290cc;"Aceite de Coco Neutro";"Keto, Aceites y Aderezos";Presentación;290cc;;;;;6,350.00;;0.29;0.00;0.00;0.00;20;1759;;SI;NO;;;;;;SI;;;;;Visible
+apimani;"Apimaní (Maní endulzado con miel)";"Snacks y Bebidas > Apinuez / Apimaní / Pepas Integrales";Presentación;200gr;;;;;2,500.00;;0.00;0.00;0.00;0.00;18;2890;;SI;NO;;;;;;SI;;;;;Visible
+apimani;;;Presentación;390gr;;;;;3,750.00;;0.00;0.00;0.00;0.00;16;20118;;;;;;;;;;;;;;
+mix-frutos-secos-nac-pop-1kg;"Mix Nac & Pop";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;2,650.00;;0.20;0.00;0.00;0.00;18;1524;;SI;NO;;;;;;SI;;;;;Visible
+mix-frutos-secos-nac-pop-1kg;;;Presentación;500gr;;;;;6,200.00;;0.50;0.00;0.00;0.00;19;3803;;;;;;;;;;;;;;
+mix-frutos-secos-nac-pop-1kg;;;Presentación;"1 kg";;;;;12,000.00;;1.00;0.00;0.00;0.00;19;1527;;;;;;;;;;;;;;
+mix-frutos-secos-tropical-1kg;"Mix Tropical";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;4,200.00;;0.20;0.00;0.00;0.00;14;1550;;SI;NO;;;;;;SI;;;;;Visible
+mix-frutos-secos-tropical-1kg;;;Presentación;500gr;;;;;10,050.00;;0.50;0.00;0.00;0.00;18;3809;;;;;;;;;;;;;;
+mix-frutos-secos-tropical-1kg;;;Presentación;"1 kg";;;;;19,750.00;;1.00;0.00;0.00;0.00;14;1549;;;;;;;;;;;;;;
+mix-frutos-secos-europeo-1kg;"Mix Europeo";"Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;4,950.00;;0.20;0.00;0.00;0.00;19;1524;;SI;NO;;;;;;SI;;;;;Visible
+mix-frutos-secos-europeo-1kg;;;Presentación;500gr;;;;;12,000.00;;0.50;0.00;0.00;0.00;18;3803;;;;;;;;;;;;;;
+mix-frutos-secos-europeo-1kg;;;Presentación;"1 kg";;;;;23,550.00;;1.00;0.00;0.00;0.00;15;1523;;;;;;;;;;;;;;
+mix-frutos-secos-sin-pasas-1kg;"Mix Sin Pasas";"Keto, Despensa Saludable y Funcional > Mixs y Frutos Secos";Presentación;200gr;;;;;4,800.00;;0.20;0.00;0.00;0.00;14;1532;;SI;NO;;;;;;SI;;;;;Visible
+mix-frutos-secos-sin-pasas-1kg;;;Presentación;500gr;;;;;11,495.00;;0.50;0.00;0.00;0.00;16;3807;;;;;;;;;;;;;;
+mix-frutos-secos-sin-pasas-1kg;;;Presentación;"1 kg";;;;;22,650.00;;1.00;0.00;0.00;0.00;19;1531;;;;;;;;;;;;;;
+granola-keto;"Granola Funcional Keto";"Keto, Despensa Saludable y Funcional > Granolas";Presentación;250gr;;;;;8,450.00;;0.25;0.00;0.00;0.00;15;7496;;SI;NO;;;;;;SI;;;;;Visible
+granola-keto;;;Presentación;500gr;;;;;13,800.00;;0.50;0.00;0.00;0.00;15;90829;;;;;;;;;;;;;;
+granola-crunch;"Granola Funcional Crunch";"Despensa Saludable y Funcional > Granolas";Presentación;250gr;;;;;4,050.00;;0.25;0.00;0.00;0.00;19;7481;;SI;NO;;;;;;SI;;;;;Visible
+granola-crunch;;;Presentación;500gr;;;;;7,150.00;;0.50;0.00;0.00;0.00;14;90827;;;;;;;;;;;;;;
+granola-chocolate;"Granola Funcional Chocolate Gold";"Despensa Saludable y Funcional > Granolas";Presentación;250gr;;;;;4,850.00;;0.25;0.00;0.00;0.00;17;7486;;SI;NO;;;;;;SI;;;;;Visible
+granola-chocolate;;;Presentación;500gr;;;;;8,700.00;;0.50;0.00;0.00;0.00;16;2596;;;;;;;;;;;;;;
+granola-tradicional;"Granola Funcional Tradicional";"Despensa Saludable y Funcional > Granolas";Presentación;250gr;;;;;3,150.00;;0.25;0.00;0.00;0.00;20;42;;SI;NO;;;;;;SI;;;;;Visible
+granola-tradicional;;;Presentación;500gr;;;;;5,250.00;;0.50;0.00;0.00;0.00;18;90833;;;;;;;;;;;;;;
+granola-superalimentos;"Granola Funcional Súper Alimentos";"Despensa Saludable y Funcional > Granolas";Presentación;250gr;;;;;5,800.00;;0.25;0.00;0.00;0.00;17;7491;;SI;NO;;;;;;SI;;;;;Visible
+granola-superalimentos;;;Presentación;500gr;;;;;10,400.00;;0.50;0.00;0.00;0.00;19;90897;;;;;;;;;;;;;;
+tomate-natural;"Tomate al Natural 1Kg";"Conservas y Condimentos > Tomate al natural";;;;;;;2,700.00;;1.00;0.00;0.00;0.00;19;5278;;SI;NO;;;;;;SI;;;;;Visible
+vinagre-manzana;"Vinagre de Sidra de Manzana Sin Filtrar 500cc";"Aceites y Aderezos";;;;;;;5,750.00;;0.50;0.00;0.00;0.00;20;5298;;SI;NO;;;;;;SI;;;;;Visible
+aceite-oliva-1l;"Aceite de Oliva Apidelta PET";"Aceites y Aderezos";Presentación;500cc;;;;;11,700.00;;0.50;0.00;0.00;0.00;19;1771;;SI;NO;;;;;;SI;;;;;Visible
+aceite-oliva-1l;;;Presentación;"1 Lt";;;;;21,885.00;;1.00;0.00;0.00;0.00;20;1767;;;;;;;;;;;;;;
+aceite-oliva-1l;;;Presentación;"2 Lt";;;;;39,460.00;;2.00;0.00;0.00;0.00;20;1770;;;;;;;;;;;;;;
+aceite-oliva-1l;;;Presentación;"5 Lt";;;;;96,000.00;;5.00;0.00;0.00;0.00;20;1774;;;;;;;;;;;;;;
+polen-nutraceutico;"Polen Apícola";"El Mundo de la Miel > Polen";Presentación;100gr;;;;;5,400.00;;0.10;0.00;0.00;0.00;19;2375;;SI;NO;;;;;;SI;;;;;Visible
+polen-nutraceutico;;;Presentación;200gr;;;;;9,250.00;;0.20;0.00;0.00;0.00;20;2381;;;;;;;;;;;;;;
+polen-nutraceutico;;;Presentación;"1 kg";;;;;38,450.00;;1.00;0.00;0.00;0.00;17;2378;;;;;;;;;;;;;;
+nutraceutico-miel-jengibre;"Miel con Jengibre 250gr";"El Mundo de la Miel > Nutracéuticos";;;;;;;4,820.00;;0.25;0.00;0.00;0.00;9;2312;;SI;NO;;;;;;SI;;;;;Visible
+nutraceutico-miel-canela;"Miel con Canela 250gr";"El Mundo de la Miel > Nutracéuticos";;;;;;;4,820.00;;0.00;0.00;0.00;0.00;2;2309;;SI;NO;;;;;;SI;;;;;Visible
+nutraceutico-mentomiel;"Mentomiel 250gr";"El Mundo de la Miel > Nutracéuticos";;;;;;;4,500.00;;0.25;0.00;0.00;0.00;0;2183;;SI;NO;;;;;;SI;;;;;Visible
+nutraceutico-apimax;"Apimax (Suplemento Nutracéutico) 250gr";"El Mundo de la Miel > Nutracéuticos";;;;;;;6,550.00;;0.25;0.00;0.00;0.00;8;1856;;SI;NO;;;;;;SI;;;;;Visible
+miel-exportacion;"Miel Multifloral 100% pura. Artesanal";"El Mundo de la Miel > Mieles Puras";Presentación;250gr;;;;;3,520.00;;0.25;0.00;0.00;0.00;10;2324;;SI;NO;;;;;;SI;;;;;Visible
+miel-exportacion;;;Presentación;500gr;;;;;5,325.00;;0.50;0.00;0.00;0.00;4;2328;;;;;;;;;;;;;;
+miel-exportacion;;;Presentación;"1 kg";;;;;9,075.00;;1.00;0.00;0.00;0.00;5;2321;;;;;;;;;;;;;;
+yerba-molienda-tradicional-minorista;"Yerba Apidelta";"Despensa Saludable y Funcional > Yerbas";Presentación;"500 gr";;;;;2,950.00;;0.50;0.00;0.00;0.00;31;50024;;SI;NO;;;;;;SI;;;;;Visible
+yerba-molienda-tradicional-minorista;;;Presentación;"1 kg";;;;;5,885.00;;1.00;0.00;0.00;0.00;22;1498;;;;;;;;;;;;;;
+yerba-molienda-tradicional-minorista;;;Presentación;"2 kg";;;;;11,350.00;;2.00;0.00;0.00;0.00;6;1499;;;;;;;;;;;;;;
+yerba-molienda-tradicional-minorista;;;Presentación;"5 kg";;;;;27,850.00;;5.00;0.00;0.00;0.00;0;1502;;;;;;;;;;;;;;
