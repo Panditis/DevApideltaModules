@@ -37,6 +37,17 @@ test('universoFraccionado: graneles, presentaciones (VD sin fórmula con su gran
   assert.strictEqual(u.costos.get('100').costoSistema, 1210); // PrecioCosto de SIGA tal cual
 });
 
+test('universoFraccionado: un granel "DEPOSITO VENTAS" entra además como presentación (venta directa de sí mismo); uno ya en Venta Directa no se duplica', async () => {
+  const DV = { IdProducto: 700, NombreProducto: 'Car. Miel + Vitamina C 1Kg DEPOSITO VENTAS' };
+  const ya = { IdProducto: 701, NombreProducto: 'Jalea 1Kg Deposito Ventas' };
+  const q = sql => (sql.includes("'Pesables Deposito'") ? Promise.resolve([DV, ya, ...RUBROS['Pesables Deposito']])
+    : sql.includes("'Pesables Venta Directa'") ? Promise.resolve([ya]) : query(sql));
+  const u = await crearConsultasPrecios({ ...deps, query: q }).universoFraccionado({});
+  const dv = u.presentaciones.filter(p => ['700', '701'].includes(p.plu));
+  assert.deepStrictEqual(dv.map(p => [p.plu, p.ventaDirecta, p.granelSiga ?? null]), [['701', true, null], ['700', true, null]]);
+  assert.strictEqual(granelDePresentacion({}, dv[1]), '700'); // su propio granel
+});
+
 test('universoAlmacen: productos activos del rubro Almacen con sus costos', async () => {
   const sqls = [];
   const { universoAlmacen } = crearConsultasPrecios({ ...deps, query: async sql => { sqls.push(sql); return [{ IdProducto: '7', NombreProducto: 'Arroz', CostoSistema: 1210, IvaCompraPct: 21 }]; } });

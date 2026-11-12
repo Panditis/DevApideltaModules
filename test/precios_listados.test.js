@@ -206,6 +206,13 @@ test('filasExportListado Fraccionado: una fila por presentación con los costos 
   assert.deepStrictEqual(aoa[4], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null, 'No', null, null]);
 });
 
+test('filasExportListado Fraccionado: si el granel es una de sus presentaciones ("DEPOSITO VENTAS") no se repite la fila en 0; PLU numérico vs string igual', () => {
+  const aoa = filasExportListado([{ plu: 700, nombre: 'Miel 1Kg DEPOSITO VENTAS', costoSistema: 5000, presentaciones: [
+    { plu: '700', nombre: 'Miel 1Kg DEPOSITO VENTAS', ventaDirecta: true, vigente: 9000, sugeridos: {} },
+    { plu: '701', nombre: 'Miel 500G', vigente: 5000, sugeridos: {} }] }], 'fraccionado');
+  assert.deepStrictEqual(aoa.slice(1).map(f => [f[0], f[7]]), [[700, 9000], [701, 5000]]);
+});
+
 test('filasExportListado Producción: costo de receta/envasado, sin columnas de última compra', () => {
   const aoa = filasExportListado([{ plu: '6319', nombre: 'Pepas', costoSistema: 330.58, vigente: 1000, sugeridos: { sistema: sug(900) } }], 'produccion');
   assert.deepStrictEqual(aoa, [['PLU', 'Nombre', 'Costo actual (receta/envasado)', 'Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)'],

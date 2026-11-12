@@ -229,7 +229,9 @@ function filasExportListado(filas, tipo) {
       ...filasVinculadosXlsx(g, p.mayoristas, p)]);
     // El granel va como un ítem más (tras sus presentaciones) con su costo y los precios en 0: no se vende, es referencia de costo.
     // El grupo "Sin granel asignado" (plu null) sólo aparece si no tiene presentaciones.
-    const filaGranel = g.plu != null || !pres.length ? [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), 0, 0, null, 0, null, null, null, null]] : [];
+    // Si el granel es además una de sus presentaciones (venta directa, "… DEPOSITO VENTAS") ya sale con su precio: no se repite en 0.
+    const esPropia = pres.some(p => String(p.plu) === String(g.plu));
+    const filaGranel = !esPropia && (g.plu != null || !pres.length) ? [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), 0, 0, null, 0, null, null, null, null]] : [];
     return [...filasPres, ...filaGranel, ...filasVinculadosXlsx(g, g.mayoristas, g)];
   })];
 }
