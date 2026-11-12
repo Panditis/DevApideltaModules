@@ -71,9 +71,9 @@ test('contrato back → front: filtros, conteos y badges del listado leen reefer
   assert.match(htmlBadgesActividadLst(porPlu[300]), /title="Inactivo: sin movimientos de ninguna presentación en el último año"/);
   assert.match(htmlBadgesActividadLst(porPlu[400]), /title="Fijado a mano como inactivo"/);
   // Export del listado: recibe las filas ya filtradas (filtrosBusqueda incluye los toggles) → sin REEFER ni inactivos
-  const exp = filasExportListado(filtrarFilas(filas, {}), 'fraccionado').flat();
-  // una fila por presentación con su granel ("100 · Almendras"): ni las de REEFER ni las de inactivos
-  assert.deepStrictEqual(exp.filter(c => typeof c === 'number'), [101, 104], JSON.stringify(exp));
+  const exp = filasExportListado(filtrarFilas(filas, {}), 'fraccionado').slice(1).map(f => f[0]);
+  // cada presentación y luego su granel (100); sin los de REEFER ni los inactivos; "Sin granel asignado" no suma fila de granel
+  assert.deepStrictEqual(exp, [101, 100, 104], JSON.stringify(exp));
 });
 
 test('contrato back → front: el select de Configuración lee el mismo activoGranel que usa el listado', () => {

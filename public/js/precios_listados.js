@@ -227,8 +227,10 @@ function filasExportListado(filas, tipo) {
     const pres = g.presentaciones || [];
     const filasPres = pres.flatMap(p => [[pluXlsx(p.plu), p.nombre, granel(g), ...costos(g), ...precios(p), p.mayorista === true ? 'Sí' : 'No', ...extrasMayoristaXlsx(p)],
       ...filasVinculadosXlsx(g, p.mayoristas, p)]);
-    const filaGranel = pres.length ? [] : [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), ...precios(null), null, null, null]];
-    return [...filaGranel, ...filasPres, ...filasVinculadosXlsx(g, g.mayoristas, g)];
+    // El granel va como un ítem más (tras sus presentaciones) con su costo y los precios en 0: no se vende, es referencia de costo.
+    // El grupo "Sin granel asignado" (plu null) sólo aparece si no tiene presentaciones.
+    const filaGranel = g.plu != null || !pres.length ? [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), 0, 0, null, 0, null, null, null, null]] : [];
+    return [...filasPres, ...filaGranel, ...filasVinculadosXlsx(g, g.mayoristas, g)];
   })];
 }
 

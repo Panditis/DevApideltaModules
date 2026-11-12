@@ -190,7 +190,7 @@ test('filasExportListado: el Proveedor es sólo de Reventa; Fraccionado (aunque 
   assert.strictEqual(prod[1].includes('Frutos SA'), false);
 });
 
-test('filasExportListado Fraccionado: una fila por presentación con los costos $/kg de su granel; granel sin presentaciones → su fila sin precios', () => {
+test('filasExportListado Fraccionado: una fila por presentación con los costos $/kg de su granel; el granel va como ítem más con su costo y precios en 0', () => {
   const aoa = filasExportListado([
     { plu: '50', nombre: 'Almendra granel', costoSistema: 10000, costoUltimaCompra: 9000, fechaUltimaCompra: '2026-10-02', presentaciones: [
       { plu: '51', nombre: 'Almendra 500G', vigente: 20000, sugeridos: { sistema: sug(22000), ultimaCompra: sug(20000) } }] },
@@ -201,8 +201,9 @@ test('filasExportListado Fraccionado: una fila por presentación con los costos 
   assert.strictEqual(aoa[0].length, 15);
   assert.deepStrictEqual(aoa[0].slice(12), ['Mayorista', 'Precio mayorista con IVA', 'Precio minorista anterior']); // columnas nuevas al final: las 12 de antes no se mueven
   assert.deepStrictEqual(aoa[1], [51, 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0, 'No', null, null]);
-  assert.deepStrictEqual(aoa[2], [60, 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null, null, null, null]);
-  assert.deepStrictEqual(aoa[3], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null, 'No', null, null]);
+  assert.deepStrictEqual(aoa[2], [50, 'Almendra granel', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 0, 0, null, 0, null, null, null, null]);
+  assert.deepStrictEqual(aoa[3], [60, 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, 0, 0, null, 0, null, null, null, null]);
+  assert.deepStrictEqual(aoa[4], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null, 'No', null, null]);
 });
 
 test('filasExportListado Producción: costo de receta/envasado, sin columnas de última compra', () => {
@@ -219,7 +220,7 @@ test('filasExportListado: la columna PLU es un número en los tres tipos; un có
     { plu: '50', nombre: 'G', presentaciones: [{ plu: '51', nombre: 'G 500G', sugeridos: {} }] },
     { plu: '60', nombre: 'H', presentaciones: [] },
     { plu: null, nombre: 'Sin granel', presentaciones: [] },
-  ], 'fraccionado')), [51, 60, null]);
+  ], 'fraccionado')), [51, 50, 60, null]);
 });
 
 test('filtrarFilas: clasificacion (Reventa) — con = sólo las que tienen tipoProveedor, sin = sólo las sin clasificar; sin la opción, todas', () => {
@@ -449,7 +450,7 @@ test('filtrarFilas: siempreVisibles mantiene un granel inactivo aunque "Ver inac
 test('export Fraccionado: "Mayorista" Sí/No al final de cada presentación (true → Sí, false/sin dato → No)', () => {
   const aoa = filasExportListado([{ plu: '50', nombre: 'G', presentaciones: [
     { plu: '51', nombre: 'A 5KG', mayorista: true, sugeridos: {} }, { plu: '52', nombre: 'A 100G', mayorista: false, sugeridos: {} }, { plu: '53', nombre: 'B', sugeridos: {} }] }], 'fraccionado');
-  assert.deepStrictEqual(aoa.slice(1).map(f => f[12]), ['Sí', 'No', 'No']);
+  assert.deepStrictEqual(aoa.slice(1).map(f => f[12]), ['Sí', 'No', 'No', null]); // la última es la fila del granel
 });
 
 test('mayorista listado: badge sólo si es mayorista, con el origen en el tooltip', () => {
@@ -643,7 +644,7 @@ test('export Fraccionado: una fila "Sí" por cada vinculado pack/bulto (p.mayori
     { plu: '51', nombre: 'X 1Kg', mayoristas: [v], sugeridos: sugV }, { plu: '52', nombre: 'X 500G', mayoristas: [v], sugeridos: sugV }], mayoristas: [v, { plu: '30303', nombre: 'Y Bulto', vigente: 0 }] };
   const aoa = filasExportListado([g], 'fraccionado');
   const iNuevo = aoa[0].indexOf('Precio nuevo con costo actual');
-  assert.strictEqual(aoa.length, 1 + 2 + 2); // 2 presentaciones + 20202 (una vez) + 30303 (sólo en el granel)
+  assert.strictEqual(aoa.length, 1 + 2 + 1 + 2); // 2 presentaciones + el granel + 20202 (una vez) + 30303 (sólo en el granel)
   const f = aoa.find(r => r[0] === 20202);
   assert.deepStrictEqual([f[1], f[2], f[3 + 4], f[iNuevo], f[iNuevo + 1], f[iNuevo + 2], f[iNuevo + 3], ...f.slice(-3)],
     ['X 1Kg Bulto', '50 · G', 3000, 3150, 0.05, 3300, 0.1, 'Sí', 3600, null]);
