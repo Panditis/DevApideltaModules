@@ -669,6 +669,7 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
 app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
+app.get('/js/ml_precios.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'ml_precios.js')));
 app.get('/js/precios_produccion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion.js')));
 app.get('/js/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_detalle.js')));
 app.get('/js/precios_produccion_presentaciones.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_presentaciones.js')));
@@ -2715,6 +2716,8 @@ app.use(require('./routes/rutas_carteles_pesables')({ apiRoute, query, LISTA_PRE
 // Precios históricos: LISTA_PRECIOS_VENTA es un const declarado miles de líneas después del
 // punto donde estaba la página del módulo, así que el registro va al final como los demás.
 app.use(require('./routes/rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
+// Control de precios ML: carta de SIGA (lista 0) vs bajada de publicaciones; escribe solo data/ml_*.json.
+app.use(require('./routes/rutas_ml_precios')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA }));
 
 // Precios (costeo sugerido, Fase 0 — sólo esqueleto): mismo motivo de deps tardíos
 // que los routers vecinos, se registra acá junto con el resto del clúster de precios.
