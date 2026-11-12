@@ -22,7 +22,7 @@
 //   POST /api/cotizador-mayorista/importar     multipart 'file' (.xlsx, hoja apidelta_precios) → { filas, secciones, manuales,
 //        descartadas: [nroFila], vinculos: { vinculados, sinVincular: [{ cod, nombre, faltan }], manuales } | null, aviso? }
 //   GET  /api/cotizador-mayorista/preview      → { filas: [FilaCsv + origen { pack, bulto }], revisar: [{ cod, nombre, motivos, respaldo }],
-//        avisos: [string], errores: [string], diff: { nuevos, quitados, cambiados: [{ cod, nombre, campo, antes, despues, pct }] },
+//        avisos: [string], errores: [string], diff: { nuevos: [{ cod, nombre, pack_price, bulto_price }], quitados, cambiados: [{ cod, nombre, campo, antes, despues, pct }] },
 //        ultimaVersion: number|null, productos }
 //        origen: 'decision' | 'vigente' (lista 0 de SIGA, sin decisión) | 'manual' | 'descuento' (sólo pack) | 'respaldo' (último exportado o planilla) | null (columna vacía)
 //        Cada fila armada trae además modoPack ('plu'|'descuento'|'ninguno') y, en 'descuento',

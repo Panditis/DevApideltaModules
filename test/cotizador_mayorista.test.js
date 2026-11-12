@@ -88,8 +88,9 @@ test('CSV: contrato, sha256 estable y round-trip con el parser', () => {
 });
 
 test('diffCatalogo y comandos de subida sin contraseña', () => {
-  const d = C.diffCatalogo([{ cod: '1', pack_price: '100' }, { cod: '2' }], [{ cod: '1', pack_price: 110 }, { cod: '3' }]);
+  const d = C.diffCatalogo([{ cod: '1', pack_price: '100' }, { cod: '2' }], [{ cod: '1', pack_price: 110 }, { cod: '3', pack_price: 50, bulto_price: 40 }]);
   assert.deepStrictEqual(d.nuevos.map(x => x.cod), ['3']);
+  assert.deepStrictEqual([d.nuevos[0].pack_price, d.nuevos[0].bulto_price], [50, 40]);
   assert.deepStrictEqual(d.quitados.map(x => x.cod), ['2']);
   assert.strictEqual(d.cambiados[0].pct, 10);
   assert.deepStrictEqual(C.comandosSubida(C.SUBIDA_DEFECTO), [

@@ -210,7 +210,13 @@ function vincularAlSistema(f) {
 }
 function celdaTipo(f) {
   const estados = [h('span', { class: 'est est-aviso' }, '⚠ Revisar'), h('span', { class: 'est est-off' }, 'No incluida')];
-  if (!f.manual) return h('td', null, h('div', { class: 'est-col' }, chip('Sistema'), estados));
+  if (!f.manual) {
+    // Fila agregada y aún sin guardar (f.nueva): se puede quitar; las del sistema ya guardadas no.
+    const chipSistema = f.nueva
+      ? h('div', { class: 'est-fila' }, chip('Sistema'), botonMover('✕', `Quitar la fila ${etiquetaFila(f)}`, 0, !tp.puede, () => quitarFila(f._id)))
+      : chip('Sistema');
+    return h('td', null, h('div', { class: 'est-col' }, chipSistema, estados));
+  }
   return h('td', null, h('div', { class: 'est-col' }, h('div', { class: 'est-fila' }, chip('Manual', 'warn'),
     botonMover('✕', `Quitar la fila manual ${etiquetaFila(f)}`, 0, !tp.puede, () => quitarFila(f._id))),
     h('button', { type: 'button', class: 'btn-sec btn-chico', disabled: !tp.puede, title: 'Convierte la fila en una del sistema usando el código de Cod',

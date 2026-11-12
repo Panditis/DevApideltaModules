@@ -8,10 +8,17 @@ const DIFF_TIPOS = [
 ];
 const DIFF_TIPO_CHIP = { nuevo: ['Nuevo', 'ok'], quitado: ['Quitado', 'crit'], cambio: ['Cambio', 'warn'] };
 
+// Nuevo: una sola fila, "Después" resume los precios presentes (Pack / Bulto).
+function diffPreciosNuevo(f) {
+  return [['Pack', f.pack_price], ['Bulto', f.bulto_price]]
+    .filter(([, v]) => v !== '' && v != null)
+    .map(([t, v]) => `${t} ${fmtPrecio(v)}`).join(' · ');
+}
+
 function diffFilas(diff) {
   const d = diff || {};
   return [
-    ...(d.nuevos || []).map(f => ({ tipo: 'nuevo', cod: f.cod, nombre: f.nombre, campo: '', antes: '', despues: '', pct: null })),
+    ...(d.nuevos || []).map(f => ({ tipo: 'nuevo', cod: f.cod, nombre: f.nombre, campo: '', antes: '', despues: diffPreciosNuevo(f), pct: null })),
     ...(d.quitados || []).map(f => ({ tipo: 'quitado', cod: f.cod, nombre: f.nombre, campo: '', antes: '', despues: '', pct: null })),
     ...(d.cambiados || []).map(f => ({ tipo: 'cambio', cod: f.cod, nombre: f.nombre, campo: f.campo, antes: f.antes, despues: f.despues, pct: f.pct })),
   ];
@@ -27,7 +34,7 @@ function diffColumnas() {
     { key: 'nombre', titulo: 'Nombre', ancho: 'auto', valor: f => f.nombre },
     { key: 'campo', titulo: 'Campo', ancho: '130px', valor: f => (CAMPOS[f.campo] || f.campo), celda: f => CAMPOS[f.campo] || f.campo || '—' },
     { key: 'antes', titulo: 'Antes', ancho: '100px', num: true, valor: f => (esPrecio(f.campo) ? Number(f.antes) : f.antes), celda: f => (f.campo ? diffValor(f, f.antes) : '—') },
-    { key: 'despues', titulo: 'Después', ancho: '100px', num: true, valor: f => (esPrecio(f.campo) ? Number(f.despues) : f.despues), celda: f => (f.campo ? diffValor(f, f.despues) : '—') },
+    { key: 'despues', titulo: 'Después', ancho: '190px', num: true, valor: f => (esPrecio(f.campo) ? Number(f.despues) : f.despues), celda: f => (f.campo ? diffValor(f, f.despues) : (f.despues || '—')) },
     { key: 'pct', titulo: '%', ancho: '80px', num: true, valor: f => f.pct, celda: f => h('span', { class: diffClasePct(f.pct) }, fmtPct(f.pct)) },
   ];
 }

@@ -6,7 +6,7 @@
 
 const tp = { filas: [], base: '', puede: false, q: '', seccion: '', estado: 'todos', cargada: false, sig: 1, vinculos: null, nombres: {} };
 
-const sinId = ({ _id, ...f }) => f;
+const sinId = ({ _id, nueva, ...f }) => f; // nueva = fila agregada y aún sin guardar: solo UI, no viaja
 const claveGuardable = filas => JSON.stringify(filas.map(filaParaGuardar));
 const hayCambios = () => tp.cargada && claveGuardable(tp.filas) !== tp.base;
 const filtrando = () => !!(tp.q.trim() || tp.estado !== 'todos');
@@ -78,7 +78,7 @@ function renombrarSeccion(viejo, nuevo) {
 }
 function agregarFilaManual() {
   const seccion = tp.seccion || (tp.filas[0] && tp.filas[0].seccion) || 'Otros';
-  const fila = { _id: tp.sig++, cod: '', seccion, nombre: '', packQty: '', bultoQty: '', incluido: true, manual: false, modoPack: 'plu' };
+  const fila = { _id: tp.sig++, cod: '', seccion, nombre: '', packQty: '', bultoQty: '', incluido: true, manual: false, nueva: true, modoPack: 'plu' };
   tp.filas = [...tp.filas, fila];
   tp.q = '';
   tp.estado = 'todos';
