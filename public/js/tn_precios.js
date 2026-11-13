@@ -175,6 +175,9 @@ function renderChips() {
 
 // ── Tabla ────────────────────────────────────────────────────────────────────
 const fmtKg = n => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 3 });
+// Unidades de un componente de combo: decimal con coma o punto (el backend acepta >0 y <=1000).
+const UNIDADES_MAX = 1000;
+const unidadesDe = v => Number(String(v).trim().replace(',', '.'));
 const ORIGEN_PRES = { peso_tn: 'Peso TN', propiedad: 'valor de propiedad', nombre: 'nombre', vinculo: 'vínculo manual' };
 // Solo Fraccionado sin peso detectado (en el resto el peso no se usa).
 const esSinPres = f => !esCombo(f) && f.esFraccionado === true && num(f.presentacion?.kg) === null;
@@ -319,8 +322,8 @@ const fmtDec = n => n.toLocaleString('es-AR', { maximumFractionDigits: 4 });
 function totalesCombo(comps) {
   let sub = 0, faltan = 0;
   for (const c of comps) {
-    const carta = num(infoDe(c.codigo)?.carta), u = Number(c.unidades);
-    if (carta === null || !(u >= 1)) { faltan++; continue; }
+    const carta = num(infoDe(c.codigo)?.carta), u = unidadesDe(c.unidades);
+    if (carta === null || !(u > 0)) { faltan++; continue; }
     sub += carta * u;
   }
   return { sub, faltan, total: sub * recargoK() };
@@ -337,13 +340,13 @@ function totalesHtml(comps) {
 
 function compFilaHtml(c, i, etiqueta) {
   const info = infoDe(c.codigo);
-  const carta = num(info?.carta), u = Number(c.unidades);
+  const carta = num(info?.carta), u = unidadesDe(c.unidades);
   return `<tr data-i="${i}">
     <td><input class="celda-input c-codigo" inputmode="numeric" autocomplete="off" placeholder="código SIGA" value="${escHtml(c.codigo)}" aria-label="Código del componente ${i + 1} de ${etiqueta}"></td>
     <td class="c-nombre">${info?.nombre ? escHtml(info.nombre) : '<span class="t-muted">-</span>'}</td>
-    <td class="num"><input class="celda-input unid c-unidades" inputmode="numeric" autocomplete="off" value="${escHtml(c.unidades)}" aria-label="Unidades del componente ${i + 1} de ${etiqueta}"></td>
+    <td class="num"><input class="celda-input unid c-unidades" inputmode="decimal" autocomplete="off" value="${escHtml(c.unidades)}" aria-label="Unidades del componente ${i + 1} de ${etiqueta}"></td>
     <td class="num c-carta">${carta === null ? '<span class="t-muted">se calcula al guardar</span>' : fmtMoney(carta)}</td>
-    <td class="num c-sub">${carta === null || !(u >= 1) ? '-' : fmtMoney(carta * u)}</td>
+    <td class="num c-sub">${carta === null || !(u > 0) ? '-' : fmtMoney(carta * u)}</td>
     <td class="num"><button type="button" class="btn btn-secundario btn-chico" data-accion="comp-quitar" aria-label="Quitar componente ${i + 1} de ${etiqueta}">Quitar</button></td>
   </tr>`;
 }
@@ -405,14 +408,14 @@ async function guardarComposicion(det) {
   let primero = null;
   const lista = [...det.querySelectorAll('tbody tr')].map(r => {
     const cod = r.querySelector('.c-codigo'), uni = r.querySelector('.c-unidades');
-    const codigo = Number(cod.value.trim()), unidades = Number(uni.value.trim() || 1);
-    const malC = !(Number.isInteger(codigo) && codigo > 0), malU = !(Number.isInteger(unidades) && unidades >= 1);
+    const codigo = Number(cod.value.trim()), unidades = unidadesDe(uni.value.trim() || 1);
+    const malC = !(Number.isInteger(codigo) && codigo > 0), malU = !(Number.isFinite(unidades) && unidades > 0 && unidades <= UNIDADES_MAX);
     cod.setAttribute('aria-invalid', String(malC));
     uni.setAttribute('aria-invalid', String(malU));
     if ((malC || malU) && !primero) primero = malC ? cod : uni;
     return { codigo, unidades };
   });
-  if (primero) { mostrar('Cada componente necesita un código entero positivo y unidades enteras de 1 o más.'); primero.focus(); return; }
+  if (primero) { mostrar('Cada componente necesita un código entero positivo y unidades mayores a 0 (se admiten decimales, ej. 0,5), hasta 1000.'); primero.focus(); return; }
   if (new Set(lista.map(c => c.codigo)).size !== lista.length) { mostrar('Hay códigos repetidos: sumá las unidades en una sola línea.'); return; }
   mostrar('');
   const btns = det.querySelectorAll('button');
