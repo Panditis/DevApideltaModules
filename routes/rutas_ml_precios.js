@@ -24,7 +24,7 @@ module.exports = function crearRutasMlPrecios(deps) {
   // Si falta, se crea con defaults; lo existente no se pisa.
   function leerConfig() {
     const cfg = leerJSON(CONFIG_PATH, null);
-    if (cfg) return cfg;
+    if (cfg) return ml.normalizarConfig(cfg); // campos nuevos en 0 / []; el archivo se reescribe recién al guardar
     guardarJSON(CONFIG_PATH, ml.CONFIG_DEFAULT);
     return ml.CONFIG_DEFAULT;
   }
@@ -84,9 +84,42 @@ module.exports = function crearRutasMlPrecios(deps) {
     return res.json({ importadoEn, kpis: ml.kpis(filas), filas });
   });
 
+  // Todos los vínculos (de la bajada o cargados a mano). Si SIGA falla, nombreProducto va en null y la lista igual sale.
+  router.get('/api/ml-precios/vinculos', async (_req, res) => {
+    const vinculos = leerVinculos();
+    const pubs = new Map((leerJSON(PUBLICACIONES_PATH, {}).publicaciones || []).map(p => [p.id, p]));
+    let cartas = new Map();
+    try {
+      cartas = await cartasDe(Object.values(vinculos).map(v => v.codigo));
+    } catch (e) {
+      console.error('[ml-precios] nombres de SIGA para vínculos:', e.message);
+    }
+    return res.json({
+      vinculos: Object.entries(vinculos).map(([id, v]) => {
+        const pub = pubs.get(id);
+        const info = cartas.get(String(v.codigo));
+        return { id, codigo: v.codigo, unidades: v.unidades, pesoKg: typeof v.pesoKg === 'number' ? v.pesoKg : null, cuotasQty: Number.isInteger(v.cuotasQty) ? v.cuotasQty : null, titulo: pub ? pub.titulo : null, enBajada: !!pub, nombreProducto: info ? info.nombre : null };
+      }),
+    });
+  });
+
+  router.get('/api/ml-precios/producto/:codigo', async (req, res) => {
+    const codigo = Number(req.params.codigo);
+    if (!esCodigo(codigo)) return res.status(400).json({ error: 'El código debe ser un entero mayor a 0.' });
+    let info;
+    try {
+      info = (await cartasDe([codigo])).get(String(codigo));
+    } catch (e) {
+      console.error('[ml-precios] producto de SIGA:', e.message);
+      return res.status(502).json({ error: 'No se pudo consultar SIGA. Probá de nuevo en unos minutos.' });
+    }
+    if (!info) return res.status(404).json({ error: `El código ${codigo} no existe en SIGA.` });
+    return res.json({ codigo, nombre: info.nombre, carta: info.precio });
+  });
+
   router.put('/api/ml-precios/vinculos/:id', async (req, res) => {
     const id = String(req.params.id || '').trim();
-    const { codigo, unidades } = req.body || {};
+    const { codigo, unidades, pesoKg = null, cuotasQty = null } = req.body || {};
     if (!/^MLA\d+$/.test(id)) return res.status(400).json({ error: 'ID de publicación inválido.' });
     const vinculos = leerVinculos();
     if (codigo === null) {
@@ -96,6 +129,12 @@ module.exports = function crearRutasMlPrecios(deps) {
     }
     if (!esCodigo(codigo)) return res.status(400).json({ error: 'El código debe ser un entero mayor a 0.' });
     if (!Number.isInteger(unidades) || unidades < 1) return res.status(400).json({ error: 'Las unidades deben ser un entero ≥ 1.' });
+    if (pesoKg !== null && (typeof pesoKg !== 'number' || !Number.isFinite(pesoKg) || pesoKg <= 0 || !(Math.abs(Math.round(pesoKg * 1000) - pesoKg * 1000) < 1e-6))) { // tolerancia: 1.005 * 1000 no da exacto en float
+      return res.status(400).json({ error: 'El peso debe ser un número en kg mayor a 0, con hasta 3 decimales.' });
+    }
+    if (cuotasQty !== null && (!Number.isInteger(cuotasQty) || cuotasQty < 1 || cuotasQty > 24)) {
+      return res.status(400).json({ error: 'Las cuotas deben ser un entero de 1 a 24.' });
+    }
     try {
       const existe = await query(`SELECT TOP 1 IdProducto FROM Productos WHERE IdProducto = '${codigo}'`);
       if (!existe.length) return res.status(400).json({ error: `El código ${codigo} no existe en SIGA.` });
@@ -103,7 +142,7 @@ module.exports = function crearRutasMlPrecios(deps) {
       console.error('[ml-precios] validando código:', e.message);
       return res.status(502).json({ error: 'No se pudo consultar SIGA para validar el código.' });
     }
-    const vinculo = { codigo, unidades, actualizado: new Date().toISOString() };
+    const vinculo = { codigo, unidades, pesoKg, cuotasQty, actualizado: new Date().toISOString() };
     guardarJSON(VINCULOS_PATH, { ...vinculos, [id]: vinculo });
     return res.json({ id, vinculo });
   });
@@ -111,15 +150,23 @@ module.exports = function crearRutasMlPrecios(deps) {
   router.get('/api/ml-precios/config', apiRoute(async () => leerConfig()));
 
   router.put('/api/ml-precios/config', (req, res) => {
-    const b = req.body || {};
+    // Tablas ordenadas ascendente por su clave antes de validar (lo inválido lo rechaza validarConfig).
+    const ordenar = (lista, k) => (Array.isArray(lista) ? [...lista].sort((x, y) => ((x && x[k]) ?? 0) - ((y && y[k]) ?? 0)) : lista);
+    const body = req.body || {};
+    const b = { ...body, tablaEnvio: ordenar(body.tablaEnvio, 'topeKg'), tablaCuotas: ordenar(body.tablaCuotas, 'cuotas'), tablaCostoFijo: ordenar(body.tablaCostoFijo, 'precioMax') };
     const error = ml.validarConfig(b);
     if (error) return res.status(400).json({ error });
-    const t = b.tablaMargen;
     const cfg = {
       comisionPct: b.comisionPct, envioGratisPct: b.envioGratisPct,
-      cuotasPct: Object.fromEntries(ml.CUOTAS.map(k => [k, b.cuotasPct[k]])),
+      cuotasBasePct: b.cuotasBasePct ?? ml.CONFIG_DEFAULT.cuotasBasePct,
+      tablaCuotas: (b.tablaCuotas ?? ml.CONFIG_DEFAULT.tablaCuotas).map(t => ({ cuotas: t.cuotas, recargoPct: t.recargoPct })),
+      tablaCostoFijo: (b.tablaCostoFijo ?? ml.CONFIG_DEFAULT.tablaCostoFijo).map(t => ({ precioMax: t.precioMax, valor: t.valor })),
       toleranciaPct: b.toleranciaPct, redondeoPaso: b.redondeoPaso,
-      tablaMargen: { minPct: t.minPct, maxPct: t.maxPct, escalones: t.escalones, rango: { desde: t.rango.desde, hasta: t.rango.hasta }, ...(t.filas != null ? { filas: t.filas } : {}) },
+      envioMonto: b.envioMonto ?? 0, costoFijoMonto: b.costoFijoMonto ?? 0, impuestosPct: b.impuestosPct ?? 0,
+      extras: (b.extras || []).map(e => ({ nombre: e.nombre.trim(), tipo: e.tipo, valor: e.valor })),
+      envioGratisDesde: b.envioGratisDesde ?? ml.CONFIG_DEFAULT.envioGratisDesde,
+      envioBonificado: b.envioBonificado ?? false,
+      tablaEnvio: (b.tablaEnvio ?? ml.CONFIG_DEFAULT.tablaEnvio).map(t => ({ topeKg: t.topeKg, valor: t.valor })),
     };
     guardarJSON(CONFIG_PATH, cfg);
     return res.json(cfg);
