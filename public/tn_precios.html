@@ -95,13 +95,19 @@
   .vinc .por { color: #5c5f52; font-size: 12px; }
   .vinc-meta { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 3px; font-size: 11px; color: #5c5f52; }
   .tag-manual { padding: 1px 8px; border-radius: 999px; font-weight: 700; background: #fff4ce; color: #8a5d00; }
+  .tag-linea { padding: 1px 8px; border-radius: 999px; font-weight: 600; background: #eef1ea; color: #405936; border: 1px solid #d5dccb; }
   .link-btn { font: inherit; font-size: 11px; font-weight: 600; background: none; border: 0; padding: 2px 4px; color: #405936; text-decoration: underline; cursor: pointer; border-radius: 4px; }
   .link-btn:focus-visible { outline: 2px solid #405936; outline-offset: 2px; }
   .celda-input.v-codigo, .celda-input.c-codigo { width: 112px; background: #fbfcf9; text-align: left; }
   .celda-input.manual { border-color: #8a5d00; background: #fffaf0; }
   .vinc-nombre { font-size: 11px; color: #5c5f52; max-width: 190px; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .celda-input { height: 30px; width: 84px; text-align: right; padding: 0 8px; }
-  .celda-input.unid { width: 52px; }
+  .celda-input.unid { width: 68px; }
+  .celda-input.unid.auto { font-style: italic; color: #5c5f52; }
+  .pres { margin-top: 3px; font-size: 11px; color: #5c5f52; text-align: right; }
+  .pres-aviso { display: flex; align-items: center; justify-content: flex-end; gap: 5px; color: #8a5d00; font-weight: 600; }
+  .pres-ico { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #fff4ce; border: 1px solid #8a5d00; font-size: 10px; font-weight: 800; }
+  .calc { margin-top: 2px; font-size: 11px; font-weight: 400; color: #5c5f52; white-space: nowrap; }
   tr.fila-desviada { background: rgba(164,38,44,.06); }
   tr.fila-sin_codigo { background: rgba(138,93,0,.07); }
   tr.guardando { opacity: .6; }
@@ -210,6 +216,8 @@
         <select id="f-visible"><option value="">Todas</option><option value="visible">Visibles</option><option value="oculta">Ocultas</option></select></div>
       <div class="campo"><label for="f-stock">Stock</label>
         <select id="f-stock"><option value="">Todos</option><option value="con">Con stock</option><option value="sin">Sin stock</option></select></div>
+      <div class="campo" id="f-linea-campo"><label for="f-linea">Línea</label>
+        <select id="f-linea"><option value="">Todas</option><option value="fraccionado">Fraccionado</option><option value="almacen">Almacén</option><option value="otra">Otra</option></select></div>
       <button type="button" id="f-limpiar" class="btn btn-secundario" hidden>Limpiar filtros</button>
     </div>
     <div id="chips" class="flex flex-wrap gap-2 mt-3" role="group" aria-label="Filtrar por estado de control"></div>
@@ -218,7 +226,7 @@
   <section id="panel-tabla" role="tabpanel" aria-labelledby="tab-productos" class="bg-card border border-borde rounded-xl shadow-fluent overflow-hidden" aria-label="Listado">
     <div class="px-4 py-2 border-b border-borde text-sm text-gris flex items-center justify-between">
       <span id="cuenta" aria-live="polite"></span>
-      <span>Código y unidades se guardan al salir del campo o con Enter.</span>
+      <span>Código y multiplicador se guardan al salir del campo o con Enter. El peso de la presentación se usa solo en Fraccionado; Almacén usa x1 salvo valor manual.</span>
     </div>
     <div id="tabla-wrap" class="scroll" tabindex="0" role="region" aria-label="Tabla de productos" aria-busy="true"><p class="loading"><span class="spin" aria-hidden="true"></span>Cargando control de precios...</p></div>
   </section>

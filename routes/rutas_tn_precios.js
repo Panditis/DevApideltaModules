@@ -6,7 +6,7 @@ const multer = require('multer');
 const tn = require('../lib/tn_precios');
 
 // ── Control de precios Tienda Nube (spec docs/specs/control_precios_tienda_nube.md) ─────
-// Bajada CSV de TN vs carta de SIGA (lista 0, sucursal 1) × unidades × (1 + recargo). SIGA solo lectura; se escribe
+// Bajada CSV de TN vs carta de SIGA (lista 0, sucursal 1) × multiplicador (unidades del vínculo o kg de la presentación) × (1 + recargo). SIGA solo lectura; se escribe
 // solo data/tn_*.json y data/tn_bajada.csv (bytes crudos, para exportar sin tocar el resto de las celdas).
 module.exports = function crearRutasTnPrecios(deps) {
   const { apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, tienePermiso } = deps;
@@ -42,12 +42,13 @@ module.exports = function crearRutasTnPrecios(deps) {
     const lista = [...new Set(codigos.filter(esCodigo))];
     if (!lista.length) return new Map();
     const filas = await query(`
-      SELECT p.IdProducto, p.NombreProducto, CAST(psp.PrecioVenta AS FLOAT) AS Precio
+      SELECT p.IdProducto, p.NombreProducto, CAST(psp.PrecioVenta AS FLOAT) AS Precio, r.NombreRubro
       FROM Productos p
+      LEFT JOIN Rubros r ON r.IdRubro = p.IdRubro
       LEFT JOIN ProductosSucursalesPrecios psp
         ON psp.IdProducto = p.IdProducto AND psp.IdSucursal = ${SUCURSAL_CARTA} AND psp.IdListaPrecios = ${LISTA_PRECIOS_VENTA}
       WHERE p.IdProducto IN (${lista.map(c => `'${c}'`).join(',')})`);
-    return new Map(filas.map(f => [String(f.IdProducto).trim(), { precio: f.Precio, nombre: String(f.NombreProducto || '').trim() }]));
+    return new Map(filas.map(f => [String(f.IdProducto).trim(), { precio: f.Precio, nombre: String(f.NombreProducto || '').trim(), rubro: f.NombreRubro ? String(f.NombreRubro).trim() : null }]));
   }
 
   // Filas de control de la bajada guardada. Tira si falla SIGA.
@@ -117,7 +118,11 @@ module.exports = function crearRutasTnPrecios(deps) {
       return res.json({ clave, vinculo: null });
     }
     if (!esCodigo(codigo)) return res.status(400).json({ error: 'El código debe ser un entero mayor a 0.' });
-    if (!Number.isInteger(unidades) || unidades < 1) return res.status(400).json({ error: 'Las unidades deben ser un entero ≥ 1.' });
+    // unidades opcional: sin ellas el esperado usa el peso de la presentación.
+    const sinUnidades = unidades === undefined || unidades === null;
+    if (!sinUnidades && (typeof unidades !== 'number' || !Number.isFinite(unidades) || unidades <= 0 || unidades > MAX_UNIDADES)) {
+      return res.status(400).json({ error: `Las unidades deben ser un número mayor a 0 y hasta ${MAX_UNIDADES}.` });
+    }
     try {
       const existe = await query(`SELECT TOP 1 IdProducto FROM Productos WHERE IdProducto = '${codigo}'`);
       if (!existe.length) return res.status(400).json({ error: `El código ${codigo} no existe en SIGA.` });
@@ -125,7 +130,7 @@ module.exports = function crearRutasTnPrecios(deps) {
       console.error('[tn-precios] validando código:', e.message);
       return res.status(502).json({ error: 'No se pudo consultar SIGA para validar el código.' });
     }
-    const vinculo = { codigo, unidades, actualizado: new Date().toISOString() };
+    const vinculo = { codigo, unidades: sinUnidades ? null : unidades, actualizado: new Date().toISOString() };
     guardarJSON(VINCULOS_PATH, { ...vinculos, [clave]: vinculo });
     return res.json({ clave, vinculo });
   }));

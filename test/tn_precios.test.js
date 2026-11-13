@@ -99,7 +99,9 @@ test('fila no combo: skuOriginal, codigo efectivo y vinculado', () => {
 test('kpis cuenta estados y ocultas', () => {
   const filas = [{ estado: 'ok', visible: true }, { estado: 'desviada', visible: false }, { estado: 'sin_codigo', visible: true },
     { estado: 'desviada', visible: true, esCombo: true }, { estado: 'sin_componentes', visible: true, esCombo: true }];
-  assert.deepStrictEqual(tn.kpis(filas), { ok: 1, desviadas: 2, sinCodigo: 1, sinCarta: 0, sinPrecio: 0, sinComponentes: 1, ocultas: 1, combos: 2, combosDesviadas: 1 });
+  assert.deepStrictEqual(tn.kpis(filas), { ok: 1, desviadas: 2, sinCodigo: 1, sinCarta: 0, sinPrecio: 0, sinComponentes: 1, ocultas: 1, combos: 2, combosDesviadas: 1, sinPresentacion: 0 });
+  const sd = { texto: null, kg: null, origen: 'sin_dato' };
+  assert.strictEqual(tn.kpis([{ estado: 'ok', visible: true, esFraccionado: true, presentacion: sd }, { estado: 'ok', visible: true, esFraccionado: false, presentacion: sd }, { estado: 'ok', visible: true, esFraccionado: true, presentacion: { ...sd, origen: 'nombre' } }, { estado: 'sin_componentes', visible: true, esCombo: true, presentacion: sd }]).sinPresentacion, 1);
 });
 
 test('validarConfig rechaza fuera de rango y acepta límites', () => {
@@ -144,4 +146,50 @@ test('al corregir solo cambia la celda Precio y solo producto con fila desviada 
   assert.strictEqual(cambiadas, 1);
   assert.strictEqual(reparse.filas[0].precioTn, 1234.5);
   assert.strictEqual(reparse.filas[0].nombre, 'Castañas Caju Tostada sin Sal W4');
+});
+
+test('parsearPeso: g/gr/grs/gramos y kg/kgs/kilo(s), coma o punto', () => {
+  const casos = { '100gr': 0.1, '500 gr': 0.5, '1kg': 1, '1 Kg': 1, '250 g': 0.25, '1,5 kg': 1.5, '2kg': 2, '300 grs': 0.3, '2 kilos': 2, '750 gramos': 0.75, '0.5 kgs': 0.5 };
+  for (const [t, kg] of Object.entries(casos)) assert.strictEqual(tn.parsearPeso(t), kg, t);
+  for (const t of ['', 'Membrillo', 'x6 unidades', '1 Lt', '500cc', '10 grande']) assert.strictEqual(tn.parsearPeso(t), null, t);
+});
+
+const bajada = filas => Buffer.from(`"Identificador de URL";Nombre;"Valor de propiedad 1";"Valor de propiedad 2";Precio;"Peso (kg)";SKU\n${filas.join('\n')}\n`, 'latin1');
+
+test('presentación: Peso (kg) > propiedad > nombre > sin_dato, sin heredar del padre', () => {
+  const f = tn.parsearBajada(bajada([
+    'a;Nuez 1kg;500 gr;;1;0.25;7', // Peso TN manda
+    'a;;200gr;;1;;7', // variante: su propiedad, no el peso del padre
+    'a;;Grande;1,5 kg;1;0;7', // propiedad 2
+    'b;Miel 250gr;;;1;;7', // simple: nombre
+    'c;Pack x6;;;1;;7', // sin dato
+  ])).filas.map(x => x.presentacion);
+  assert.deepStrictEqual(f, [
+    { texto: '0.25 kg (Peso TN)', kg: 0.25, origen: 'peso_tn' },
+    { texto: '200gr', kg: 0.2, origen: 'propiedad' },
+    { texto: '1,5 kg', kg: 1.5, origen: 'propiedad' },
+    { texto: 'Miel 250gr', kg: 0.25, origen: 'nombre' },
+    { texto: null, kg: null, origen: 'sin_dato' },
+  ]);
+});
+
+test('esperado = carta × kg × (1+recargo) solo en Fraccionado; vínculo decimal pisa; sin_dato y Almacén usan 1', () => {
+  const frac = new Map([['7', { precio: 1000, nombre: 'P7', rubro: 'Pesables Fraccionado' }]]);
+  const pres = { texto: '500 gr', kg: 0.5, origen: 'propiedad' };
+  const r = tn.armarFila(fila({ presentacion: pres, precioTn: 550 }), null, frac, CFG);
+  assert.deepStrictEqual([r.unidades, r.unidadesManual, r.origenUnidades, r.esperado, r.estado, r.carta, r.linea, r.esFraccionado, r.presentacion],
+    [0.5, null, 'presentacion', 550, 'ok', 1000, 'fraccionado', true, { ...pres, aplicada: true }]);
+  const v = tn.armarFila(fila({ presentacion: pres }), { codigo: 7, unidades: 0.25 }, frac, CFG);
+  assert.deepStrictEqual([v.unidades, v.unidadesManual, v.origenUnidades, v.esperado, v.presentacion.origen], [0.25, 0.25, 'vinculo', 275, 'vinculo']);
+  const sinU = tn.armarFila(fila({ presentacion: pres }), { codigo: 7, unidades: null }, frac, CFG);
+  assert.deepStrictEqual([sinU.unidades, sinU.unidadesManual, sinU.esperado, sinU.presentacion.origen], [0.5, null, 550, 'propiedad']);
+  const sd = tn.armarFila(fila({ presentacion: { texto: null, kg: null, origen: 'sin_dato' } }), null, frac, CFG);
+  assert.deepStrictEqual([sd.unidades, sd.origenUnidades, sd.esperado, sd.presentacion.origen], [1, 'defecto', 1100, 'sin_dato']);
+  // Almacén (y otra línea o rubro sin dato): x1 aunque se detecte presentación; el vínculo manual sigue mandando.
+  for (const rubro of ['Almacen', 'Bebidas', null]) {
+    const alm = new Map([['7', { precio: 1000, nombre: 'P7', rubro }]]);
+    const a = tn.armarFila(fila({ presentacion: pres }), null, alm, CFG);
+    assert.deepStrictEqual([a.unidades, a.origenUnidades, a.esperado, a.linea, a.esFraccionado, a.presentacion], [1, 'defecto', 1100, rubro === 'Almacen' ? 'almacen' : 'otra', false, { ...pres, aplicada: false }]);
+    assert.strictEqual(tn.armarFila(fila({ presentacion: pres }), { codigo: 7, unidades: 2 }, alm, CFG).esperado, 2200);
+  }
 });

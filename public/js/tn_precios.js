@@ -36,6 +36,7 @@ const COLUMNAS = [
 let datos = null; // respuesta de /control
 let config = null; // respuesta de /config
 let filtroEstado = '';
+let filtroLinea = '';
 let orden = { key: null, dir: 'desc' };
 let pestana = leerPestanaInicial(); // 'productos' | 'combos'
 const abiertos = new Set(); // claves de combos expandidos
@@ -88,7 +89,9 @@ function filtrarSinEstado() {
   const q = $('f-buscar').value.trim().toLowerCase();
   const vis = $('f-visible').value;
   const stk = $('f-stock').value;
+  const lin = pestana === 'productos' ? filtroLinea : '';
   return filasDePestana().filter(f => {
+    if (lin && (lin === 'otra' ? !(f.linea === 'otra' || f.linea == null) : f.linea !== lin)) return false;
     if (vis && (vis === 'visible') !== esVisible(f)) return false;
     if (stk) {
       const s = num(f.stock);
@@ -149,6 +152,7 @@ function renderKpis() {
     item('sin_codigo', 'Sin código', k.sinCodigo, 't-warn', 'sin_codigo'),
     item('sin_carta', 'Sin carta', k.sinCarta, 't-warn', 'sin_carta'),
     item('sin_precio', 'Sin precio', k.sinPrecio, 't-gris', 'sin_precio'),
+    item('sin_presentacion', 'Sin presentación', k.sinPresentacion ?? 0, 't-warn', 'sin_presentacion'),
     item('ocultas', 'Ocultas', k.ocultas, 't-gris'),
     item('combos', 'Combos', k.combos ?? 0, 't-gris'),
     item('combos_desv', 'Combos desviados', k.combosDesviadas ?? 0, 't-crit'),
@@ -161,14 +165,46 @@ function renderChips() {
   const cuenta = e => base.filter(f => f.estado === e).length;
   const chips = [{ val: '', txt: 'Todas', n: base.length }]
     .concat(Object.keys(ESTADOS).filter(e => !ESTADOS_NO_APLICA[pestana].includes(e)).map(e => ({ val: e, txt: ESTADOS[e].txt, n: cuenta(e) })));
+  if (pestana === 'productos') chips.push({ val: 'sin_presentacion', txt: 'Sin presentación', n: base.filter(esSinPres).length });
   $('chips').innerHTML = chips.map(c =>
     `<button type="button" class="chipf" data-estado="${c.val}" aria-pressed="${filtroEstado === c.val}">${escHtml(c.txt)} <span class="n">${fmtInt(c.n)}</span></button>`).join('');
-  const hayFiltro = filtroEstado || $('f-buscar').value || $('f-visible').value || $('f-stock').value;
+  $('f-linea-campo').hidden = pestana !== 'productos';
+  const hayFiltro = filtroEstado || (pestana === 'productos' && filtroLinea) || $('f-buscar').value || $('f-visible').value || $('f-stock').value;
   $('f-limpiar').hidden = !hayFiltro;
 }
 
 // ── Tabla ────────────────────────────────────────────────────────────────────
+const fmtKg = n => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 3 });
+const ORIGEN_PRES = { peso_tn: 'Peso TN', propiedad: 'valor de propiedad', nombre: 'nombre', vinculo: 'vínculo manual' };
+// Solo Fraccionado sin peso detectado (en el resto el peso no se usa).
+const esSinPres = f => !esCombo(f) && f.esFraccionado === true && num(f.presentacion?.kg) === null;
+const MAX_KG = 1000;
+const LINEAS = { fraccionado: 'Fraccionado', almacen: 'Almacén', otra: 'Otra línea' };
+// Multiplicador automático: el peso de la presentación si se aplica (Fraccionado); si no, 1.
+const kgAuto = f => (f.presentacion?.aplicada && num(f.presentacion.kg) !== null) ? num(f.presentacion.kg) : 1;
+const coincideEstado = f => !filtroEstado || (filtroEstado === 'sin_presentacion' ? esSinPres(f) : f.estado === filtroEstado);
+
+function presentacionHtml(f) {
+  const p = f.presentacion;
+  if (!p) return '';
+  const kg = num(p.kg);
+  if (!f.esFraccionado) {
+    if (p.origen === 'sin_dato' || (!p.texto && kg === null)) return '';
+    const det = p.texto ? `${escHtml(p.texto)}${kg === null ? '' : ` (${fmtKg(kg)} kg)`}` : `${fmtKg(kg)} kg`;
+    const linea = LINEAS[f.linea] ? `línea ${escHtml(LINEAS[f.linea])}: ` : '';
+    return `<div class="pres">Presentación detectada: ${det} · no se aplica, ${linea}x1</div>`;
+  }
+  if (p.origen === 'sin_dato') return '<div class="pres pres-aviso"><span class="pres-ico" aria-hidden="true">!</span>Sin presentación: se usa x1, revisalo</div>';
+  const orig = f.origenUnidades === 'vinculo' ? ORIGEN_PRES.vinculo : (ORIGEN_PRES[p.origen] || p.origen);
+  const base = p.texto ? `${escHtml(p.texto)}${kg === null ? '' : ` → ${fmtKg(kg)} kg`}` : (kg === null ? '-' : `${fmtKg(kg)} kg`);
+  return `<div class="pres">Presentación: ${base} · fuente: ${escHtml(orig)}</div>`;
+}
+
 function vinculoHtml(f, etiqueta) {
+  const manualUni = num(f.unidadesManual) !== null;
+  const frac = f.esFraccionado === true;
+  const lineaTag = LINEAS[f.linea] ? `<span class="tag-linea">${escHtml(LINEAS[f.linea])}</span>` : '';
+  const usar = manualUni ? `<button type="button" class="link-btn" data-accion="usar-presentacion" aria-label="${frac ? 'Usar la presentación' : 'Volver a x1'} para ${etiqueta}" title="${frac ? 'Volver al peso de la presentación' : 'Volver al multiplicador x1'}">${frac ? 'usar presentación' : 'volver a x1'}</button>` : '';
   const nombre = f.nombreProducto ? `<div class="vinc-nombre" title="${escHtml(f.nombreProducto)}">${escHtml(f.nombreProducto)}</div>` : '';
   const sku = skuTn(f);
   const manual = f.vinculado
@@ -177,9 +213,18 @@ function vinculoHtml(f, etiqueta) {
   return `<div class="vinc">
       <input class="celda-input v-codigo${f.vinculado ? ' manual' : ''}" inputmode="numeric" autocomplete="off" placeholder="código SIGA" value="${escHtml(f.codigo ?? '')}" aria-label="Código SIGA de ${etiqueta}">
       <span class="por" aria-hidden="true">x</span>
-      <input class="celda-input unid v-unidades" inputmode="numeric" autocomplete="off" value="${escHtml(f.unidades ?? 1)}" aria-label="Unidades de ${etiqueta}">
+      <input class="celda-input unid v-unidades${manualUni ? '' : ' auto'}" inputmode="decimal" autocomplete="off" value="${escHtml(fmtKg(num(f.unidades) ?? 1))}" aria-label="Multiplicador en ${frac ? 'kg' : 'unidades'} de ${etiqueta}${manualUni ? '' : ' (automático)'}">${frac ? '\n      <span class="por" aria-hidden="true">kg</span>' : ''}
     </div>
-    <div class="vinc-meta"><span>SKU TN: ${escHtml(sku || '(vacío)')}</span>${manual}</div>${nombre}`;
+    ${presentacionHtml(f)}
+    <div class="vinc-meta">${lineaTag}<span>SKU TN: ${escHtml(sku || '(vacío)')}</span>${manual}${usar}</div>${nombre}`;
+}
+
+// "carta × 0,5 kg × 1,1": explica el esperado (antes del redondeo).
+function calculoHtml(f) {
+  const carta = num(f.carta), u = num(f.unidades);
+  if (carta === null || u === null || !config) return '';
+  const txt = `${fmtMoney(carta)} × ${fmtKg(u)}${f.esFraccionado ? ' kg' : ''} × ${fmtDec(recargoK())}`;
+  return `<div class="calc" title="Carta × multiplicador × recargo, luego se redondea">${escHtml(txt)}</div>`;
 }
 
 function filaHtml(f) {
@@ -194,7 +239,7 @@ function filaHtml(f) {
     <td class="num">${vinculoHtml(f, etiqueta)}</td>
     <td class="num${stock !== null && stock <= 0 ? ' t-muted' : ''}">${stock === null ? '-' : fmtInt(stock)}</td>
     <td class="num">${num(f.precioTn) === null ? '-' : fmtMoney(f.precioTn)}</td>
-    <td class="num">${num(f.esperado) === null ? '-' : fmtMoney(f.esperado)}</td>
+    <td class="num">${num(f.esperado) === null ? '-' : fmtMoney(f.esperado)}${calculoHtml(f)}</td>
     <td class="num ${tono}">${da === null ? '-' : (da > 0 ? '+' : da < 0 ? '-' : '') + fmtMoney(Math.abs(da))}</td>
     <td class="num ${tono}">${d === null ? '-' : fmtSigno(d, 1) + ' %'}</td>
     <td><span class="badge-e ${e.badge}">${escHtml(e.txt)}</span></td>
@@ -220,7 +265,7 @@ function mensajeVacio(total) {
 function renderTabla() {
   const wrap = $('tabla-wrap');
   const total = filasDePestana().length;
-  const filas = ordenar(filtrarSinEstado().filter(f => !filtroEstado || f.estado === filtroEstado));
+  const filas = ordenar(filtrarSinEstado().filter(coincideEstado));
   $('cuenta').textContent = `${fmtInt(filas.length)} de ${fmtInt(total)} ${pestana === 'combos' ? 'combos' : 'filas'}`;
   wrap.setAttribute('aria-label', pestana === 'combos' ? 'Lista de combos' : 'Tabla de productos');
   renderChips();
@@ -440,23 +485,31 @@ async function guardarVinculo(tr, campo) {
   const cod = tr.querySelector('.v-codigo');
   const uni = tr.querySelector('.v-unidades');
   const crudoCod = cod.value.trim();
-  const unidades = Number(uni.value.trim() || 1);
-  const codigo = crudoCod === '' ? null : Number(crudoCod);
-  const malCod = codigo !== null && !(Number.isInteger(codigo) && codigo > 0);
-  const malUni = !(Number.isInteger(unidades) && unidades >= 1);
-  cod.setAttribute('aria-invalid', String(malCod));
-  uni.setAttribute('aria-invalid', String(malUni));
-  if (malCod || malUni) { avisar(malCod ? 'El código debe ser un entero positivo.' : 'Las unidades deben ser un entero de 1 o más.', 'error'); return; }
   const clave = tr.dataset.clave;
   const previo = (datos.filas || []).find(f => f.clave === clave);
-  if (previo && (previo.codigo ?? null) === codigo && Number(previo.unidades ?? 1) === unidades) { avisar(''); return; }
+  const crudoUni = uni.value.trim();
+  const n = crudoUni === '' ? null : parseNum(crudoUni);
+  const codigo = crudoCod === '' ? null : Number(crudoCod);
+  const malCod = codigo !== null && !(Number.isInteger(codigo) && codigo > 0);
+  const malUni = n !== null && !(Number.isFinite(n) && n > 0 && n <= MAX_KG);
+  cod.setAttribute('aria-invalid', String(malCod));
+  uni.setAttribute('aria-invalid', String(malUni));
+  if (malCod || malUni) { avisar(malCod ? 'El código debe ser un entero positivo.' : `El multiplicador debe ser un número mayor que 0 y hasta ${MAX_KG} kg.`, 'error'); return; }
+  // Vacío o igual al automático: sin unidad manual (null, usa la presentación).
+  const unidades = n === null || (previo && Math.abs(n - kgAuto(previo)) < 1e-9) ? null : n;
+  const manualPrevio = previo ? num(previo.unidadesManual) : null;
+  if (previo && (previo.codigo ?? null) === codigo && manualPrevio === unidades) {
+    uni.value = fmtKg(num(previo.unidades) ?? 1);
+    avisar('');
+    return;
+  }
   avisar('');
   cod.disabled = uni.disabled = true;
   tr.classList.add('guardando');
   try {
     await api(`/api/tn-precios/vinculos/${encodeURIComponent(clave)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(codigo === null ? { codigo: null } : { codigo, unidades }),
+      body: JSON.stringify(codigo === null ? { codigo: null } : { codigo, unidades: unidades ?? null }),
     }, SIN_PERMISO_EDITAR);
     await cargarControl();
     const nueva = [...$('tabla-wrap').querySelectorAll('tr[data-clave]')].find(t => t.dataset.clave === clave);
@@ -507,6 +560,10 @@ tablaWrap.addEventListener('click', e => {
     const tr = e.target.closest('tr[data-clave]');
     if (tr) { tr.querySelector('.v-codigo').value = ''; guardarVinculo(tr, 'codigo'); }
   }
+  if (accion === 'usar-presentacion') {
+    const tr = e.target.closest('tr[data-clave]');
+    if (tr) { tr.querySelector('.v-unidades').value = ''; guardarVinculo(tr, 'unidades'); }
+  }
   if (accion === 'importar') $('archivo').click();
   if (accion === 'reintentar') cargarControl();
 });
@@ -514,6 +571,7 @@ tablaWrap.addEventListener('click', e => {
 // ── Filtros, chips y KPIs clickeables ────────────────────────────────────────
 function refrescarVista() { if (datos) { renderKpis(); renderTabla(); } }
 for (const id of ['f-buscar', 'f-visible', 'f-stock']) $(id).addEventListener('input', refrescarVista);
+$('f-linea').addEventListener('change', e => { filtroLinea = e.target.value; refrescarVista(); });
 function alternarEstado(valor) {
   filtroEstado = filtroEstado === valor ? '' : valor;
   refrescarVista();
@@ -530,6 +588,7 @@ $('chips').addEventListener('click', e => {
 });
 $('f-limpiar').addEventListener('click', () => {
   filtroEstado = '';
+  filtroLinea = ''; $('f-linea').value = '';
   $('f-buscar').value = ''; $('f-visible').value = ''; $('f-stock').value = '';
   refrescarVista();
   $('f-buscar').focus();

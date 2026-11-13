@@ -24,7 +24,9 @@ function sqlFalso(productos) {
     consultas.push(sql);
     if (!productos) throw new Error('ECONNREFUSED');
     const ids = [...sql.matchAll(/'(\d+)'/g)].map(m => Number(m[1]));
-    return ids.filter(id => productos[id] !== undefined).map(id => ({ IdProducto: String(id), NombreProducto: `P${id}`, Precio: productos[id] }));
+    // valor = precio, o [precio, rubro] para probar la línea (Fraccionado aplica el peso de la presentación)
+    const de = v => (Array.isArray(v) ? v : [v, null]);
+    return ids.filter(id => productos[id] !== undefined).map(id => ({ IdProducto: String(id), NombreProducto: `P${id}`, Precio: de(productos[id])[0], NombreRubro: de(productos[id])[1] }));
   };
   return { query, consultas };
 }
@@ -78,14 +80,21 @@ test('importar no CSV, cabecera distinta o sin archivo: 400 sin escribir', async
 });
 
 test('control: estados, combos sin SKU = sin_codigo, sin import = vacío', async () => {
-  await conServidor({ 1206: 1000, 1208: 10100 }, async base => {
+  await conServidor({ 1206: [1000, 'Pesables Fraccionado'], 1208: [20182, 'Pesables Venta Directa'] }, async base => {
     const vacio = await (await fetch(`${base}/api/tn-precios/control`)).json();
     assert.deepStrictEqual(vacio.filas, []);
     await subir(base, FIXTURE);
+    await put(`${base}/api/tn-precios/config`, { recargoPct: 10, toleranciaPct: 2, redondeoPaso: 0 }); // estos casos asumen sin redondeo
     const j = await (await fetch(`${base}/api/tn-precios/control`)).json();
     const por = Object.fromEntries(j.filas.map(f => [f.clave, f]));
     assert.strictEqual(por[`${URL_CAJU}|100gr`].estado, 'desviada');
-    assert.strictEqual(por[`${URL_CAJU}|100gr`].esperado, 1100);
+    assert.strictEqual(por[`${URL_CAJU}|100gr`].esperado, 110); // carta por kg × 0.1 kg (Peso TN) × 1.1
+    assert.deepStrictEqual(por[`${URL_CAJU}|100gr`].presentacion, { texto: '0.1 kg (Peso TN)', kg: 0.1, origen: 'peso_tn', aplicada: true });
+    assert.deepStrictEqual([por[`${URL_CAJU}|100gr`].linea, por[`${URL_CAJU}|100gr`].esFraccionado, por[`${URL_CAJU}|100gr`].origenUnidades, por[`${URL_CAJU}|100gr`].carta], ['fraccionado', true, 'presentacion', 1000]);
+    const sinCod = j.filas.find(x => !x.esCombo && x.estado === 'sin_codigo');
+    assert.deepStrictEqual([sinCod.linea, sinCod.esFraccionado, sinCod.unidades, sinCod.origenUnidades, sinCod.presentacion.aplicada], [null, false, 1, 'defecto', false]);
+    assert.strictEqual(por[`${URL_CAJU}|100gr`].unidadesManual, null);
+    assert.strictEqual(j.kpis.sinPresentacion, 0); // solo cuenta Fraccionado; las sin_dato del fixture no tienen línea en este SQL falso
     assert.strictEqual(por[`${URL_CAJU}|500 gr`].estado, 'ok');
     for (const f of j.filas.filter(x => x.nombre.startsWith('Combo'))) assert.deepStrictEqual([f.estado, f.esCombo], ['sin_componentes', true]);
     assert.strictEqual(j.kpis.combos, j.filas.filter(x => x.esCombo).length);
@@ -105,12 +114,13 @@ test('control y exportar: 502 con query que falla', async () => {
 });
 
 test('exportar: 409 sin desviadas; con desviadas solo el producto afectado y la celda Precio', async () => {
-  await conServidor({ 1208: 10100 }, async base => {
+  await conServidor({ 1208: [20182, 'Pesables Fraccionado'] }, async base => {
     await subir(base, FIXTURE);
     assert.strictEqual((await fetch(`${base}/api/tn-precios/exportar`)).status, 409);
   });
-  await conServidor({ 1206: 1000, 1208: 10100 }, async base => {
+  await conServidor({ 1206: [1000, 'Pesables Fraccionado'], 1208: [20182, 'Pesables Venta Directa'] }, async base => {
     await subir(base, FIXTURE);
+    await put(`${base}/api/tn-precios/config`, { recargoPct: 10, toleranciaPct: 2, redondeoPaso: 0 }); // estos casos asumen sin redondeo
     const r = await fetch(`${base}/api/tn-precios/exportar`);
     assert.strictEqual(r.status, 200);
     assert.match(r.headers.get('content-type'), /iso-8859-1/);
@@ -118,7 +128,7 @@ test('exportar: 409 sin desviadas; con desviadas solo el producto afectado y la 
     const filas = tn.parsearBajada(out).filas;
     assert.deepStrictEqual([...new Set(filas.map(f => f.url))].sort(), ['c-caju-tostada-c-sal-w', URL_CAJU]);
     assert.strictEqual(filas.length, 4);
-    assert.strictEqual(filas.find(f => f.variante === '100gr').precioTn, 1100);
+    assert.strictEqual(filas.find(f => f.variante === '100gr').precioTn, 110);
     assert.strictEqual(filas.find(f => f.variante === '500 gr').precioTn, 11100);
     assert.strictEqual(filas[0].nombre, 'Castañas Caju Tostada sin Sal W4');
   });
@@ -135,14 +145,17 @@ test('403 en PUT config y PUT vinculos sin precios-config, sin escribir', async 
 });
 
 test('vínculo: válido guarda y pisa SKU; null borra; inválidos 400 sin escribir; SQL caído 502', async () => {
-  await conServidor({ 7: 500, 1206: 1000 }, async (base, dir) => {
+  await conServidor({ 7: [500, 'Pesables Fraccionado'], 1206: 1000 }, async (base, dir) => {
     await subir(base, FIXTURE);
+    await put(`${base}/api/tn-precios/config`, { recargoPct: 10, toleranciaPct: 2, redondeoPaso: 0 }); // estos casos asumen sin redondeo
     const casos = [
       [clave('no-existe'), { codigo: 7, unidades: 1 }],
       [clave('100gr'), { codigo: 99, unidades: 1 }],
       [clave('100gr'), { codigo: 7, unidades: 0 }],
       [clave('100gr'), { codigo: "7' OR 1=1--", unidades: 1 }],
       [clave('100gr'), { codigo: 1.5, unidades: 1 }],
+      [clave('100gr'), { codigo: 7, unidades: 1001 }],
+      [clave('100gr'), { codigo: 7, unidades: '2' }],
     ];
     for (const [k, body] of casos) assert.strictEqual((await put(`${base}/api/tn-precios/vinculos/${k}`, body)).status, 400, JSON.stringify(body));
     assert.ok(!fs.existsSync(path.join(dir, 'tn_vinculos.json')));
@@ -150,7 +163,17 @@ test('vínculo: válido guarda y pisa SKU; null borra; inválidos 400 sin escrib
     assert.strictEqual(ok.status, 200);
     const c = await (await fetch(`${base}/api/tn-precios/control`)).json();
     const f = c.filas.find(x => x.clave === `${URL_CAJU}|100gr`);
-    assert.deepStrictEqual([f.codigo, f.unidades, f.esperado], [7, 2, 1100]);
+    assert.deepStrictEqual([f.codigo, f.unidades, f.unidadesManual, f.presentacion.origen, f.esperado], [7, 2, 2, 'vinculo', 1100]);
+    const leer = async () => (await (await fetch(`${base}/api/tn-precios/control`)).json()).filas.find(x => x.clave === `${URL_CAJU}|100gr`);
+    assert.strictEqual((await put(`${base}/api/tn-precios/vinculos/${clave('100gr')}`, { codigo: 7, unidades: 0.5 })).status, 200);
+    assert.deepStrictEqual([(await leer()).unidades, (await leer()).esperado], [0.5, 275]);
+    for (const body of [{ codigo: 7 }, { codigo: 7, unidades: null }]) {
+      const r = await put(`${base}/api/tn-precios/vinculos/${clave('100gr')}`, body);
+      assert.strictEqual(r.status, 200);
+      assert.strictEqual((await r.json()).vinculo.unidades, null);
+      const g = await leer(); // sin unidades manuales: usa el peso de la presentación (0.1 kg)
+      assert.deepStrictEqual([g.codigo, g.unidades, g.unidadesManual, g.origenUnidades, g.presentacion.origen, g.esperado], [7, 0.1, null, 'presentacion', 'peso_tn', 55]);
+    }
     const del = await put(`${base}/api/tn-precios/vinculos/${clave('100gr')}`, { codigo: null });
     assert.deepStrictEqual(await del.json(), { clave: `${URL_CAJU}|100gr`, vinculo: null });
     assert.deepStrictEqual(leerJSON(path.join(dir, 'tn_vinculos.json')), {});
@@ -171,7 +194,7 @@ test('vínculo sin bajada importada: 400', async () => {
 test('config: GET crea defaults; fuera de rango 400 sin escribir; válido guarda sin campos extra', async () => {
   await conServidor({}, async (base, dir) => {
     const cfg = await (await fetch(`${base}/api/tn-precios/config`)).json();
-    assert.deepStrictEqual(cfg, { recargoPct: 10, toleranciaPct: 2, redondeoPaso: 0 });
+    assert.deepStrictEqual(cfg, { recargoPct: 10, toleranciaPct: 2, redondeoPaso: 50 });
     const archivo = path.join(dir, 'tn_config.json');
     const antes = fs.readFileSync(archivo, 'utf8');
     for (const b of [{ ...cfg, recargoPct: -1 }, { ...cfg, recargoPct: 1000 }, { ...cfg, toleranciaPct: 100 }, { ...cfg, redondeoPaso: -1 }, { ...cfg, toleranciaPct: '2' }]) {
@@ -180,7 +203,7 @@ test('config: GET crea defaults; fuera de rango 400 sin escribir; válido guarda
     assert.strictEqual(fs.readFileSync(archivo, 'utf8'), antes);
     const ok = await put(`${base}/api/tn-precios/config`, { ...cfg, recargoPct: 15, extra: 'x' });
     assert.strictEqual(ok.status, 200);
-    assert.deepStrictEqual(leerJSON(archivo), { recargoPct: 15, toleranciaPct: 2, redondeoPaso: 0 });
+    assert.deepStrictEqual(leerJSON(archivo), { recargoPct: 15, toleranciaPct: 2, redondeoPaso: 50 });
   });
 });
 
@@ -230,7 +253,7 @@ test('combos: PUT valida, guarda, control suma; PUT vinculos a combo 400; [] bor
 });
 
 test('control fila no combo: skuOriginal, codigo efectivo y vinculado', async () => {
-  await conServidor({ 7: 500, 1206: 1000 }, async base => {
+  await conServidor({ 7: [500, 'Pesables Fraccionado'], 1206: 1000 }, async base => {
     await subir(base, FIXTURE);
     await put(`${base}/api/tn-precios/vinculos/${clave('100gr')}`, { codigo: 7, unidades: 1 });
     const f = (await (await fetch(`${base}/api/tn-precios/control`)).json()).filas.find(x => x.clave === `${URL_CAJU}|100gr`);
