@@ -28,7 +28,6 @@
     <button id="tab-fam">Portfolio</button>
     <button id="tab-qui">Quiebres</button>
     <button id="tab-fmn">Grupos</button>
-    <button id="tab-rot">Rotación</button>
   </div>
 
   <!-- El rango es común a las dos pestañas; los chips y la nota de alcance se muestran
@@ -150,25 +149,6 @@
         mensual; el resto, ese 5% con tope de 4 unidades. "—": la sucursal no vendió ni tuvo
         stock del producto. Con muchas sucursales la consulta tarda.</p>
       <div id="tblQuiebres-qui"></div>
-    </div>
-  </section>
-
-  <!-- ── Pestaña Rotación: qué tan dispar se vende cada producto entre sucursales ─ -->
-  <section id="pane-rot" hidden>
-    <div id="msg-rot"></div>
-    <div class="kpis" id="kpis-rot"></div>
-
-    <div class="card">
-      <div class="card-head">
-        <h3>Rotación entre sucursales</h3>
-        <input type="search" id="buscTop-rot" class="buscador" placeholder="Buscar producto..." autocomplete="off">
-        <button type="button" class="btn-mini" onclick="rotExportar()"
-          title="Descarga la lista con la búsqueda y el orden actuales">Exportar Excel</button>
-      </div>
-      <p class="desc">Puntaje 0–100: qué tan dispar se vende el producto entre las sucursales tildadas
-        (0 = todas por igual, 100 = lo vende una sola). Compara el peso del producto dentro de lo que
-        factura cada sucursal, así una sucursal grande no lo distorsiona. Celdas más verdes = más peso ahí.</p>
-      <div id="tblRotacion-rot"></div>
     </div>
   </section>
 
@@ -322,6 +302,5 @@
 <script src="/js/analisis_graficos.js"></script>
 <script src="/js/analisis_familias_manuales.js"></script>
 <script src="/js/analisis_quiebres.js"></script>
-<script src="/js/analisis_rotacion.js"></script>
 <script src="/js/analisis_front.js"></script>
 </body></html>

@@ -223,6 +223,7 @@ async function calcularDistribucionAlmacen() {
   });
 }
 router.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'distribucion.html')));
+router.get('/js/distribucion_rotacion.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'distribucion_rotacion.js')));
 router.get('/docs/plan-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'docs', 'plan-distribucion.html')));
 router.get('/docs/guia-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'docs', 'guia-distribucion.html')));
 router.get('/docs/analisis-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'docs', 'analisis-distribucion.html')));

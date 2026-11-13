@@ -41,7 +41,6 @@ router.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, '..
 router.get('/js/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_graficos.js')));
 router.get('/js/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_familias_manuales.js')));
 router.get('/js/analisis_quiebres.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_quiebres.js')));
-router.get('/js/analisis_rotacion.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_rotacion.js')));
 router.get('/js/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_front.js')));
 
 // ── Análisis de Ventas por Sucursal ──────────────────────────────────────────
@@ -273,8 +272,11 @@ router.get('/api/analisis-ventas/quiebres', apiRoute(async req => {
 // producto que compara la participación de cada sucursal (ver filasRotacion). Mismo universo
 // que Quiebres (vendidos en el rango, sin insumos). Las ventas van en una consulta agrupada
 // por producto y sucursal, sin stock ni serie diaria: es liviana.
-// Cuelga de /api/analisis-ventas para heredar el permiso del módulo (apiPrefijos en auth.js).
-router.get('/api/analisis-ventas/rotacion', apiRoute(async req => {
+// La pestaña vive en Distribución (/distribucion): la URL cuelga de /api/distribucion/rotacion,
+// que tiene su apiPrefijo propio bajo el módulo 'distribucion' en auth.js. El handler queda
+// acá porque usa sinInsumosSQL/subRubroDisponible, que son estado local de este router.
+// ponytail: mover a rutas_distribucion si sinInsumosSQL pasa a lib/ o a deps.
+router.get('/api/distribucion/rotacion', apiRoute(async req => {
   const desde = safeDate(req.query.desde);
   const hasta = safeDate(req.query.hasta);
   const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);

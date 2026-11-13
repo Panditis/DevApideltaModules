@@ -7,6 +7,7 @@
 <link rel="icon" href="/favicon.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="/css/apidelta-theme.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
   :root{
@@ -220,6 +221,24 @@
   #prodFilterDrop{position:fixed;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);min-width:280px;max-width:340px;z-index:300;overflow:hidden;font-family:var(--body)}
   #prodFilterList{max-height:300px;overflow:auto}
   #prodFilterList .rubro-opt b{color:var(--faint);font-weight:600;font-variant-numeric:tabular-nums}
+  /* Pestaña Rotación */
+  .rot-wrap{max-width:1400px;margin:0 auto;padding:16px 22px;display:flex;flex-direction:column;gap:14px}
+  .rot-ctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+  .rot-ctrl label{font-size:12px;color:var(--muted)}
+  .rot-ctrl input[type=date]{font-family:var(--body);padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none}
+  .rot-chips{display:flex;gap:4px;flex-wrap:wrap}
+  .rot-kpis{display:flex;gap:12px;flex-wrap:wrap}
+  .rot-kpis .kpi{cursor:default}
+  .rot-card{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .rot-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px 0}
+  .rot-head h3{margin:0;margin-right:auto;font-family:var(--disp);font-size:16px;color:var(--verde-dark)}
+  .rot-desc{margin:8px 14px 12px;font-size:12.5px;color:var(--muted)}
+  #rotTabla{overflow-x:auto}
+  .rot-pill{display:inline-block;min-width:34px;padding:1px 8px;border-radius:9px;font-weight:700;text-align:center}
+  .rot-porc{font-size:12px;color:var(--muted)}
+  .rot-sin-dato{color:var(--faint)}
+  .rot-vacio{padding:30px;text-align:center;color:var(--muted)}
+  .rot-vacio.err{color:var(--error)}
   .suc-tog{font-size:11px;padding:4px 9px;border-radius:5px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);color:var(--muted);opacity:.55;transition:opacity .15s,background .15s}
   .suc-tog.on{opacity:1;background:var(--verde);color:#fff;border-color:var(--verde-dark)}
   /* ── Rubro multiselect ── */
@@ -513,6 +532,7 @@
       <button class="tab" data-tab="pedidos">Pedidos <span class="pill" id="pillPed">—</span><span class="pill pill-nov" id="pillPedNov" style="display:none">0</span></button>
       <button class="tab" data-tab="produccion">Producción <span class="pill" id="pillProd">0</span></button>
       <button class="tab" data-tab="historial">Historial <span class="pill" id="pillHist">0</span></button>
+      <button class="tab" data-tab="rotacion">Rotación</button>
       <button class="tab cfg-tab" data-tab="config-ruteos">Config Ruteos</button>
       <button class="tab cfg-tab" data-tab="excluir">No envasa <span class="pill" id="pillExcluir">⊘</span></button>
       <button class="tab cfg-tab" data-tab="forzar-almacen">Siempre Almacén <span class="pill" id="pillForzarAlmacen">+</span></button>
@@ -722,6 +742,33 @@
       <div id="hist-state" class="state" style="display:none"><div class="spinner"></div><div>Cargando…</div></div>
       <div id="hist-empty" class="state" style="display:none"><div>Sin registros de historial.</div></div>
       <div id="hist-list" style="max-width:1100px;margin:14px auto;padding:0 16px;display:none"></div>
+    </section>
+
+    <!-- ROTACIÓN: puntaje de disparidad de venta entre sucursales (render en distribucion_rotacion.js) -->
+    <section class="panel" id="panel-rotacion">
+      <div class="rot-wrap">
+        <div class="rot-ctrl">
+          <label for="rotDesde">Desde</label><input type="date" id="rotDesde">
+          <label for="rotHasta">Hasta</label><input type="date" id="rotHasta">
+          <div class="rot-chips" id="rotChips" role="group" aria-label="Sucursales a comparar"></div>
+          <button type="button" id="rotTodas">Todas</button>
+          <button type="button" id="rotNinguna">Ninguna</button>
+          <button type="button" class="primary" id="rotConsultar">Consultar</button>
+        </div>
+        <div id="rotMsg" role="status"></div>
+        <div class="rot-kpis" id="rotKpis"></div>
+        <div class="rot-card">
+          <div class="rot-head">
+            <h3>Rotación entre sucursales</h3>
+            <input type="search" id="rotBusc" placeholder="Buscar producto…" autocomplete="off" aria-label="Buscar producto">
+            <button type="button" id="rotExcel" title="Descarga la lista con la búsqueda y el orden actuales">📊 Exportar Excel</button>
+          </div>
+          <p class="rot-desc">Puntaje 0–100: qué tan dispar se vende el producto entre las sucursales tildadas
+            (0 = todas por igual, 100 = lo vende una sola). Compara el peso del producto dentro de lo que
+            factura cada sucursal, así una sucursal grande no lo distorsiona. Celdas más verdes = más peso ahí.</p>
+          <div id="rotTabla"></div>
+        </div>
+      </div>
     </section>
 
     <!-- TIPO ALMACEN -->
@@ -1611,6 +1658,7 @@ function activarTab(name){
   else if (name==='config-ruteos') { cargarConfigRuteos(); }
   else if (name==='produccion') { cargarProduccion(); }
   else if (name==='historial') { cargarHistorial(); }
+  else if (name==='rotacion') { rotAbrir(); }
   else if (name==='tipo-almacen') { cargarTipoAlmacen(); }
   else if (name==='tabs-config') { renderTabsConfig(); }
   else if (name==='restringidos') { construirEditorRestr(); if(!listasData) cargarListas().then(()=>renderRestr()); else renderRestr(); }
@@ -2541,6 +2589,7 @@ const TAB_REGISTRY = [
   { id:'pedidos',        label:'Pedidos',          def:'main' },
   { id:'produccion',     label:'Producción',       def:'main' },
   { id:'historial',      label:'Historial',        def:'main' },
+  { id:'rotacion',       label:'Rotación',         def:'main' },
   { id:'config-ruteos',  label:'Config Ruteos',    def:'cfg'  },
   { id:'excluir',        label:'No envasa',        def:'cfg'  },
   { id:'restringidos',   label:'Restringidos',     def:'cfg'  },
@@ -4202,6 +4251,7 @@ document.getElementById('tabla-p').addEventListener('click', e => {
   if (tr) abrirModalRegistro(tr.dataset.plu);
 });
 </script>
+<script src="/js/distribucion_rotacion.js"></script>
 
 </body>
 </html>
