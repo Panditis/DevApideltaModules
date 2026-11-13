@@ -178,13 +178,21 @@ test('margenProducto: suma puntos al canal en Reventa (por PLU), Fraccionado (el
   // filaPublica (listado / sin permiso) no lleva el desglose con margenProductoPct; la fila sí (CLAVES_OCULTAS la saca sin permiso).
   assert.ok(!JSON.stringify(L.filaPublica(con)).includes('margenProductoPct'));
 
-  const grupos = [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }];
+  const grupos = [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1KG' }] }];
   const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000 }]]);
   const fracc = costeo => L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: md, costeo, cfg: CFG })[0];
   const gSin = fracc({}), gCon = fracc({ margenProducto: { 100: { minorista: 10 }, 101: { minorista: 50 } } }); // el de la presentación no cuenta
-  const pct = g => g.presentaciones[0].sugeridos.sistema.desglose.minorista.margenPct;
-  assert.strictEqual(pct(gCon) - pct(gSin), 10);
+  const pct = (g, i) => g.presentaciones[i].sugeridos.sistema.desglose.minorista.margenPct;
+  assert.strictEqual(pct(gCon, 1) - pct(gSin, 1), 10);
+  assert.strictEqual(pct(gCon, 0) - pct(gSin, 0), 10);
   assert.deepStrictEqual(gCon.margenProducto, { minorista: 10 });
+  // Margen fijo = el del kilo: el kilo queda exacto y cada presentación suma su ajuste por peso contra el del kilo (también sin kilo).
+  const sinKilo = costeo => L.listadoFraccionado({ grupos: [{ ...grupos[0], presentaciones: [grupos[0].presentaciones[0]] }], costos, vigentes: new Map(), mayoristasDe: md, costeo, cfg: CFG })[0];
+  const fijo = fracc({ margenProducto: { 100: { modo: 'fijo', minorista: 55 } } }), fijoSinKilo = sinKilo({ margenProducto: { 100: { modo: 'fijo', minorista: 55 } } });
+  assert.strictEqual(pct(fijo, 1), 55);
+  const d500 = fijoSinKilo.presentaciones[0].sugeridos.sistema.desglose.minorista;
+  assert.deepStrictEqual([d500.margenProductoPct, d500.margenPct], [55, 55 + (d500.ajusteVsKiloPct || 0)]);
+  assert.strictEqual(pct(fijo, 0), d500.margenPct);
 
   const prod = costeo => L.listadoProduccion({ presentaciones: [{ productoId: 'p', plu: '6319', nombre: 'G', costoUnidad: 1000, margenExtra: { minorista: 5 } }],
     vigentes: new Map(), mayoristasDe: md, costeo, cfg: CFG })[0].sugeridos.sistema.desglose.minorista;

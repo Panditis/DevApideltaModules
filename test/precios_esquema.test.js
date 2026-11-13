@@ -230,9 +230,12 @@ test('preciosCanales: margenProducto modo ajuste (o sin modo, dato viejo) suma p
   assert.deepStrictEqual([f.bulto.margenPct, f.bulto.margenProductoModo, f.bulto.margenGeneralPct], [0, 'fijo', base.bulto.margenPct]);
   assert.deepStrictEqual(f.pack, base.pack); // vacío: el general, sin marcas
   assert.strictEqual(f.minorista.neto, 2000 * 1.55);
-  // Fraccionado: el fijo ignora el ajuste por peso (100 g → +10 en el general).
-  const fr = canales('fraccionado', { margenProducto: { modo: 'fijo', minorista: 55 } });
-  assert.deepStrictEqual([fr.minorista.margenPct, fr.minorista.margenGeneralPct], [55, 50]);
+  // Fraccionado: el fijo es el margen del kilo (1 kg → general 40, exacto 55); cada presentación le suma la diferencia de su
+  // ajuste por peso contra el del kilo (100 g: +10 → 65), y el valor del producto sigue siendo 55.
+  const fr = canales('fraccionado', { pesoG: 1000, margenProducto: { modo: 'fijo', minorista: 55 } });
+  assert.deepStrictEqual([fr.minorista.margenPct, fr.minorista.margenGeneralPct, fr.minorista.ajusteVsKiloPct], [55, 40, undefined]);
+  const fr100 = canales('fraccionado', { margenProducto: { modo: 'fijo', minorista: 55 } });
+  assert.deepStrictEqual([fr100.minorista.margenPct, fr100.minorista.margenProductoPct, fr100.minorista.ajusteVsKiloPct], [65, 55, 10]);
   // Producción: el fijo ignora el margen especial (no informa margenEspecialPct en ese canal); el general lo incluye.
   const pr = canales('produccion', { margenExtra: { minorista: 5, pack: 5 }, margenProducto: { modo: 'fijo', minorista: 55 } });
   assert.deepStrictEqual([pr.minorista.margenPct, pr.minorista.margenGeneralPct, 'margenEspecialPct' in pr.minorista], [55, base.minorista.margenPct + 5, false]);
@@ -249,7 +252,7 @@ test('margenParaPrecio: ida y vuelta — el margen fijo devuelto reproduce el vi
       mp[canal] = E.margenParaPrecio({ tipo, canal, costo: 2000, precioObjetivo: vigentes[canal], unidades: unidades[canal], cfg: CFG });
       assert.ok(typeof mp[canal] === 'number', `${tipo} ${canal}`);
     }
-    const p = E.preciosCanales({ tipo, costo: 2000, pesoG: 100, unidades, vigentes, cfg: CFG, margenExtra: { minorista: 7 }, margenProducto: mp });
+    const p = E.preciosCanales({ tipo, costo: 2000, pesoG: 1000, unidades, vigentes, cfg: CFG, margenExtra: { minorista: 7 }, margenProducto: mp });
     assert.deepStrictEqual([p.minorista.precio, p.pack.neto, p.bulto.neto], [3990, 21000, 39530], tipo); // pack/bulto: vigente SIN IVA
   }
   // 2 decimales cuando alcanza (costo 2200 con gastos, extras 5 %, IVA 21 %).

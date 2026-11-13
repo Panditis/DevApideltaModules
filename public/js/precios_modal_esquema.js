@@ -173,7 +173,9 @@ function igualarSigaMd(fila, tipo, fuente) {
     const d = des(f, usada);
     if (!d) return null;
     const cfg = { extrasMinorista: [{ pct: d.minorista.extrasPct, tipos: { [tipo]: true } }], ivaVentaPct: d.minorista.ivaPct };
-    return PE_MD.margenParaPrecio({ tipo, canal, costo: d.costoConGastos, precioObjetivo: vigente, unidades, cfg });
+    const m = PE_MD.margenParaPrecio({ tipo, canal, costo: d.costoConGastos, precioObjetivo: vigente, unidades, cfg });
+    // Fraccionado: el fijo es el del kilo y la presentación le suma su ajuste por peso (ajusteVsKiloPct): se lo resta para igualar.
+    return m == null ? null : Math.round((m - (d.minorista.ajusteVsKiloPct || 0)) * 100) / 100;
   };
   const filas = [fila, ...(fila.presentaciones || [])];
   const necesarios = {
