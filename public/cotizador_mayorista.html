@@ -190,7 +190,6 @@
   .est-aviso{background:#ffe9a0;color:#5c3d00;border:1px solid #b07d00}
   .est-off{background:#d8dbd1;color:#33362e;border:1px solid #8b9080}
   .fila-aviso .est-aviso,.fila-off .est-off{display:inline-flex}
-  .fila-manual td:first-child{box-shadow:inset 4px 0 0 #FFCC00}
   .fila-off td{background:#e2e5dc!important;background-image:none!important}
   .fila-off td:first-child{box-shadow:inset 4px 0 0 #8b9080}
   .fila-off td:not(:first-child):not(:nth-child(2)):not(:last-child){opacity:.72}
@@ -331,12 +330,11 @@
           <button type="button" class="seg-b on" data-estado="todos" aria-pressed="true">Todos <span class="seg-n" data-n="todos">0</span></button>
           <button type="button" class="seg-b" data-estado="incluidos" aria-pressed="false">Incluidos <span class="seg-n" data-n="incluidos">0</span></button>
           <button type="button" class="seg-b" data-estado="excluidos" aria-pressed="false">No incluidos <span class="seg-n" data-n="excluidos">0</span></button>
-          <button type="button" class="seg-b" data-estado="manuales" aria-pressed="false">Manuales <span class="seg-n" data-n="manuales">0</span></button>
           <button type="button" class="seg-b seg-b--aviso" data-estado="avisos" aria-pressed="false">Con aviso <span class="seg-n" data-n="avisos">0</span></button>
         </div>
         <select id="tablaEstado" class="hidden" tabindex="-1" aria-hidden="true">
           <option value="todos">Todos</option><option value="incluidos">Incluidos</option><option value="excluidos">No incluidos</option>
-          <option value="manuales">Manuales</option><option value="avisos">Con aviso</option>
+          <option value="avisos">Con aviso</option>
         </select>
       </div>
       <div class="prod-fila prod-fila--acciones">
@@ -346,7 +344,7 @@
           <span id="tablaMsg" class="text-sm text-crit font-semibold" role="alert"></span>
         </div>
         <div class="grupo-acc" role="group" aria-label="Herramientas de la tabla">
-          <button type="button" id="btnAgregarManual" class="btn-grupo" disabled>＋ Agregar producto</button>
+          <button type="button" id="btnAgregarProducto" class="btn-grupo" disabled>＋ Agregar producto</button>
           <button type="button" id="btnImportar" class="btn-grupo" disabled>Importar Excel…</button>
           <button type="button" id="btnAutocompletar" class="btn-grupo" disabled>Autocompletar códigos</button>
           <button type="button" id="btnDescargarCodigos" class="btn-grupo" disabled>Descargar códigos (.xlsx)</button>
@@ -360,7 +358,7 @@
     </div>
     <div id="importResultado"></div>
     <div id="tablaCont" class="prod-cont"></div>
-    <p class="prod-pie">Las secciones y los productos se exportan en el orden de esta tabla. Para reordenar quitá la búsqueda y el filtro de estado. El código de cada producto es siempre numérico (código de sistema). Los precios fijos solo se editan en filas manuales; el resto toma el precio decidido en Precios.</p>
+    <p class="prod-pie">Las secciones y los productos se exportan en el orden de esta tabla. Para reordenar quitá la búsqueda y el filtro de estado. El código de cada producto es siempre numérico (código de sistema). Los precios salen de SIGA tal cual: lista 0, sucursal 1.</p>
   </section>
 
   <!-- Historial -->
@@ -374,7 +372,7 @@
   <section id="panel-comparacion" class="tab-panel hidden space-y-3" role="tabpanel" aria-labelledby="tab-comparacion">
     <div class="flex items-center">
       <div><h2 class="subtitulo">Comparación con lo publicado</h2>
-        <p class="text-sm text-gris">Compara los precios vigentes del sistema contra el último catálogo exportado.</p></div>
+        <p class="text-sm text-gris">Compara los precios de SIGA (lista 0, sucursal 1) contra el último catálogo exportado.</p></div>
       <button type="button" id="btnComparar" class="btn-sec ml-auto">Actualizar</button>
     </div>
     <div id="cmpResumen"></div>
@@ -392,7 +390,7 @@
   <section id="panel-codigos" class="tab-panel hidden space-y-3" role="tabpanel" aria-labelledby="tab-codigos">
     <div class="flex items-center">
       <div><h2 class="subtitulo">Comparación de códigos</h2>
-        <p class="text-sm text-gris">Compara los PLU de pack y bulto cargados en la tabla (catálogo) contra el vínculo vigente del sistema.</p></div>
+        <p class="text-sm text-gris">Compara los PLU de pack y bulto cargados en la tabla (catálogo) contra el vínculo del sistema.</p></div>
       <button type="button" id="btnCodigos" class="btn-sec ml-auto">Actualizar</button>
     </div>
     <div id="ccodResumen"></div>

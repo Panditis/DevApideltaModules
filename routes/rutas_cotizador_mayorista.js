@@ -4,47 +4,44 @@
 // Config FTP: data/cotizador_ftp.json (ignorado por git), lo edita el usuario a mano; si no existe se crea con esta plantilla:
 //   { "host": "srva103.controlvps.com", "puerto": 21, "usuario": "Apdftp", "password": "", "rutaRemota": "/web/cotizador", "secure": false }
 //   secure: false = FTP común, true = FTPS explícito. La password nunca sale por API, logs, meta.json ni mensajes de error.
-// Lógica pura en lib/cotizador_mayorista.js. Precios = listados del módulo Precios (listadosVigentes, del router de
-// rutas_precios_esquema). Acceso: módulo 'precios' (lib/auth CATALOGO_MODULOS); escrituras además 'precios-config'.
+// Lógica pura en lib/cotizador_mayorista.js. Precios = PrecioVenta de SIGA tal cual (preciosSigaPorPlu: lista 0, sucursal 1,
+// cualquier rubro; sin IVA, descuento ni decisiones). Los listados de Precios (listadosVigentes) sólo resuelven vínculos PLU y nombres. Acceso: módulo 'precios' (lib/auth CATALOGO_MODULOS); escrituras además 'precios-config'.
 // Datos: data/cotizador_mayorista.json (tabla + subida) y data/cotizador_publicaciones/vNNN/{catalogo.csv,version.json,meta.json}.
 //
 // Contrato (errores de validación: 200 { error }; sin permiso: 403 { error }; fallo interno: 500 { error }):
 //   GET  /api/cotizador-mayorista/tabla        → { filas: [Fila], subida: { host, usuario, ruta }, comandos: [string] }
-//        Fila = { cod, seccion, nombre, packQty, bultoQty, incluido, packPlu?, bultoPlu?, manual?, packPrice?, bultoPrice?, planilla? }
-//        (orden del array = orden del catálogo; packPlu/bultoPlu vacíos = vínculo automático de SIGA)
-//        Fila no manual suma modoPack: 'plu' | 'descuento' | 'ninguno' (ausente en filas viejas = 'plu') y, sólo en 'descuento',
-//        descuentoPack: number (0 < x < 100). packQty = cantidad mínima del pack: en 'plu' como siempre, en 'descuento' la carga
-//        el usuario (requerida), en 'ninguno' se ignora. Las filas manuales no llevan modoPack (precios fijos).
+//        Fila = { cod, seccion, nombre, packQty, bultoQty, incluido, modoPack: 'plu'|'ninguno', packPlu?, bultoPlu?, planilla? }
+//        (orden del array = orden del catálogo; packPlu/bultoPlu vacíos = vínculo automático de SIGA; modoPack ausente = 'plu';
+//        en 'ninguno' packQty se ignora). No hay filas manuales ni pack por descuento.
 //   PUT  /api/cotizador-mayorista/tabla        body { filas: [Fila] } → { filas }      (reemplaza la tabla entera)
-//        modoPack ausente/'' → 'plu'; otro valor → { error: 'Fila N: modoPack inválido (plu, descuento o ninguno)' };
-//        descuentoPack acepta número o texto con coma ("12,5"); vacío, ≤0, ≥100 o no numérico → { error: 'Fila N: descuentoPack inválido (...)' }
+//        modoPack ausente/'' → 'plu'; otro valor (incluido 'descuento') → { error: 'Fila N: modoPack inválido (plu o ninguno)' };
+//        manual: true → { error: 'Fila N: las filas manuales con precio fijo ya no existen: el precio sale de SIGA' }
 //   PUT  /api/cotizador-mayorista/subida       body { host, usuario, ruta } → { subida, comandos }
-//   POST /api/cotizador-mayorista/importar     multipart 'file' (.xlsx, hoja apidelta_precios) → { filas, secciones, manuales,
-//        descartadas: [nroFila], vinculos: { vinculados, sinVincular: [{ cod, nombre, faltan }], manuales } | null, aviso? }
+//   POST /api/cotizador-mayorista/importar     multipart 'file' (.xlsx, hoja apidelta_precios) → { filas, secciones,
+//        descartadas: [nroFila], vinculos: { vinculados, sinVincular: [{ cod, nombre, faltan }] } | null, aviso? }
 //   GET  /api/cotizador-mayorista/preview      → { filas: [FilaCsv + origen { pack, bulto }], revisar: [{ cod, nombre, motivos, respaldo }],
 //        avisos: [string], errores: [string], diff: { nuevos: [{ cod, nombre, pack_price, bulto_price }], quitados, cambiados: [{ cod, nombre, campo, antes, despues, pct }] },
 //        ultimaVersion: number|null, productos }
-//        origen: 'decision' | 'vigente' (lista 0 de SIGA, sin decisión) | 'manual' | 'descuento' (sólo pack) | 'respaldo' (último exportado o planilla) | null (columna vacía)
-//        Cada fila armada trae además modoPack ('plu'|'descuento'|'ninguno') y, en 'descuento',
-//        descuento: { pct, minoristaFinal, ivaPct, minoristaNeto, pack } (pack = Math.round(minoristaNeto × (1 − pct/100)),
-//        minoristaNeto = minoristaFinal / (1 + ivaPct/100), minorista con la decisión vigente del producto). Filas que salen del
-//        respaldo completo (cantidad no reconocida) no traen esos campos. 'descuento' sin packQty o sin minorista decidido →
-//        mensaje en errores (bloquea exportar). 'ninguno' → pack_qty/pack_price '' sin aviso ni revisar.
+//        FilaCsv = { cod, seccion, nombre, pack_qty, pack_price, bulto_qty, bulto_price } (+ origen y modoPack, que no van al CSV).
+//        origen: 'siga' (PrecioVenta de SIGA tal cual, lista 0, sucursal 1; puede traer decimales) | 'respaldo' (último exportado
+//        o planilla, entero) | null (columna vacía). Cada fila armada trae modoPack ('plu'|'ninguno'); las que salen del respaldo
+//        completo (cantidad no reconocida) no lo traen. revisar.motivos: '<tipo>: sin vínculo' | '<tipo>: PLU X sin precio en SIGA'
+//        | cantidad no reconocida | 'sin precio'. 'ninguno' → pack_qty/pack_price '' sin aviso ni revisar.
+//        Si la consulta a SIGA falla → 500 { error } (no se cae a respaldo en silencio).
 //        El CSV exportado no cambia: sólo cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price.
-//        importar: fila no manual sin 'Codigo Pack' ni pack_price → modoPack 'ninguno'; si no, 'plu' (nunca 'descuento').
-//        comparacion: pack en 'ninguno' no figura; en 'descuento' sistema = pack calculado, origen 'descuento', plu null.
+//        importar: fila sin 'Codigo Pack' ni pack_price → modoPack 'ninguno'; si no, 'plu'.
+//        comparacion: pack en 'ninguno' no figura.
 //   POST /api/cotizador-mayorista/autocompletar (permiso precios-config) → { filas: [Fila], completadas: [{ cod, nombre, tipo, plu, origen, nombrePlu }],
 //        sinVincular: [{ cod, nombre, faltan: ['pack'|'bulto'], motivo? }] }  (guarda la tabla). Completa packPlu/bultoPlu vacíos de filas
-//        no manuales con cantidad (pack sólo en modoPack 'plu'): vínculo SIGA o, si no hay, presentación mayorista de fraccionado
+//        con cantidad (pack sólo en modoPack 'plu'): vínculo SIGA o, si no hay, presentación mayorista de fraccionado
 //        de Precios (cod = granel o cualquier presentación del grupo) o, si tampoco, producto de SIGA (cualquier rubro) cuya
 //        fórmula activa es sólo el cod (nombre Pack/Bulto/Caja manda; si no, único → bulto, dos → menor pack / mayor bulto).
 //        No pisa PLU ya cargados. completadas[].origen: 'sigaVinculo' | 'presentacion' | 'formula'. sinVincular[].motivo
 //        (opcional): candidatos por fórmula ambiguos, no asignados. Si la consulta por fórmula falla, sigue sin esa fuente.
-//        Limitación: los PLU por fórmula no son vínculos de Precios (no están en el índice): su precio en el catálogo sale
-//        del respaldo (último exportado) con motivo "PLU X sin precio en el módulo"; no se inventan precios.
+//        Los PLU por fórmula quedan explícitos en la fila: su precio sale de SIGA como cualquier otro.
 //        completadas[].nombrePlu: nombre del PLU asignado (índice o candidato por fórmula) o null; nombre sigue siendo el de la fila.
 //   GET  /api/cotizador-mayorista/vinculos     → { vinculos: { [cod]: { pack: { plu, nombre|null, origen: 'fila'|'siga' } | null, bulto: ídem } } }
-//        Filas no manuales; sólo columnas en uso (bulto con cantidad; pack con cantidad y modoPack 'plu'). 'siga' = vínculo
+//        Sólo columnas en uso (bulto con cantidad; pack con cantidad y modoPack 'plu'). 'siga' = vínculo
 //        automático (sin presentaciones, el que usa el precio). Si listados o SIGA fallan: se loguea y sigue (nombre null).
 //   GET  /api/cotizador-mayorista/nombres?plus=1,2,3 → { nombres: { [plu]: nombre|null } } (sólo PLU numéricos; el resto se
 //        ignora; sin válidos → { nombres: {} }; más de 50 → { error }). Fallo de SIGA → 500 { error }.
@@ -59,16 +56,16 @@
 //        → 400 versión inválida · 404 versión inexistente · 409 ya hay una publicación en curso · 403 sin permiso
 //        Sube catalogo.csv y después version.json, cada uno como .tmp + verificación de tamaño + rename. Resultado en meta.json.publicado.
 //   GET  /api/cotizador-mayorista/publicaciones/:version/catalogo.csv | version.json → descarga (attachment)
-//   GET  /api/cotizador-mayorista/comparacion  → catálogo de hoy (el mismo de /preview: armarCatalogo + listadosVigentes) vs el
+//   GET  /api/cotizador-mayorista/comparacion  → catálogo de hoy (el mismo de /preview) vs el
 //        último publicado (vNNN más alta). { sinPublicaciones, version, generado, publicado: { fecha, ok, error? } | null,
-//        iguales, cambiaron, sinDato, nuevos, quitados, conDecision, conVigente, errores: [string],
-//        detalle: [{ cod, nombre, tipo: 'pack'|'bulto', publicado, sistema, origen, pct, estado: 'igual'|'cambió'|'nuevo'|'sin dato'|'quitado' }] }
-//        Sin versiones → sinPublicaciones: true, contadores 0 y detalle []. Columna sin precio en ambos lados no figura.
+//        iguales, cambiaron, sinDato, nuevos, quitados, conSiga, conRespaldo, errores: [string],
+//        detalle: [{ cod, nombre, tipo: 'pack'|'bulto', publicado, sistema, origen: 'siga'|'respaldo'|null, pct, estado: 'igual'|'cambió'|'nuevo'|'sin dato'|'quitado' }] }
+//        conSiga/conRespaldo = columnas del detalle con ese origen. Sin versiones → sinPublicaciones: true, contadores 0 y detalle []. Columna sin precio en ambos lados no figura.
 //        Producto que hoy no sale (sin precio, cantidad inválida sin respaldo, error) y sí estaba publicado → 'quitado'.
 //   GET  /api/cotizador-mayorista/codigos.xlsx → descarga cotizador_codigos_AAAA-MM-DD.xlsx (hoja 'codigos', sólo lectura)
 //        Columnas: Codigo, Producto, CodigoPack, Cantidad pack, CodigoBulto, CantidadBulto, NombrePack, NombreBulto
 //        (nombre del PLU de CodigoPack/CodigoBulto: índice de Precios o SIGA; vacío si no se encuentra o falla). Una fila por fila de la tabla
-//        (incluidas o no), orden del catálogo. PLU = explícito o vínculo SIGA; manual sin PLU; pack vacío en 'ninguno'/'descuento'.
+//        (incluidas o no), orden del catálogo. PLU = explícito o vínculo SIGA; pack vacío en 'ninguno'.
 //        Cantidad normalizada ("12u", "10kg") o el texto crudo si no se reconoce. Si listadosVigentes falla: sólo PLU explícitos.
 //        Error al generar → 500 { error }.
 const express = require('express');
@@ -84,7 +81,7 @@ const HOJA = 'apidelta_precios';
 const FTP_TIMEOUT_MS = 30000;
 
 module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, listadosVigentes, tienePermiso, usosComoFormula = async () => [],
-  nombresPorPlu = async () => ({}),
+  nombresPorPlu = async () => ({}), preciosSigaPorPlu = async () => new Map(),
   // ponytail: basic-ftp 5.x a propósito; el aviso de npm audit (DoS en Client.list()) no aplica, no usamos list()
   crearClienteFtp = () => new (require('basic-ftp').Client)(FTP_TIMEOUT_MS) }) {
   const router = express.Router();
@@ -125,8 +122,11 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
   // Devuelve la vista pública y las filas de la publicación que usó (una sola lectura: versión y filas coinciden).
   async function armarVista() {
     const listados = await listadosVigentes();
-    const tabla = leerTabla(), anterior = ultima(); // leídos después del await
-    const r = C.armarCatalogo({ tabla, indice: C.indicePrecios(listados), respaldos: respaldosDe(tabla, anterior) });
+    const tabla = leerTabla();
+    const indice = C.indicePrecios(listados);
+    const precios = await preciosSigaPorPlu(C.plusDePrecio(tabla.filas, indice));
+    const anterior = ultima(); // leído después de los await
+    const r = C.armarCatalogo({ tabla, indice, respaldos: respaldosDe(tabla, anterior), precios });
     return { vista: { ...r, diff: C.diffCatalogo(anterior.filas, r.filas), ultimaVersion: anterior.version, productos: r.filas.length },
       anteriorFilas: anterior.filas };
   }
@@ -154,11 +154,11 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
     return { vinculos: C.vinculosResueltos(leerTabla().filas, indice, nombres) };
   }));
 
-  // GET comparacion-codigos (solo lectura): PLU pack/bulto cargados en la tabla vs vínculo del sistema, por fila no manual.
+  // GET comparacion-codigos (solo lectura): PLU pack/bulto cargados en la tabla vs vínculo del sistema, por fila.
   // → { iguales, distintos, soloCatalogo, soloSistema, sinDato, detalle: [{ cod, nombre, seccion,
   //     pack: { catalogo: {plu,nombre}|null, sistema: {plu,nombre,origen:'sigaVinculo'|'presentacion'}|null,
   //             estado: 'igual'|'distinto'|'solo catálogo'|'solo sistema'|'sin dato'|'no aplica', sinCantidad?: true }, bulto: {...} }] }
-  // 'no aplica' = pack en modoPack 'ninguno'/'descuento'. Contadores suman pack+bulto. Sin SIGA → sistema null (se loguea).
+  // 'no aplica' = pack en modoPack 'ninguno'. Contadores suman pack+bulto. Sin SIGA → sistema null (se loguea).
   router.get('/api/cotizador-mayorista/comparacion-codigos', apiRoute(async () => {
     const { filas } = leerTabla();
     const { indice, nombres } = await indiceYNombres(filas, 'comparacion-codigos');
@@ -225,8 +225,7 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
       aviso = 'Tabla importada; no se pudieron consultar los vínculos de SIGA';
     }
     guardarTabla({ ...leerTabla(), filas });
-    return { filas: filas.length, secciones: new Set(filas.map(f => f.seccion)).size, manuales: filas.filter(f => f.manual).length,
-      descartadas, vinculos, ...(aviso ? { aviso } : {}) };
+    return { filas: filas.length, secciones: new Set(filas.map(f => f.seccion)).size, descartadas, vinculos, ...(aviso ? { aviso } : {}) };
   }));
 
   router.get('/api/cotizador-mayorista/preview', apiRoute(vistaPrevia));
@@ -382,7 +381,7 @@ module.exports = function crearRutasCotizadorMayorista({ apiRoute, DATA_DIR, lis
   router.get('/api/cotizador-mayorista/comparacion', apiRoute(async () => {
     const { vista: p, anteriorFilas } = await armarVista(); // mismo catálogo que /preview y /exportar
     if (p.ultimaVersion == null) return { sinPublicaciones: true, version: null, generado: null, publicado: null,
-      iguales: 0, cambiaron: 0, sinDato: 0, nuevos: 0, quitados: 0, conDecision: 0, conVigente: 0, detalle: [], errores: p.errores };
+      iguales: 0, cambiaron: 0, sinDato: 0, nuevos: 0, quitados: 0, conSiga: 0, conRespaldo: 0, detalle: [], errores: p.errores };
     const m = leerMeta(p.ultimaVersion) || {};
     const r = C.compararConPublicado(anteriorFilas, p.filas);
     return { sinPublicaciones: false, version: p.ultimaVersion, generado: m.generado ?? null, publicado: m.publicado ?? null, ...r, errores: p.errores };

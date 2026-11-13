@@ -22,16 +22,8 @@ function normalizarCantidad(t) {
   if (!(Number(n) > 0)) return { valor: null, aviso: 'Cantidad en cero' };
   return { valor: `${Number(n)}${unidad}` };
 }
-// Pack de fila no manual: 'plu' (por defecto) | 'descuento' (% sobre el minorista + cantidad mínima) | 'ninguno'.
-const modoDe = f => (f.manual ? 'plu' : f.modoPack || 'plu');
-// '12,5' -> 12.5; lo que no es número -> NaN. Válido: mayor que 0 y menor que 100 (misma regla que el backend).
-const parseDescuento = v => { const s = String(v ?? '').trim().replace(',', '.'); return /^\d+(\.\d+)?$/.test(s) ? Number(s) : NaN; };
-const descuentoValido = v => { const n = parseDescuento(v); return n > 0 && n < 100; };
-function errorPack(f) {
-  if (modoDe(f) !== 'descuento') return '';
-  if (!descuentoValido(f.descuentoPack)) return 'El descuento tiene que ser mayor que 0 y menor que 100';
-  return normalizarCantidad(f.packQty).valor === '' ? 'Falta la cantidad mínima del pack' : '';
-}
+// Pack de la fila: 'plu' (por defecto) | 'ninguno'.
+const modoDe = f => (f.modoPack === 'ninguno' ? 'ninguno' : 'plu');
 const cantidadInvalida = (f, c) => !(c === 'packQty' && modoDe(f) === 'ninguno') && normalizarCantidad(f[c]).valor === null;
 // Cod de fila del sistema: sólo dígitos (1 a 12) y único en la tabla (el backend rechaza lo contrario al guardar).
 function errorCod(f) {
@@ -39,7 +31,7 @@ function errorCod(f) {
   if (!/^\d{1,12}$/.test(cod)) return 'Solo números';
   return tp.filas.some(x => x._id !== f._id && String(x.cod ?? '').trim() === cod) ? 'Código repetido' : '';
 }
-const filaConAviso = f => ['packQty', 'bultoQty'].some(c => cantidadInvalida(f, c)) || !!errorPack(f) || !!errorCod(f);
+const filaConAviso = f => ['packQty', 'bultoQty'].some(c => cantidadInvalida(f, c)) || !!errorCod(f);
 
 // ── Operaciones (devuelven la lista nueva) ──
 function agrupar(filas) {
@@ -76,9 +68,9 @@ function renombrarSeccion(viejo, nuevo) {
   if (tp.seccion === viejo) tp.seccion = n;
   pintarTabla();
 }
-function agregarFilaManual() {
+function agregarFila() {
   const seccion = tp.seccion || (tp.filas[0] && tp.filas[0].seccion) || 'Otros';
-  const fila = { _id: tp.sig++, cod: '', seccion, nombre: '', packQty: '', bultoQty: '', incluido: true, manual: false, nueva: true, modoPack: 'plu' };
+  const fila = { _id: tp.sig++, cod: '', seccion, nombre: '', packQty: '', bultoQty: '', incluido: true, nueva: true, modoPack: 'plu' };
   tp.filas = [...tp.filas, fila];
   tp.q = '';
   tp.estado = 'todos';
@@ -92,14 +84,14 @@ const quitarFila = id => { tp.filas = tp.filas.filter(f => f._id !== id); pintar
 function pasaFiltro(f) {
   if (tp.seccion && f.seccion !== tp.seccion) return false;
   const e = tp.estado;
-  if ((e === 'incluidos' && !f.incluido) || (e === 'excluidos' && f.incluido) || (e === 'manuales' && !f.manual) || (e === 'avisos' && !filaConAviso(f))) return false;
+  if ((e === 'incluidos' && !f.incluido) || (e === 'excluidos' && f.incluido) || (e === 'avisos' && !filaConAviso(f))) return false;
   const t = norm(tp.q.trim());
   return !t || norm(`${f.cod} ${f.nombre} ${f.seccion}`).includes(t);
 }
 
 // ── Carga y guardado ──
 function adoptarFilas(filas) {
-  tp.filas = aplanar(agrupar(filas.map(f => ({ ...f, ...(f.manual ? {} : { modoPack: f.modoPack || 'plu' }), _id: tp.sig++ })))); // agrupado = el orden en que se exporta
+  tp.filas = aplanar(agrupar(filas.map(({ manual, ...f }) => ({ ...f, modoPack: modoDe(f), _id: tp.sig++ })))); // manual (legado) se descarta; agrupado = el orden en que se exporta
   tp.base = claveGuardable(tp.filas);
   tp.cargada = true;
   cargarVinculos();
@@ -117,21 +109,12 @@ async function cargarTabla() {
     actualizarBarra();
   }
 }
-// Precio fijo de fila manual: '' → null, número → entero; lo demás lo rechaza el backend con su mensaje.
-const precioParaGuardar = v => (v === '' || v == null ? null : Number(v));
-function filaParaGuardar(f) {
-  const base = sinId(f);
-  if (!f.manual) { // lo cargado en otro modo se conserva en la fila, pero sólo viaja lo del modo activo
-    const { descuentoPack, ...resto } = base;
-    return modoDe(f) === 'descuento' ? { ...resto, descuentoPack: parseDescuento(descuentoPack) } : resto;
-  }
-  return { ...base, packPrice: precioParaGuardar(f.packPrice), bultoPrice: precioParaGuardar(f.bultoPrice) };
-}
+const filaParaGuardar = sinId;
 async function guardarTabla() {
   const boton = $('btnGuardarTabla');
-  const mala = tp.filas.find(f => errorPack(f) || errorCod(f));
+  const mala = tp.filas.find(errorCod);
   if (mala) {
-    $('tablaMsg').textContent = `No se guardó: ${etiquetaFila(mala)}: ${errorPack(mala) || errorCod(mala)}`;
+    $('tablaMsg').textContent = `No se guardó: ${etiquetaFila(mala)}: ${errorCod(mala)}`;
     return;
   }
   $('tablaMsg').textContent = '';
@@ -163,7 +146,7 @@ function actualizarBarra() {
   $('btnGuardarTabla').disabled = !sucio || !tp.puede;
   $('btnGuardarTabla').title = motivo;
   $('btnDescartarTabla').disabled = !sucio;
-  ['btnAgregarManual', 'btnImportar'].forEach(i => { $(i).disabled = !tp.puede || !tp.cargada; $(i).title = motivo; });
+  ['btnAgregarProducto', 'btnImportar'].forEach(i => { $(i).disabled = !tp.puede || !tp.cargada; $(i).title = motivo; });
   $('btnAutocompletar').disabled = !tp.puede || !tp.cargada || sucio;
   $('btnAutocompletar').title = tp.puede ? (sucio ? 'Guardá o descartá los cambios antes de autocompletar' : '') : motivo;
   $('btnDescargarCodigos').disabled = !tp.cargada;
@@ -179,7 +162,7 @@ function actualizarBarra() {
 function actualizarFiltros() {
   const cuenta = {
     todos: tp.filas.length, incluidos: tp.filas.filter(f => f.incluido).length, excluidos: tp.filas.filter(f => !f.incluido).length,
-    manuales: tp.filas.filter(f => f.manual).length, avisos: tp.filas.filter(filaConAviso).length,
+    avisos: tp.filas.filter(filaConAviso).length,
   };
   $('tablaEstado').value = tp.estado;
   if ($('tablaBuscar').value !== tp.q) $('tablaBuscar').value = tp.q;
@@ -216,7 +199,7 @@ function iniciarTabla() {
   }));
   $('btnGuardarTabla').addEventListener('click', guardarTabla);
   $('btnDescartarTabla').addEventListener('click', descartarCambios);
-  $('btnAgregarManual').addEventListener('click', agregarFilaManual);
+  $('btnAgregarProducto').addEventListener('click', agregarFila);
   iniciarImportar();
   window.addEventListener('beforeunload', e => { if (hayCambios()) e.preventDefault(); });
 }

@@ -14,16 +14,16 @@ const listados = { almacen: [{ plu: '100', mayoristas: [{ plu: '101', tipo: 'pac
 const filas = [
   { cod: '100', seccion: 'A', nombre: 'Siga', packQty: '4', bultoQty: 'caja x 8u' },
   { cod: '200', seccion: 'B', nombre: 'Explicito', packQty: 'raro', bultoQty: '', packPlu: '201', bultoPlu: '202', incluido: false },
-  { cod: '9005', seccion: 'A', nombre: 'Manual', packQty: '10kg', bultoQty: '', manual: true, packPlu: '9' },
+  { cod: '9005', seccion: 'A', nombre: 'Manual', packQty: '10kg', bultoQty: '', packPlu: '9' },
   { cod: '100', seccion: 'A', nombre: 'Ninguno', packQty: '4', bultoQty: '8', modoPack: 'ninguno', packPlu: '777' },
 ];
 
-test('filasExportarCodigos: encabezados, orden por sección, explícito, SIGA, manual, ninguno', () => {
+test('filasExportarCodigos: encabezados, orden por sección, explícito, SIGA, ninguno', () => {
   const r = C.filasExportarCodigos(filas, C.indicePrecios(listados));
   assert.deepStrictEqual(r, [
     ENC,
     [100, 'Siga', 101, '4u', 102, '8u', 'Pack101', 'Bulto102'],
-    [9005, 'Manual', '', '10kg', '', '', '', ''],
+    [9005, 'Manual', 9, '10kg', '', '', '', ''],
     [100, 'Ninguno', '', '4u', 102, '8u', '', 'Bulto102'],
     [200, 'Explicito', 201, 'raro', 202, '', '', ''],
   ]);

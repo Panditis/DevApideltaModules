@@ -15,10 +15,10 @@ const listados = {
   produccion: [],
 };
 
-test('compararCodigos: origen presentacion (fraccionado) y pack descuento → no aplica', () => {
+test('compararCodigos: origen presentacion (fraccionado) y pack ninguno → no aplica', () => {
   const r = C.compararCodigos([
     { cod: '500', seccion: 'S', nombre: 'Almendra', packQty: '', bultoQty: '25kg', bultoPlu: '502' },
-    { cod: '100', seccion: 'S', nombre: 'Miel', packQty: '8u', bultoQty: '32u', modoPack: 'descuento', packPlu: '101' },
+    { cod: '100', seccion: 'S', nombre: 'Miel', packQty: '8u', bultoQty: '32u', modoPack: 'ninguno', packPlu: '101' },
   ], C.indicePrecios(listados), {});
   const [a, b] = r.detalle;
   assert.deepStrictEqual(a.bulto.sistema, { plu: '502', nombre: 'P502', origen: 'presentacion' });
@@ -38,7 +38,8 @@ function montar(estado) {
   app.use(express.json());
   app.use((req, _res, next) => { req.session = { user: { id: 1, usuario: 'tester' } }; next(); });
   app.use(require('../routes/rutas_cotizador_mayorista')({ apiRoute, DATA_DIR: dir, tienePermiso: () => true,
-    listadosVigentes: async () => { if (estado.fallar) throw new Error('sin SIGA'); return listados; }, nombresPorPlu: async () => ({}) }));
+    listadosVigentes: async () => { if (estado.fallar) throw new Error('sin SIGA'); return listados; }, nombresPorPlu: async () => ({}),
+    preciosSigaPorPlu: async () => { if (estado.fallarSiga) throw new Error('SIGA caído'); return new Map([['101', 1000], ['102', 900]]); } }));
   return new Promise(ok => { const server = app.listen(0, () => ok({ server, dir, base: `http://127.0.0.1:${server.address().port}/api/cotizador-mayorista` })); });
 }
 const pedir = async (base, metodo, url, body) => {
@@ -73,5 +74,17 @@ test('rutas: comparacion con cantidad inválida (usa respaldo) y meta.json corru
     const bulto = r.data.detalle.find(d => d.tipo === 'bulto');
     assert.ok(bulto, JSON.stringify(r.data));
     assert.deepStrictEqual([bulto.estado, bulto.publicado, bulto.sistema], ['igual', 900, 900]);
+  } finally { cerrar(ctx); }
+});
+
+test('rutas: preview/comparacion con SIGA caído → 500 { error }, no cae a respaldo en silencio', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ fallarSiga: true });
+  try {
+    await pedir(ctx.base, 'PUT', '/tabla', { filas: [filaMiel('32u')] });
+    for (const url of ['/preview', '/comparacion']) {
+      const r = await pedir(ctx.base, 'GET', url);
+      assert.deepStrictEqual([r.status, r.data.error], [500, 'SIGA caído'], url);
+    }
   } finally { cerrar(ctx); }
 });

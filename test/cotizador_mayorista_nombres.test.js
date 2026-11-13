@@ -17,35 +17,32 @@ const filas = [
   { cod: '100', seccion: 'A', nombre: 'Siga', packQty: '4', bultoQty: '8' },
   { cod: '200', seccion: 'A', nombre: 'Explicito', packQty: '4', bultoQty: '8', packPlu: '201', bultoPlu: '101' },
   { cod: '300', seccion: 'A', nombre: 'SinCant', packQty: '', bultoQty: '', packPlu: '301', bultoPlu: '302' },
-  { cod: '400', seccion: 'A', nombre: 'Desc', packQty: '4', bultoQty: '8', modoPack: 'descuento', packPlu: '401', bultoPlu: '201' },
+  { cod: '400', seccion: 'A', nombre: 'Desc', packQty: '4', bultoQty: '8', modoPack: 'ninguno', packPlu: '401', bultoPlu: '201' },
   { cod: '500', seccion: 'A', nombre: 'Ninguno', packQty: '4', bultoQty: '8', modoPack: 'ninguno', packPlu: '501' },
-  { cod: '9005', seccion: 'A', nombre: 'Manual', packQty: '4', bultoQty: '8', manual: true, packPlu: '9', bultoPlu: '8' },
 ];
 
-test('vinculosResueltos: explícito (fila), automático (siga), sin cantidad, descuento/ninguno, manual ausente', () => {
+test('vinculosResueltos: explícito (fila), automático (siga), sin cantidad, ninguno', () => {
   const r = C.vinculosResueltos(filas, indice(), { 201: 'Doscientos uno' });
   assert.deepStrictEqual(r['100'], { pack: { plu: '101', nombre: 'Pack101', origen: 'siga' }, bulto: { plu: '102', nombre: null, origen: 'siga' } });
   assert.deepStrictEqual(r['200'], { pack: { plu: '201', nombre: 'Doscientos uno', origen: 'fila' }, bulto: { plu: '101', nombre: 'Pack101', origen: 'fila' } });
   assert.deepStrictEqual(r['300'], { pack: null, bulto: null });
   assert.deepStrictEqual(r['400'], { pack: null, bulto: { plu: '201', nombre: 'Doscientos uno', origen: 'fila' } });
   assert.deepStrictEqual(r['500'].pack, null);
-  assert.ok(!('9005' in r));
   assert.deepStrictEqual(C.vinculosResueltos(filas, indice())['200'].pack, { plu: '201', nombre: null, origen: 'fila' });
 });
 
-test('plusSinNombre: sólo explícitos no manuales, sin repetidos, excluye los que el índice nombra', () => {
+test('plusSinNombre: sólo explícitos, sin repetidos, excluye los que el índice nombra', () => {
   assert.deepStrictEqual(C.plusSinNombre(filas, indice()), ['201', '301', '302', '401', '501']);
   assert.deepStrictEqual(C.plusSinNombre([], indice()), []);
 });
 
-test('filasExportarCodigos: 8 columnas, nombres llenos/vacíos (manual, ninguno, sin nombre)', () => {
+test('filasExportarCodigos: 8 columnas, nombres llenos/vacíos (ninguno, sin nombre)', () => {
   const r = C.filasExportarCodigos(filas, indice(), { 201: 'Doscientos uno' });
   assert.strictEqual(r[0].length, 8);
   const por = Object.fromEntries(r.slice(1).map(x => [x[1], x.slice(6)]));
   assert.deepStrictEqual(por.Siga, ['Pack101', '']);
   assert.deepStrictEqual(por.Explicito, ['Doscientos uno', 'Pack101']);
   assert.deepStrictEqual(por.Ninguno, ['', '']);
-  assert.deepStrictEqual(por.Manual, ['', '']);
   assert.ok(r.every(x => x.length === 8));
 });
 

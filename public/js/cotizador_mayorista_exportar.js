@@ -28,12 +28,13 @@ const statCard = (clave, tono, etiqueta, valor, detalle) => h('div', { class: 's
 
 function resumenPrevia(p) {
   const filas = p.filas || [];
-  const conRespaldo = filas.filter(f => f.origen && (f.origen.pack === 'respaldo' || f.origen.bulto === 'respaldo')).length;
+  const conOrigen = o => filas.filter(f => f.origen && (f.origen.pack === o || f.origen.bulto === o)).length;
+  const conRespaldo = conOrigen('respaldo');
   const cods = new Set(filas.map(f => f.cod));
   const ausentes = (p.revisar || []).filter(r => !cods.has(r.cod)).length;
   return h('div', { class: 'stat-cards' },
     statCard('prod', 'info', 'Productos en el catálogo', p.productos, p.ultimaVersion != null ? `Última versión: v${p.ultimaVersion}` : 'Todavía no hay versiones'),
-    statCard('ok', 'verde', 'Con precio del sistema', filas.length - conRespaldo, 'Decisión, precio vigente de SIGA o manual'),
+    statCard('ok', 'verde', 'Con precio de SIGA', conOrigen('siga'), 'Precio de SIGA, tal cual'),
     statCard('resp', 'warn', 'Con respaldo', conRespaldo, 'Usan el último precio publicado'),
     statCard('rev', (p.revisar || []).length ? 'crit' : 'verde', 'A revisar', (p.revisar || []).length, ausentes ? `${fmtNum(ausentes)} no salen en el catálogo` : 'Todos salen en el catálogo'));
 }
@@ -45,7 +46,7 @@ function cajaLista(clase, titulo, items) {
 }
 
 function bloqueRevisar(revisar) {
-  if (!revisar.length) return h('div', { class: 'empty' }, 'No hay nada para revisar: todos los productos tienen precio vigente.');
+  if (!revisar.length) return h('div', { class: 'empty' }, 'No hay nada para revisar: todos los productos tienen precio de SIGA.');
   const tabla = crearTabla({
     cols: [
       { key: 'cod', titulo: 'Cod', ancho: '90px', valor: f => f.cod },
@@ -58,27 +59,6 @@ function bloqueRevisar(revisar) {
   tabla.el.classList.add('max-h-[300px]');
   tabla.set(revisar);
   return h('details', { class: 'acordeon', open: true }, h('summary', { class: 'acordeon-sum' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▶'), `A revisar (${fmtNum(revisar.length)})`), h('div', { class: 'p-3' }, tabla.el));
-}
-
-// Insignia del modo del pack: nada en 'plu' (el caso normal).
-const insigniaModoPack = f => (f.modoPack === 'descuento' ? chip(f.descuento ? `Descuento ${String(f.descuento.pct).replace(".", ",")}%` : 'Descuento', 'warn')
-  : f.modoPack === 'ninguno' ? chip('Sin pack') : null);
-
-function bloqueModosPack(filas) {
-  const lista = filas.filter(f => f.modoPack === 'descuento' || f.modoPack === 'ninguno');
-  if (!lista.length) return null;
-  const tabla = crearTabla({
-    cols: [
-      { key: 'cod', titulo: 'Cod', ancho: '90px', valor: f => f.cod },
-      { key: 'nombre', titulo: 'Nombre', ancho: 'auto', valor: f => f.nombre },
-      { key: 'modo', titulo: 'Pack', ancho: '150px', valor: f => f.modoPack, celda: insigniaModoPack },
-      { key: 'minorista', titulo: 'Minorista', ancho: '96px', num: true, valor: f => (f.descuento ? f.descuento.minoristaFinal : null), celda: f => fmtPrecio(f.descuento && f.descuento.minoristaFinal) },
-      { key: 'pack', titulo: 'Precio pack', ancho: '96px', num: true, valor: f => (f.descuento ? f.descuento.pack : null), celda: f => (f.modoPack === 'ninguno' ? '—' : fmtPrecio(f.descuento && f.descuento.pack)) },
-    ],
-  });
-  tabla.el.classList.add('max-h-[300px]');
-  tabla.set(lista);
-  return h('details', { class: 'acordeon' }, h('summary', { class: 'acordeon-sum' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▶'), `Packs por descuento o sin pack (${fmtNum(lista.length)})`), h('div', { class: 'p-3' }, tabla.el));
 }
 
 const diffVista = crearDiff();
@@ -94,7 +74,6 @@ function pintarPrevia(p) {
       h('p', { class: 'text-sm text-gris' }, 'Solo informativo: no hace falta confirmar nada. Sirve para detectar subas o bajas raras antes de subir.'),
       p.ultimaVersion == null ? h('div', { class: 'empty' }, 'Todavía no hay una versión publicada para comparar: todo va a figurar como nuevo.') : null,
       diffVista.el),
-    bloqueModosPack(p.filas || []),
     bloqueRevisar(p.revisar || []));
   diffVista.set(p.diff);
   actualizarBotonGenerar(hayErrores, (p.filas || []).length);

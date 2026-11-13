@@ -35,21 +35,12 @@ test('no pisa Plu explícito ni muta la entrada', () => {
   assert.strictEqual(f.bultoPlu, undefined);
 });
 
-test('sin cantidad no completa; modoPack descuento/ninguno no completa pack', () => {
+test('sin cantidad no completa; modoPack ninguno no completa pack', () => {
   const lst = frac([pres('502', 10000, 'pack'), pres('503', 25000, 'bulto')]);
   assert.strictEqual(auto([fila({ bultoQty: '' })], lst).filas[0].bultoPlu, undefined);
-  for (const modoPack of ['descuento', 'ninguno']) {
-    const r = auto([fila({ modoPack, descuentoPack: 10 })], lst);
-    assert.strictEqual(r.filas[0].packPlu, undefined);
-    assert.strictEqual(r.filas[0].bultoPlu, '503');
-  }
-});
-
-test('fila manual queda intacta', () => {
-  const f = fila({ manual: true, packPrice: 1, bultoPrice: 2 });
-  const r = auto([f], frac([pres('502', 10000, 'pack'), pres('503', 25000, 'bulto')]));
-  assert.strictEqual(r.filas[0], f);
-  assert.deepStrictEqual([r.completadas, r.sinVincular], [[], []]);
+  const r = auto([fila({ modoPack: 'ninguno' })], lst);
+  assert.strictEqual(r.filas[0].packPlu, undefined);
+  assert.strictEqual(r.filas[0].bultoPlu, '503');
 });
 
 test('sin vínculo → sinVincular', () => {
@@ -62,13 +53,10 @@ test('vínculo SIGA gana sobre presentación mayorista', () => {
   assert.strictEqual(auto([fila({ packQty: '' })], lst).filas[0].bultoPlu, '700');
 });
 
-test('precio decidido sinIva de la presentación entra al índice', () => {
-  const sug = { sistema: { minorista: { precio: 4321, sinIva: true } }, ultimaCompra: { minorista: { precio: 1, sinIva: false } } };
-  const idx = C.indicePrecios(frac([pres('502', 25000, 'bulto', { sugeridos: sug })]));
-  const m = idx.get('502');
-  assert.deepStrictEqual([m.basePlu, m.tipo, m.decidido, m.sugerido, m.fuenteSugerido], ['500', 'bulto', 4321, 4321, 'sistema']);
-  const sinIva = C.indicePrecios(frac([pres('502', 25000, 'bulto', { sugeridos: { sistema: { minorista: { precio: 5 } } } })]), {});
-  assert.strictEqual(sinIva.get('502').decidido, null);
+test('presentación mayorista entra al índice sólo como vínculo (sin precios)', () => {
+  const m = C.indicePrecios(frac([pres('502', 25000, 'bulto')])).get('502');
+  assert.deepStrictEqual([m.basePlu, m.tipo, m.presentacion, m.hermanos.has('501')], ['500', 'bulto', true, true]);
+  assert.ok(!('decidido' in m) && !('vigente' in m));
 });
 
 test('sin autocompletar, cod de granel sin packPlu NO toma la presentación (preview/resumen)', () => {
@@ -77,7 +65,7 @@ test('sin autocompletar, cod de granel sin packPlu NO toma la presentación (pre
   assert.strictEqual(C.pluVinculado(f, 'pack', idx), null);
   assert.deepStrictEqual(C.resumenVinculos([f], idx).sinVincular, [{ cod: '500', nombre: 'Almendra', faltan: ['pack', 'bulto'] }]);
   const r = C.armarCatalogo({ tabla: { filas: C.validarTabla([f]) }, indice: idx });
-  assert.ok(!r.filas.some(x => x.origen && x.origen.pack === 'decision')); // sin vínculo: no sale precio de la presentación
+  assert.deepStrictEqual([r.filas.length, r.revisar[0].motivos], [0, ['pack: sin vínculo', 'bulto: sin vínculo']]); // no toma precio de la presentación
   assert.strictEqual(idx.get('502').presentacion, true);
 });
 
@@ -160,14 +148,11 @@ test('fórmula: ambiguos → sinVincular con motivo y sin asignar', () => {
   assert.match(r.sinVincular[0].motivo, /\(1, 2\)/);
 });
 
-test('fórmula: no pisa explícito ni repite PLU en pack y bulto; manual intacta', () => {
+test('fórmula: no pisa explícito ni repite PLU en pack y bulto', () => {
   let r = runF([filaF({ packPlu: '9' })], [u('201', 'A', 24), u('202', 'B', 6)]);
   assert.deepStrictEqual([r.filas[0].packPlu, r.filas[0].bultoPlu], ['9', '201']);
   r = runF([filaF({ bultoPlu: '200' })], [u('200', 'PEPAS PACK', 24)]);
   assert.strictEqual(r.filas[0].packPlu, undefined);
-  const m = filaF({ manual: true, packPrice: 1, bultoPrice: 2 });
-  r = runF([m], [u('200', 'X', 1)]);
-  assert.strictEqual(r.filas[0], m); assert.deepStrictEqual([r.completadas, r.sinVincular], [[], []]);
 });
 
 test('origen: SIGA (sigaVinculo) y presentación ganan sobre fórmula', () => {
@@ -180,7 +165,7 @@ test('ruta autocompletar: usosComoFormula sólo con cod numéricos con faltantes
   const llamadas = [];
   const ctx = await montar({ usosComoFormula: async plus => { llamadas.push(plus); return [u('900', 'PEPAS CAJA', 24, '100')]; } });
   try {
-    escribir(ctx.dir, [fila({}), filaF({ packQty: '' }), filaF({ cod: '101', packQty: '', bultoPlu: '5' }), filaF({ cod: '102', manual: true, packPrice: 1, bultoPrice: 2 })]);
+    escribir(ctx.dir, [fila({}), filaF({ packQty: '' }), filaF({ cod: '101', packQty: '', bultoPlu: '5' })]);
     const { status, data } = await post(ctx.base);
     assert.strictEqual(status, 200);
     assert.deepStrictEqual(llamadas, [['100']]);

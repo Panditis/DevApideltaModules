@@ -6,7 +6,7 @@ const NUEVA_SECCION = '__nueva__';
 // [título, ancho, grupo]: PACK y BULTO se agrupan bajo una fila de encabezado superior.
 const COLUMNAS_TABLA = [
   ['Orden', '70px'], ['Incl.', '50px'], ['Cod', '128px'], ['Nombre', 'auto'], ['Sección', '150px'],
-  ['Cantidad', '106px', 'pack'], ['Modo / PLU / descuento / precio', '290px', 'pack'], ['Cantidad', '106px', 'bulto'], ['PLU / precio', '200px', 'bulto'], ['Tipo y estado', '164px'],
+  ['Cantidad', '106px', 'pack'], ['Modo / PLU', '290px', 'pack'], ['Cantidad', '106px', 'bulto'], ['PLU', '200px', 'bulto'], ['Tipo y estado', '164px'],
 ];
 const GRUPOS_TABLA = [['Producto', 5, ''], ['PACK', 2, 'pack'], ['BULTO', 2, 'bulto'], ['', 1, '']];
 
@@ -33,8 +33,7 @@ function celdaCantidad(f, campo, etiqueta) {
     montar(nota, notaCantidad(el.value));
     el.closest('tr').classList.toggle('fila-aviso', filaConAviso(tp.filas.find(x => x._id === f._id)));
   };
-  const placeholder = campo === 'packQty' && modoDe(f) === 'descuento' ? 'obligatoria, ej. 12u' : null;
-  return h('td', null, entrada(f, campo, { etiqueta, alCambiar, placeholder }), nota);
+  return h('td', null, entrada(f, campo, { etiqueta, alCambiar }), nota);
 }
 // COD de filas del sistema: editable, con aviso (no numérico / repetido) que se refresca en todas las filas al tipear.
 function refrescarCods() {
@@ -46,7 +45,6 @@ function refrescarCods() {
   });
 }
 function celdaCod(f) {
-  if (f.manual) return h('td', null, entrada(f, 'cod', { etiqueta: 'Código' }));
   const e = errorCod(f);
   return h('td', { title: 'Si cambiás el código, guardá antes de usar la vista previa' },
     entrada(f, 'cod', { num: true, etiqueta: 'Código', alCambiar: refrescarCods }),
@@ -116,13 +114,12 @@ function celdaPluConNombre(f, campo, etiqueta, placeholder) {
   return { input, nota };
 }
 function celdaPluOPrecio(f, tipo) {
-  if (f.manual) return h('td', null, entrada(f, `${tipo}Price`, { num: true, etiqueta: `Precio fijo ${tipo}`, placeholder: 'Precio $' }));
   const { input, nota } = celdaPluConNombre(f, `${tipo}Plu`, `PLU ${tipo}`, 'automático');
   return h('td', null, input, nota);
 }
 
-// ── Pack de filas no manuales: modo (PLU / descuento / ninguno) ──
-const MODOS_PACK = [['plu', 'PLU pack'], ['descuento', '% sobre minorista'], ['ninguno', 'Sin precio pack']];
+// ── Pack: modo (PLU / ninguno) ──
+const MODOS_PACK = [['plu', 'PLU pack'], ['ninguno', 'Sin precio pack']];
 function cambiarModoPack(f, modo) {
   actualizarFila(f._id, { modoPack: modo });
   pintarFilas();
@@ -130,34 +127,14 @@ function cambiarModoPack(f, modo) {
   const sel = document.querySelector(`[data-fila="${f._id}"] select[data-campo="modoPack"]`);
   if (sel) sel.focus();
 }
-// Pack calculado que trajo la vista previa, sólo si corresponde al descuento tal como está cargado.
-function packDeReferencia(f) {
-  const r = exp.previa && (exp.previa.filas || []).find(x => x.cod === f.cod);
-  const d = r && r.modoPack === 'descuento' ? r.descuento : null;
-  return d && Number(d.pct) === parseDescuento(f.descuentoPack) && d.pack != null ? d.pack : null;
-}
-function notaDescuento(f) {
-  if (!descuentoValido(f.descuentoPack)) return h('span', { class: 'nota text-crit font-semibold' }, '⚠ El descuento tiene que ser mayor que 0 y menor que 100');
-  const ref = packDeReferencia(f);
-  return h('span', { class: 'nota text-gris' }, ref != null ? ['Pack calculado: ', h('b', { class: 'text-ink' }, fmtPrecio(ref)), ' (vista previa)'] : 'Se calcula en la vista previa');
-}
 function celdaPack(f) {
   const modo = modoDe(f);
   const sel = h('select', { class: 'campo w-full', 'data-campo': 'modoPack', 'aria-label': `Precio pack de ${etiquetaFila(f)}`, disabled: !tp.puede,
     onchange: () => cambiarModoPack(f, sel.value) }, MODOS_PACK.map(([v, t]) => h('option', { value: v }, t)));
   sel.value = modo;
   if (modo === 'ninguno') return h('td', null, h('div', { class: 'pack-fila' }, sel), h('span', { class: 'nota text-gris' }, 'Sin precio pack'));
-  if (modo === 'plu') {
-    const { input, nota } = celdaPluConNombre(f, 'packPlu', 'PLU pack', 'automático');
-    return h('td', null, h('div', { class: 'pack-fila' }, sel, input), nota);
-  }
-  const nota = h('div', null, notaDescuento(f));
-  const alCambiar = el => {
-    const actual = tp.filas.find(x => x._id === f._id);
-    montar(nota, notaDescuento(actual));
-    el.closest('tr').classList.toggle('fila-aviso', filaConAviso(actual));
-  };
-  return h('td', null, h('div', { class: 'pack-fila' }, sel, entrada(f, 'descuentoPack', { num: true, etiqueta: '% de descuento', placeholder: '% desc.', alCambiar })), nota);
+  const { input, nota } = celdaPluConNombre(f, 'packPlu', 'PLU pack', 'automático');
+  return h('td', null, h('div', { class: 'pack-fila' }, sel, input), nota);
 }
 
 async function elegirSeccion(f, select) {
@@ -189,48 +166,23 @@ function celdaOrden(f, pos) {
     botonMover('▼', `Bajar ${etiquetaFila(f)}`, 1, bloqueado || pos.ultima, () => moverFila(f._id, 1))));
 }
 // Los chips de estado (aviso / no incluida) los muestra el CSS según la clase de la fila: no hace falta repintar al editar.
-// Pasa una fila manual a fila del sistema: exige un cod numérico y no repetido (mismas reglas que errorCod).
-function vincularAlSistema(f) {
-  const cod = String(f.cod ?? '').trim();
-  const motivo = errorCod({ ...f, manual: false, cod });
-  if (motivo) return toast(motivo === 'Solo números' ? 'Poné primero el código de sistema en Cod (solo números)' : `Ese código ya está en la tabla: ${cod}`, 'crit');
-  tp.filas = tp.filas.map(x => {
-    if (x._id !== f._id) return x;
-    const { packPrice, bultoPrice, ...resto } = x;
-    return { ...resto, cod, manual: false, modoPack: 'plu' };
-  });
-  pintarTabla();
-  actualizarBarra();
-  // PLU ya tipeados antes de vincular: pedir sus nombres (la fila aún no tiene entrada en /vinculos).
-  for (const campo of ['packPlu', 'bultoPlu']) {
-    const nota = document.querySelector(`tr[data-fila="${f._id}"] [data-nota-plu="${campo}"]`);
-    if (nota && f[campo] != null) consultarNombre({ value: String(f[campo]) }, nota);
-  }
-  toast(`Fila ${cod} vinculada al sistema; guardá para ver los PLU y nombres`);
-}
 function celdaTipo(f) {
   const estados = [h('span', { class: 'est est-aviso' }, '⚠ Revisar'), h('span', { class: 'est est-off' }, 'No incluida')];
-  if (!f.manual) {
-    // Fila agregada y aún sin guardar (f.nueva): se puede quitar; las del sistema ya guardadas no.
-    const chipSistema = f.nueva
-      ? h('div', { class: 'est-fila' }, chip('Sistema'), botonMover('✕', `Quitar la fila ${etiquetaFila(f)}`, 0, !tp.puede, () => quitarFila(f._id)))
-      : chip('Sistema');
-    return h('td', null, h('div', { class: 'est-col' }, chipSistema, estados));
-  }
-  return h('td', null, h('div', { class: 'est-col' }, h('div', { class: 'est-fila' }, chip('Manual', 'warn'),
-    botonMover('✕', `Quitar la fila manual ${etiquetaFila(f)}`, 0, !tp.puede, () => quitarFila(f._id))),
-    h('button', { type: 'button', class: 'btn-sec btn-chico', disabled: !tp.puede, title: 'Convierte la fila en una del sistema usando el código de Cod',
-      'aria-label': `Vincular ${etiquetaFila(f)} al sistema`, onclick: () => vincularAlSistema(f) }, 'Vincular al sistema'), estados));
+  // Fila agregada y aún sin guardar (f.nueva): se puede quitar; las del sistema ya guardadas no.
+  const chipSistema = f.nueva
+    ? h('div', { class: 'est-fila' }, chip('Sistema'), botonMover('✕', `Quitar la fila ${etiquetaFila(f)}`, 0, !tp.puede, () => quitarFila(f._id)))
+    : chip('Sistema');
+  return h('td', null, h('div', { class: 'est-col' }, chipSistema, estados));
 }
 
 function filaTabla(f, nombres, pos) {
   const check = h('input', { type: 'checkbox', class: 'check', checked: f.incluido, disabled: !tp.puede, 'aria-label': `Incluir ${etiquetaFila(f)} en el catálogo`,
     onchange: e => { actualizarFila(f._id, { incluido: e.target.checked }); e.target.closest('tr').classList.toggle('fila-off', !e.target.checked); actualizarBarra(); } });
-  return h('tr', { 'data-fila': f._id, class: `${f.incluido ? '' : 'fila-off'} ${filaConAviso(f) ? 'fila-aviso' : ''} ${f.manual ? 'fila-manual' : ''}` },
+  return h('tr', { 'data-fila': f._id, class: `${f.incluido ? '' : 'fila-off'} ${filaConAviso(f) ? 'fila-aviso' : ''}` },
     celdaOrden(f, pos), h('td', null, check),
     celdaCod(f),
     h('td', null, h('div', { title: f.nombre || null }, entrada(f, 'nombre', { etiqueta: 'Nombre' }))), celdaSeccion(f, nombres),
-    celdaCantidad(f, 'packQty', 'Cantidad pack'), f.manual ? celdaPluOPrecio(f, 'pack') : celdaPack(f),
+    celdaCantidad(f, 'packQty', 'Cantidad pack'), celdaPack(f),
     celdaCantidad(f, 'bultoQty', 'Cantidad bulto'), celdaPluOPrecio(f, 'bulto'), celdaTipo(f));
 }
 

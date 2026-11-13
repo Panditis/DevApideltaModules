@@ -101,7 +101,7 @@ function montar({ permiso = true } = {}) {
   app.use(express.json());
   app.use((req, _res, next) => { req.session = { user: { id: 1, usuario: 'tester' } }; next(); });
   app.use(require('../routes/rutas_cotizador_mayorista')({ apiRoute, DATA_DIR: dir, tienePermiso: () => permiso,
-    listadosVigentes: async () => { await new Promise(r => setTimeout(r, 10)); return listados; } }));
+    listadosVigentes: async () => { await new Promise(r => setTimeout(r, 10)); return listados; }, preciosSigaPorPlu: async () => new Map([['101', 1000]]) }));
   return new Promise(ok => { const server = app.listen(0, () => ok({ server, dir, base: `http://127.0.0.1:${server.address().port}/api/cotizador-mayorista` })); });
 }
 const cerrar = ({ server, dir }) => { server.closeAllConnections(); server.close(); fs.rmSync(dir, { recursive: true, force: true }); };

@@ -17,7 +17,7 @@ test('normalizarCantidad: todos los casos del Excel', () => {
   assert.strictEqual(C.normalizarCantidad('1.5u').valor, null);
 });
 
-// Listado falso: base 100 con pack 101 (decidido) y bulto 102; base 200 solo bulto sin decisión.
+// Listado falso (sólo vínculos): base 100 con pack 101 y bulto 102; base 200 solo bulto 202 (sin precio en SIGA).
 const listados = {
   almacen: [
     { plu: '100', decision: { fuente: 'sistema' }, mayoristas: [{ plu: '101', tipo: 'pack' }, { plu: '102', tipo: 'bulto' }],
@@ -27,21 +27,24 @@ const listados = {
   ],
   fraccionado: [], produccion: [],
 };
+// PrecioVenta de SIGA (lista 0, sucursal 1): tal cual, sin redondear.
+const PRECIOS = new Map([['101', 1000], ['102', 900], ['302', 2030]]);
 const tabla = { filas: [
   { cod: '100', seccion: 'Mieles', nombre: 'Miel, "pet"', packQty: 'caja x 8u', bultoQty: '4 cajas x 32u' },
   { cod: '200', seccion: 'Tambores', nombre: 'Tambor 300kg', packQty: '—', bultoQty: '300kg' },
-  { cod: '9001', seccion: 'Mieles', nombre: 'Pallet', packQty: '', bultoQty: '1250u', manual: true, packPrice: null, bultoPrice: 2030 },
+  { cod: '9001', seccion: 'Mieles', nombre: 'Pallet', packQty: '', bultoQty: '1250u', bultoPlu: '302' },
 ] };
 
-test('armarCatalogo: decisión, solo bulto, manual, respaldo y orden por sección', () => {
+test('armarCatalogo: precio SIGA, solo bulto, PLU explícito, respaldo y orden por sección', () => {
   const indice = C.indicePrecios(listados);
-  const sin = C.armarCatalogo({ tabla, indice });
-  assert.deepStrictEqual(sin.filas.map(f => f.cod), ['100', '9001']); // 200 sin decisión ni respaldo: no sale
-  assert.strictEqual(sin.revisar[0].cod, '200');
+  const sin = C.armarCatalogo({ tabla, indice, precios: PRECIOS });
+  assert.deepStrictEqual(sin.filas.map(f => f.cod), ['100', '9001']); // 200 sin precio en SIGA ni respaldo: no sale
+  assert.deepStrictEqual(sin.revisar[0], { cod: '200', nombre: 'Tambor 300kg', motivos: ['bulto: PLU 202 sin precio en SIGA'], respaldo: false });
+  assert.deepStrictEqual(sin.filas[0].origen, { pack: 'siga', bulto: 'siga' });
   const f = sin.filas[0];
   assert.deepStrictEqual([f.pack_qty, f.pack_price, f.bulto_qty, f.bulto_price], ['8u', 1000, '32u', 900]);
   assert.deepStrictEqual([sin.filas[1].pack_qty, sin.filas[1].pack_price, sin.filas[1].bulto_price], ['', '', 2030]);
-  const con = C.armarCatalogo({ tabla, indice, respaldos: new Map([['200', { pack_price: '', bulto_price: '4800' }]]) });
+  const con = C.armarCatalogo({ tabla, indice, precios: PRECIOS, respaldos: new Map([['200', { pack_price: '', bulto_price: '4800' }]]) });
   const t = con.filas.find(x => x.cod === '200');
   assert.deepStrictEqual([t.pack_qty, t.pack_price, t.bulto_qty, t.bulto_price, t.origen.bulto], ['', '', '300kg', 4800, 'respaldo']);
   assert.ok(con.revisar.find(r => r.cod === '200').respaldo);
@@ -49,10 +52,10 @@ test('armarCatalogo: decisión, solo bulto, manual, respaldo y orden por secció
 
 test('armarCatalogo: cod repetido es error, cantidad rara va a revisar, bulto > pack avisa', () => {
   const r = C.armarCatalogo({ tabla: { filas: [
-    { cod: '9002', seccion: 'S', nombre: 'a', bultoQty: '1u', manual: true, packPrice: 10, packQty: '1u', bultoPrice: 20 },
-    { cod: '9002', seccion: 'S', nombre: 'b', manual: true, bultoQty: '1u', bultoPrice: 5 },
-    { cod: '9003', seccion: 'S', nombre: 'c', manual: true, bultoQty: 'docena', bultoPrice: 5 },
-  ] } });
+    { cod: '9002', seccion: 'S', nombre: 'a', packQty: '1u', bultoQty: '1u', packPlu: '1', bultoPlu: '2' },
+    { cod: '9002', seccion: 'S', nombre: 'b', bultoQty: '1u', bultoPlu: '2' },
+    { cod: '9003', seccion: 'S', nombre: 'c', bultoQty: 'docena', bultoPlu: '2' },
+  ] }, precios: new Map([['1', 10], ['2', 20]]) });
   assert.deepStrictEqual(r.errores, ['cod repetido: 9002']);
   assert.strictEqual(r.revisar[0].cod, '9003');
   assert.strictEqual(r.avisos.length, 1);
@@ -67,7 +70,7 @@ function cargarCotizador() {
 }
 
 test('CSV: contrato, sha256 estable y round-trip con el parser', () => {
-  const { filas } = C.armarCatalogo({ tabla, indice: C.indicePrecios(listados) });
+  const { filas } = C.armarCatalogo({ tabla, indice: C.indicePrecios(listados), precios: PRECIOS });
   const limpio = filas.map(({ origen: _o, ...x }) => x);
   const csv = C.generarCsv(limpio);
   assert.ok(csv.startsWith('cod,seccion,nombre,pack_qty,pack_price,bulto_qty,bulto_price\n'));
@@ -109,6 +112,7 @@ function montar({ permiso = true, fallarListados = false } = {}) {
   app.use(require('../routes/rutas_cotizador_mayorista')({
     apiRoute, DATA_DIR: dir, tienePermiso: () => permiso,
     listadosVigentes: async () => { if (fallarListados) throw new Error('sin SIGA'); return listados; },
+    preciosSigaPorPlu: async plus => new Map(plus.filter(p => PRECIOS.has(p)).map(p => [p, PRECIOS.get(p)])),
   }));
   return new Promise(ok => { const server = app.listen(0, () => ok({ server, dir, base: `http://127.0.0.1:${server.address().port}/api/cotizador-mayorista` })); });
 }
@@ -183,7 +187,6 @@ test('compararCodigos: catálogo (PLU de la tabla) vs sistema (vínculo sin lo e
     { cod: '100', seccion: 'Mieles', nombre: 'Miel', packQty: '8u', bultoQty: '32u', packPlu: '101', bultoPlu: '999' },
     { cod: '200', seccion: 'T', nombre: 'Tambor', packQty: '', bultoQty: '300kg', modoPack: 'ninguno' },
     { cod: '300', seccion: 'T', nombre: 'Otro', packQty: '6u', bultoPlu: '555' },
-    { cod: '9004', seccion: 'T', nombre: 'Manual', manual: true },
   ];
   const r = C.compararCodigos(filas, indice, { 999: 'Bulto viejo' });
   assert.deepStrictEqual(r.detalle.map(d => d.cod), ['100', '200', '300']);
@@ -202,7 +205,7 @@ test('rutas: GET comparacion-codigos', async () => {
     fs.writeFileSync(path.join(m.dir, 'cotizador_mayorista.json'), JSON.stringify(tabla));
     const r = await pedir(m.base, 'GET', '/comparacion-codigos');
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual(r.data.detalle.map(d => d.cod), ['100', '200']);
+    assert.deepStrictEqual(r.data.detalle.map(d => d.cod), ['100', '200', '9001']);
     assert.strictEqual(r.data.detalle[0].bulto.estado, 'solo sistema');
   } finally { cerrar(m); }
 });

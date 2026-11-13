@@ -1,6 +1,6 @@
 'use strict';
 // ── Cotizador mayorista · pestaña "Comparación con lo publicado" (GET /comparacion) ──
-// Diagnóstico: precios vigentes del sistema contra el último catalogo.csv exportado.
+// Diagnóstico: precios de SIGA contra el último catalogo.csv exportado.
 
 const cmp = { detalle: [], estado: 'todos', tipo: '', q: '' };
 const CMP_ESTADOS = [['todos', 'Todos'], ['igual', 'Iguales'], ['cambió', 'Cambiaron'], ['nuevo', 'Nuevos'], ['quitado', 'Quitados'], ['sin dato', 'Sin dato']];
@@ -16,7 +16,7 @@ const cmpTabla = crearTabla({
     { key: 'tipo', titulo: 'Tipo', ancho: '76px', valor: f => f.tipo, celda: f => cmpTipoTxt(f.tipo) },
     { key: 'publicado', titulo: 'Publicado', ancho: '110px', num: true, valor: f => f.publicado, celda: f => fmtPrecio(f.publicado) },
     { key: 'sistema', titulo: 'Sistema', ancho: '96px', num: true, valor: f => f.sistema, celda: f => fmtPrecio(f.sistema) },
-    { key: 'origen', titulo: 'Origen', ancho: '170px', valor: f => f.origen || '', celda: f => (f.origen === 'descuento' ? chip('Descuento', 'warn') : f.origen === 'vigente' ? chip('Vigente SIGA', 'gris') : f.origen || '—') },
+    { key: 'origen', titulo: 'Origen', ancho: '170px', valor: f => f.origen || '', celda: f => (f.origen === 'siga' ? chip('SIGA', 'gris') : f.origen === 'respaldo' ? chip('Respaldo', 'warn') : '—') },
     { key: 'pct', titulo: '%', ancho: '80px', num: true, valor: f => f.pct, celda: f => h('span', { class: diffClasePct(f.pct) }, fmtPct(f.pct)) },
     { key: 'estado', titulo: 'Estado', ancho: '92px', valor: f => f.estado, celda: f => chip(CMP_TXT[f.estado] || f.estado, CMP_TONO[f.estado]) },
   ],
@@ -45,12 +45,12 @@ function pintarComparacion() {
 function resumenComparacion(r) {
   return h('div', { class: 'stat-cards' },
     statCard('ok', 'verde', 'Iguales', r.iguales, 'Sistema y catálogo coinciden'),
-    statCard('rev', 'warn', 'Cambiaron', r.cambiaron, 'El precio vigente ya no es el publicado'),
+    statCard('rev', 'warn', 'Cambiaron', r.cambiaron, 'El precio de SIGA ya no es el publicado'),
     statCard('resp', 'info', 'Nuevos', r.nuevos, 'Están en el sistema y no en el catálogo'),
     statCard('rev', 'warn', 'Quitados', r.quitados, 'Estaban en el catálogo y ya no'),
     statCard('resp', 'info', 'Sin dato', r.sinDato, 'Falta el precio de un lado'),
-    statCard('prod', 'verde', 'Con decisión', r.conDecision, 'El sistema usa una decisión vigente'),
-    statCard('prod', 'verde', 'Con precio vigente', r.conVigente || 0, 'El sistema usa el precio vigente de SIGA'));
+    statCard('prod', 'verde', 'Con precio de SIGA', r.conSiga || 0, 'El sistema usa el precio de SIGA tal cual'),
+    statCard('resp', 'warn', 'Con respaldo', r.conRespaldo || 0, 'El sistema usa el último precio publicado'));
 }
 
 function encabezadoComparacion(r) {

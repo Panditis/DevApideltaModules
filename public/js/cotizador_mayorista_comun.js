@@ -31,7 +31,8 @@ const montar = (el, ...hijos) => { vaciar(el).append(...hijos.flat().filter(Bool
 const NF0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 const NF1 = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmtNum = n => (n == null || n === '' || !Number.isFinite(Number(n)) ? '—' : NF0.format(Number(n)));
-const fmtPrecio = n => (n == null || n === '' || !Number.isFinite(Number(n)) ? '—' : `$${NF0.format(Number(n))}`);
+const NF2 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }); // precios de SIGA: decimales solo si los tiene
+const fmtPrecio = n => (n == null || n === '' || !Number.isFinite(Number(n)) ? '—' : `$${NF2.format(Number(n))}`);
 const fmtPct = n => (n == null ? '—' : `${n > 0 ? '+' : ''}${NF1.format(n)}%`);
 function fmtFecha(iso) {
   const d = new Date(iso);

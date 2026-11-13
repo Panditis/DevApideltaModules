@@ -1,6 +1,6 @@
 'use strict';
 // ── Cotizador mayorista · pestaña "Comparación de códigos" (GET /comparacion-codigos) ──
-// Diagnóstico: PLU de pack y bulto cargados en la tabla (catálogo) contra el vínculo vigente del sistema.
+// Diagnóstico: PLU de pack y bulto cargados en la tabla (catálogo) contra el vínculo del sistema.
 
 const ccod = { detalle: [], estado: 'todos', q: '' };
 const CCOD_ESTADOS = [['todos', 'Todos'], ['igual', 'Iguales'], ['distinto', 'Distintos'], ['solo catálogo', 'Solo catálogo'], ['solo sistema', 'Solo sistema'], ['sin dato', 'Sin dato']];
