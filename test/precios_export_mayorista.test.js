@@ -13,9 +13,10 @@ const VINC = [{ tipo: 'pack', plu: '201', nombre: 'Pack 201', unidades: 25, vige
 
 const presentacion = variante => ({ ...L.filaProducto({ plu: '101', nombre: 'Almendras 25Kg', tipo: 'fraccionado',
   costos: { sistema: 1000, ultimaCompra: null, manual: null }, pesoG: 25000, mayoristas: VINC, cfg: CFG, variante }), mayorista: variante === 'mayorista' });
-const exportar = variante => {
+const OMITIR = { exportarMayoristaSinIva: false }; // el default vigente es true (2026-11-13): los casos de omisión lo piden explícito
+const exportar = (variante, opts) => {
   const granel = { plu: '100', nombre: 'Almendras', costoSistema: 1000, sugeridos: {}, mayoristas: [], presentaciones: [presentacion(variante)], decision: { fuente: 'sistema' } };
-  return L.listasExport(L.itemsDecididos({ fraccionado: [granel] }).items);
+  return L.listasExport(L.itemsDecididos({ fraccionado: [granel] }, opts).items);
 };
 const venta = (lista, plu) => (lista.find(f => String(f[0]) === plu) || [])[3];
 
@@ -26,7 +27,7 @@ test('export: presentación mayorista → pack/bulto vinculados con el precio po
 });
 
 test('export: la misma presentación minorista → pack/bulto TAMBIÉN por descuento (tablas pack/bulto ya no se usan); Venta minorista 1700', () => {
-  const min = exportar('minorista'), may = exportar('mayorista');
+  const min = exportar('minorista', OMITIR), may = exportar('mayorista', OMITIR);
   assert.strictEqual(venta(min.packNeto, '201'), 31500); // 1400 × 0,9 × 25 (antes 35000 con la tabla 40 %)
   assert.strictEqual(venta(min.bultoNeto, '202'), 28350); // 1260 × 0,9 × 25
   assert.deepStrictEqual([venta(min.packIva, '201'), venta(min.bultoIva, '202')], [venta(may.packIva, '201'), venta(may.bultoIva, '202')]);
@@ -38,7 +39,7 @@ test('export: la misma presentación minorista → pack/bulto TAMBIÉN por descu
 // Mayorista con descuento (minorista.sinIva): no sale en el export a SIGA hasta definir la lista (EXPORTAR_MAYORISTA_SIN_IVA).
 test('export: mayorista con descuento → fuera de toda lista, cuenta en omitidosMayorista; vinculados siguen', () => {
   const granel = { plu: '100', nombre: 'Almendras', costoSistema: 1000, sugeridos: {}, mayoristas: [], presentaciones: [presentacion('mayorista')], decision: { fuente: 'sistema' } };
-  const r = L.itemsDecididos({ fraccionado: [granel] });
+  const r = L.itemsDecididos({ fraccionado: [granel] }, OMITIR);
   assert.strictEqual(r.omitidosMayorista, 1);
   assert.deepStrictEqual(r.omitidosDetalle, [{ plu: '101', nombre: 'Almendras 25Kg', motivo: 'mayoristaSinIva' }]);
   const l = L.listasExport(r.items);
@@ -49,7 +50,7 @@ test('export: mayorista con descuento → fuera de toda lista, cuenta en omitido
 
 test('export: mayorista tipo pack también queda fuera (sinIva); con el flag sale 1250 sin IVA', () => {
   const granel = { plu: '100', nombre: 'Almendras', costoSistema: 1000, sugeridos: {}, mayoristas: [], presentaciones: [presentacion('pack')], decision: { fuente: 'sistema' } };
-  const r = L.itemsDecididos({ fraccionado: [granel] });
+  const r = L.itemsDecididos({ fraccionado: [granel] }, OMITIR);
   assert.strictEqual(r.omitidosMayorista, 1);
   assert.strictEqual(venta(L.listasExport(r.items).packNeto, '201'), 31500);
   assert.strictEqual(venta(L.listasExport(L.itemsDecididos({ fraccionado: [granel] }, { exportarMayoristaSinIva: true }).items).minorista, '101'), 1250);

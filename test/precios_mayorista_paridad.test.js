@@ -70,7 +70,7 @@ test('export SIGA: 5Kg/20Kg del mismo granel → el sugerido sale del tipo por r
   const [p5, p20] = granel.presentaciones.map(p => p.sugeridos.sistema.minorista);
   assert.deepStrictEqual([p5.tipoMayorista, p20.tipoMayorista], ['pack', 'bulto']);
   const venta = (l, plu) => (l.minorista.find(f => String(f[0]) === plu) || [])[3];
-  const off = L.itemsDecididos({ fraccionado: [granel] }); // flag vigente (false): ambas omitidas
+  const off = L.itemsDecididos({ fraccionado: [granel] }, { exportarMayoristaSinIva: false }); // flag apagado: ambas omitidas
   assert.strictEqual(off.omitidosMayorista, 2);
   assert.strictEqual(venta(L.listasExport(off.items), '701'), undefined);
   const on = L.listasExport(L.itemsDecididos({ fraccionado: [granel] }, { exportarMayoristaSinIva: true }).items);
