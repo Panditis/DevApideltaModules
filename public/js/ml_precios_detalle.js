@@ -24,7 +24,10 @@ function tramoCostoFijo(tabla, precio, defecto) {
 // Mismo cálculo que precioEsperado de lib/ml_precios.js (solo para mostrar; el esperado oficial lo calcula el server).
 // `cuotas` (4.º) es el viejo esquema y se ignora: ahora manda cuotasQty. El envío por umbral y el tramo de cargo fijo
 // se evalúan sobre el mismo precio de referencia: el esperado sin envío y sin cargo fijo.
-function calcularEsperado(carta, unidades, envio, cuotas, cfg, pesoKg, cuotasQty) {
+// precioPorKg: la carta de SIGA es por kilo y la base es carta x peso de la publicación; sin peso > 0 no hay esperado (null).
+function calcularEsperado(carta, unidades, envio, cuotas, cfg, pesoKg, cuotasQty, precioPorKg = false) {
+  const pKg = num(pesoKg);
+  if (precioPorKg && !(pKg !== null && pKg > 0)) return null;
   const E = PreciosEsquema;
   const sumaExtras = tipo => (cfg.extras || []).filter(x => x.tipo === tipo).reduce((s, x) => s + (Number(x.valor) || 0), 0);
   const tr = tramoEnvio(cfg.tablaEnvio, pesoKg, cfg.envioMonto);
@@ -32,7 +35,7 @@ function calcularEsperado(carta, unidades, envio, cuotas, cfg, pesoKg, cuotasQty
   const envioEfectivo = bonif ? E.r2(tr.monto * 0.5) : tr.monto;
   const qty = num(cuotasQty) === null ? 1 : num(cuotasQty);
   const cuotasPct = E.r2((Number(cfg.cuotasBasePct) || 0) + recargoCuotas(cfg.tablaCuotas, qty));
-  const base = E.r2(carta * unidades);
+  const base = E.r2(precioPorKg ? carta * pKg : carta * unidades);
   const calc = (aplicaEnvio, fijoMonto) => {
     const gastosPct = E.r2(cfg.comisionPct + (aplicaEnvio ? cfg.envioGratisPct || 0 : 0) + cuotasPct + (cfg.impuestosPct || 0) + sumaExtras('%'));
     const gastosFijos = E.r2((aplicaEnvio ? envioEfectivo : 0) + fijoMonto + sumaExtras('$'));
@@ -47,11 +50,12 @@ function calcularEsperado(carta, unidades, envio, cuotas, cfg, pesoKg, cuotasQty
   const aplica = gratis || porUmbral;
   const r = calc(aplica, cf.monto);
   return {
-    carta, unidades, envio, cuotas, base, envioMonto: aplica ? envioEfectivo : 0, envioMontoLista: aplica ? tr.monto : 0, envioBonificado: aplica && bonif, envioTopeKg: aplica ? tr.topeKg : null, envioOrigen: aplica ? tr.origen : null, envioPorUmbral: porUmbral,
+    carta, unidades, envio, cuotas, base, precioPorKg: !!precioPorKg, pesoKg: pKg, envioMonto: aplica ? envioEfectivo : 0, envioMontoLista: aplica ? tr.monto : 0, envioBonificado: aplica && bonif, envioTopeKg: aplica ? tr.topeKg : null, envioOrigen: aplica ? tr.origen : null, envioPorUmbral: porUmbral,
     cuotasQty: qty, cuotasPct, costoFijoTabla: cf.monto, costoFijoPrecioMax: cf.precioMax, costoFijoOrigen: cf.origen, ...r,
   };
 }
 
+const fmtKg = n => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 3 });
 const filaDesglose = (txt, det, monto, clase) => `<tr${clase ? ` class="${clase}"` : ''}><td>${txt}</td><td class="det">${det || ''}</td><td>${monto}</td></tr>`;
 const filaSec = txt => `<tr class="sec"><td colspan="3">${txt}</td></tr>`;
 
@@ -92,7 +96,9 @@ function desgloseHtml(f, cfg, siempreEnvio) {
   const ajuste = f.esperado - f.base - totalGastos; // lo que deja el redondeo del esperado
   const filas = [
     filaSec('Precio SIGA'),
-    filaDesglose(`Carta SIGA <span class="t-gris">${fmtMoney2(f.carta)} &times; ${fmtInt(f.unidades)} un.</span>`, '', fmtMoney2(f.base), 'sub'),
+    f.precioPorKg
+      ? filaDesglose(`Precio SIGA por kg &times; peso <span class="t-gris">${fmtMoney2(f.carta)} /kg &times; ${escHtml(fmtKg(f.pesoKg))} kg</span>`, '', fmtMoney2(f.base), 'sub')
+      : filaDesglose(`Carta SIGA <span class="t-gris">${fmtMoney2(f.carta)} &times; ${fmtInt(f.unidades)} un.</span>`, '', fmtMoney2(f.base), 'sub'),
     filaSec('Gastos (sobre el precio esperado)'),
   ];
   for (const [nombre, v] of pcts) filas.push(filaDesglose(nombre, fmtPct(v), '+' + fmtMoney2(f.esperado * v / 100)));
@@ -102,7 +108,7 @@ function desgloseHtml(f, cfg, siempreEnvio) {
   filas.push(filaDesglose('Precio esperado en ML', '', fmtMoney2(f.esperado), 'tot'));
   // Control de la regla: precio final - comisiones ~ precio SIGA.
   filas.push(filaSec('Control de la regla'));
-  filas.push(filaDesglose('Precio SIGA (carta &times; unidades)', '', fmtMoney2(f.base)));
+  filas.push(filaDesglose(f.precioPorKg ? 'Precio SIGA (por kg &times; peso)' : 'Precio SIGA (carta &times; unidades)', '', fmtMoney2(f.base)));
   filas.push(filaDesglose('Neto tras comisiones', '', fmtMoney2(f.esperado - totalGastos), 'sub'));
   return `<table class="desglose"><tbody>${filas.join('')}</tbody></table>`;
 }
@@ -112,13 +118,14 @@ const NOTAS_ESTADO = {
   sin_vincular: 'Todavía no está vinculada a un producto de SIGA, así que no hay precio esperado. Vinculala desde la fila.',
   sin_carta: 'El producto vinculado no tiene precio de carta en SIGA (lista minorista). Cargalo en SIGA o revisá el código.',
   sin_precio: 'La publicación no tiene precio en la bajada de ML.',
+  sin_peso: 'Falta el peso de la publicación (el precio de SIGA es por kg). Cargalo en Editar; el estimado "~" también sirve.',
 };
 
 function abrirDetalle(id) {
   const f = ((datos && datos.filas) || []).find(x => String(x.id) === String(id));
   if (!f) return;
   $('dlg-tit').textContent = f.titulo || f.id;
-  $('dlg-sub').textContent = [f.id, f.nombreProducto && `${f.nombreProducto} (cód. ${f.codigo} × ${f.unidades})`, ENVIO[f.envio], num(f.cuotasQty) > 1 && `${f.cuotasQty} cuotas`].filter(Boolean).join(' · ');
+  $('dlg-sub').textContent = [f.id, f.nombreProducto && `${f.nombreProducto} (cód. ${f.codigo} × ${f.unidades}${f.precioPorKg ? ', precio por kg' : ''})`, ENVIO[f.envio], num(f.cuotasQty) > 1 && `${f.cuotasQty} cuotas`].filter(Boolean).join(' · ');
   const d = num(f.desvioPct);
   const dif = num(f.esperado) !== null && num(f.precioMl) !== null ? f.precioMl - f.esperado : null;
   const claseDif = f.estado === 'ok' ? 't-ok' : f.estado === 'desviada' ? 't-crit' : '';

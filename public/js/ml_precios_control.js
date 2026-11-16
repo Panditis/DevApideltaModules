@@ -3,14 +3,16 @@ const GRUPOS = {
   pend: f => f.estado !== 'ok',
   desviada: f => f.estado === 'desviada',
   sin_vincular: f => f.estado === 'sin_vincular',
+  sin_peso: f => f.estado === 'sin_peso',
   datos: f => ['sin_carta', 'sin_precio'].includes(f.estado),
   ok: f => f.estado === 'ok',
   todas: () => true,
 };
-const RANGO_ESTADO = { desviada: 0, sin_vincular: 1, sin_carta: 2, sin_precio: 2, ok: 3 };
+const RANGO_ESTADO = { desviada: 0, sin_vincular: 1, sin_carta: 2, sin_precio: 2, sin_peso: 2, ok: 3 };
 const NOTA_ESTADO = {
   sin_carta: 'El producto no tiene precio de carta en SIGA.',
   sin_precio: 'La publicación no tiene precio en ML.',
+  sin_peso: 'El precio de SIGA es por kg y falta el peso de la publicación.',
   ok: 'Precio en orden.',
 };
 const COLUMNAS = [
@@ -55,18 +57,19 @@ function filtrar() {
 // ── Resumen ──────────────────────────────────────────────────────────────────
 function renderResumen() {
   const filas = filasActivas();
-  const n = { desviada: 0, sin_vincular: 0, datos: 0, ok: 0 };
-  for (const f of filas) n[f.estado === 'ok' ? 'ok' : f.estado === 'desviada' ? 'desviada' : f.estado === 'sin_vincular' ? 'sin_vincular' : 'datos']++;
+  const n = { desviada: 0, sin_vincular: 0, sin_peso: 0, datos: 0, ok: 0 };
+  for (const f of filas) n[['ok', 'desviada', 'sin_vincular', 'sin_peso'].includes(f.estado) ? f.estado : 'datos']++;
   const total = filas.length;
   const pct = total ? Math.round(n.ok / total * 100) : 0;
   const pend = total - n.ok;
   $('res-titulo').textContent = total ? `${pct} % en precio` : 'Sin publicaciones';
   $('res-sub').textContent = total ? (pend ? `${fmtInt(pend)} de ${fmtInt(total)} publicaciones necesitan atención` : `Las ${fmtInt(total)} publicaciones están bien`) : 'No hay publicaciones con este filtro de estado.';
   const tramo = (v, color) => (v ? `<i style="width:${v / total * 100}%;background:${color}"></i>` : '');
-  $('res-barra').innerHTML = total ? tramo(n.ok, '#0e700e') + tramo(n.desviada, '#a4262c') + tramo(n.sin_vincular, '#e0a800') + tramo(n.datos, '#9a9d92') : '';
+  $('res-barra').innerHTML = total ? tramo(n.ok, '#0e700e') + tramo(n.desviada, '#a4262c') + tramo(n.sin_vincular, '#e0a800') + tramo(n.sin_peso, '#e0a800') + tramo(n.datos, '#9a9d92') : '';
   const items = [
     { g: 'desviada', lbl: 'Desviadas', val: n.desviada, sub: 'Corregir el precio en ML', tono: 't-crit' },
     { g: 'sin_vincular', lbl: 'Sin vincular', val: n.sin_vincular, sub: 'Asociar a un producto de SIGA', tono: 't-warn' },
+    { g: 'sin_peso', lbl: 'Sin peso', val: n.sin_peso, sub: 'Precio por kg sin peso cargado', tono: 't-warn' },
     { g: 'datos', lbl: 'Faltan datos', val: n.datos, sub: 'Sin carta o sin precio', tono: 't-gris' },
     { g: 'ok', lbl: 'En precio', val: n.ok, sub: `Dentro de ±${config ? config.toleranciaPct : '…'} %`, tono: 't-ok' },
   ];
@@ -93,6 +96,9 @@ function accionHtml(f) {
   if (f.estado === 'sin_vincular') {
     return `<span class="chip chip--warn">Sin vincular</span><button type="button" class="btn btn-primario sm" data-act="vincular" data-id="${id}">Vincular</button>`;
   }
+  if (f.estado === 'sin_peso') {
+    return `<span class="chip chip--warn">Sin peso</span><span class="nota">${escHtml(NOTA_ESTADO.sin_peso)}</span><button type="button" class="btn btn-primario sm" data-act="cargar-peso" data-id="${id}">Cargar peso</button>`;
+  }
   const chip = f.estado === 'ok' ? 'chip--ok' : f.estado === 'sin_precio' ? 'chip--gris' : 'chip--warn';
   const txt = { ok: 'Ok', sin_carta: 'Sin carta', sin_precio: 'Sin precio' }[f.estado] || f.estado;
   return `<span class="chip ${chip}">${escHtml(txt)}</span><span class="nota">${escHtml(NOTA_ESTADO[f.estado] || '')}</span>${calc}`;
@@ -102,7 +108,7 @@ function productoHtml(f) {
   if (f.codigo === null || f.codigo === undefined) return '<span class="t-gris">-</span>';
   const id = escHtml(f.id);
   return `<div class="prod-nombre" title="${escHtml(f.nombreProducto || '')}">${f.nombreProducto ? escHtml(f.nombreProducto) : '<span class="t-warn">No se encontró el producto</span>'}</div>
-    <div class="pub-meta"><span class="num">Cód. ${escHtml(f.codigo)} &times; ${escHtml(f.unidades)} un.${num(f.pesoKg) === null ? '' : ` &middot; ${f.pesoEstimado ? `<span title="Estimado por el nombre del producto; editalo si no es correcto">~${escHtml(f.pesoKg)}</span>` : escHtml(f.pesoKg)} kg`}${num(f.carta) === null ? '' : ` &middot; carta ${fmtMoney(f.carta)}`}</span>
+    <div class="pub-meta"><span class="num">Cód. ${escHtml(f.codigo)} &times; ${escHtml(f.unidades)} un.${f.precioPorKg ? ' &middot; <span class="chip chip--gris" title="El precio de SIGA es por kg: se multiplica por el peso de la publicación.">Por kg</span>' : ''}${num(f.pesoKg) === null ? '' : ` &middot; ${f.pesoEstimado ? `<span title="Estimado por el nombre del producto; editalo si no es correcto">~${escHtml(f.pesoKg)}</span>` : escHtml(f.pesoKg)} kg`}${num(f.carta) === null ? '' : ` &middot; carta ${fmtMoney(f.carta)}`}</span>
     <button type="button" class="link-btn" data-act="editar" data-id="${id}" aria-label="Editar vínculo de ${id}">Editar</button></div>`;
 }
 
@@ -136,13 +142,14 @@ function editorHtml(f) {
       <div class="campo"><label for="ed-unid">Unidades en la publicación</label><input id="ed-unid" inputmode="numeric" autocomplete="off" value="${escHtml(editor.unidades)}" style="width:110px"></div>
       <div class="campo"><label for="ed-cuotas">Cuotas (vacío = 1)</label><input id="ed-cuotas" inputmode="numeric" autocomplete="off" value="${escHtml(editor.cuotas)}" style="width:110px"></div>
       <div class="campo"><label for="ed-peso">Peso (kg, opcional)</label><input id="ed-peso" inputmode="decimal" autocomplete="off" value="${escHtml(editor.peso)}" style="width:110px" title="Vacío: usa envío por defecto" aria-describedby="ed-peso-ayuda">${f.pesoEstimado ? `<span id="ed-peso-ayuda" class="ayuda">~ Estimado por el nombre del producto; editalo si no es correcto</span>` : ''}</div>
+      <div class="campo"><label class="flex items-center gap-2 text-sm" title="${TIP_POR_KG}"><input type="checkbox" id="ed-porkg"${editor.precioPorKg ? ' checked' : ''}> Precio SIGA por kg</label></div>
       <button type="button" class="btn btn-primario" data-act="guardar">${vinculada ? 'Guardar vínculo' : 'Vincular'}</button>
       <button type="button" class="btn btn-secundario" data-act="cancelar">Cancelar</button>
       ${vinculada ? '<button type="button" class="btn btn-peligro" data-act="quitar">Quitar vínculo</button>' : ''}
     </div>
     <div class="vinc-prev" id="ed-prev" aria-live="polite">${previewCodigoHtml(editor.codigo)}</div>
     <div id="ed-error" class="error mt-2" role="alert" hidden></div>
-    <p class="text-xs t-gris mt-1">Si la publicación es un combo de varias unidades del mismo producto, poné cuántas trae (el precio se calcula como carta &times; unidades).</p>
+    <p class="text-xs t-gris mt-1">Si la publicación es un combo de varias unidades del mismo producto, poné cuántas trae (el precio se calcula como carta &times; unidades). Con "Precio SIGA por kg" se calcula como carta &times; peso.</p>
   </td></tr>`;
 }
 
@@ -211,10 +218,10 @@ async function copiarPrecioSugerido(id, boton) {
 function abrirEditor(id) {
   const f = (datos.filas || []).find(x => String(x.id) === String(id));
   if (!f) return;
-  editor = { id: String(f.id), codigo: f.codigo ?? '', unidades: f.unidades ?? 1, peso: f.pesoKg ?? '', pesoTocado: false, cuotas: f.cuotasQty ?? '' };
+  editor = { id: String(f.id), codigo: f.codigo ?? '', unidades: f.unidades ?? 1, peso: f.pesoKg ?? '', pesoTocado: false, cuotas: f.cuotasQty ?? '', precioPorKg: !!f.precioPorKg };
   renderTabla();
   const c = $('ed-codigo');
-  if (c) { actualizarPreview($('ed-prev'), editor.codigo, editor.unidades, f); c.focus(); c.select(); c.closest('tr').scrollIntoView({ block: 'nearest' }); }
+  if (c) { actualizarPreview($('ed-prev'), editor.codigo, editor.unidades, f, editor.precioPorKg); c.focus(); c.select(); c.closest('tr').scrollIntoView({ block: 'nearest' }); }
 }
 const filaEditada = () => (datos.filas || []).find(x => String(x.id) === editor.id);
 function cerrarEditor() { editor = null; renderTabla(); }
@@ -236,11 +243,11 @@ async function guardarEditor() {
   errorEditor('');
   const id = editor.id;
   const previo = (datos.filas || []).find(x => String(x.id) === id);
-  const antes = previo ? { codigo: previo.codigo ?? null, unidades: previo.unidades ?? 1, pesoKg: editor.pesoTocado ? previo.pesoKg ?? null : undefined, cuotasQty: previo.cuotasQty ?? null } : { codigo: null, unidades: 1, pesoKg: null, cuotasQty: null };
+  const antes = previo ? { codigo: previo.codigo ?? null, unidades: previo.unidades ?? 1, pesoKg: editor.pesoTocado ? previo.pesoKg ?? null : undefined, cuotasQty: previo.cuotasQty ?? null, precioPorKg: !!previo.precioPorKg } : { codigo: null, unidades: 1, pesoKg: null, cuotasQty: null, precioPorKg: false };
   const botones = document.querySelectorAll('tr.fila-vinc button');
   botones.forEach(b => { b.disabled = true; });
   try {
-    await putVinculo(id, v.codigo, v.unidades, editor.pesoTocado ? v.pesoKg : undefined, v.cuotasQty); // sin tocar el peso no se manda: un estimado sigue siendo estimado
+    await putVinculo(id, v.codigo, v.unidades, editor.pesoTocado ? v.pesoKg : undefined, v.cuotasQty, editor.precioPorKg); // sin tocar el peso no se manda: un estimado sigue siendo estimado
     editor = null;
     await cargarControl();
     const f = (datos.filas || []).find(x => String(x.id) === id);
@@ -261,7 +268,7 @@ function resumenVinculo(f) {
 
 async function deshacerVinculo(id, antes) {
   try {
-    await putVinculo(id, antes.codigo, antes.unidades, antes.pesoKg, antes.cuotasQty);
+    await putVinculo(id, antes.codigo, antes.unidades, antes.pesoKg, antes.cuotasQty, antes.precioPorKg);
     await cargarControl();
     avisar('Vínculo restaurado.');
   } catch (err) { avisar(`No se pudo deshacer: ${err.message}`, 'error'); }
@@ -272,7 +279,7 @@ async function quitarEditor() {
   const previo = (datos.filas || []).find(x => String(x.id) === id);
   if (!await apdConfirmar(`¿Quitar el vínculo de ${id}? La publicación vuelve a quedar sin vincular.`, { titulo: 'Quitar vínculo', aceptar: 'Quitar', cancelar: 'Cancelar', peligro: true })) return;
   const antes = { codigo: previo ? previo.codigo : null, unidades: previo ? previo.unidades : 1, pesoKg: previo ? previo.pesoKg ?? null : null, // se reenvía como exacto: la API no restaura el flag de estimado
-    cuotasQty: previo ? previo.cuotasQty ?? null : null };
+    cuotasQty: previo ? previo.cuotasQty ?? null : null, precioPorKg: !!(previo && previo.precioPorKg) };
   try {
     await putVinculo(id, null, 1);
     editor = null;
@@ -286,6 +293,7 @@ const ACCIONES = {
   vincular: id => abrirEditor(id),
   editar: id => abrirEditor(id),
   calc: id => abrirDetalle(id),
+  'cargar-peso': id => { abrirEditor(id); const p = $('ed-peso'); if (p) { p.focus(); p.select(); } },
   copiar: (id, b) => copiarPrecioSugerido(id, b),
   guardar: () => guardarEditor(),
   cancelar: () => cerrarEditor(),
@@ -307,7 +315,14 @@ $('tabla-wrap').addEventListener('input', e => {
   if (e.target.id === 'ed-unid') editor.unidades = e.target.value;
   if (e.target.id === 'ed-peso') { editor.peso = e.target.value; editor.pesoTocado = true; }
   if (e.target.id === 'ed-cuotas') editor.cuotas = e.target.value;
-  if (e.target.id === 'ed-codigo' || e.target.id === 'ed-unid') actualizarPreview($('ed-prev'), editor.codigo, editor.unidades, filaEditada());
+  if (e.target.id === 'ed-codigo' || e.target.id === 'ed-unid') actualizarPreview($('ed-prev'), editor.codigo, editor.unidades, filaEditada(), editor.precioPorKg);
+});
+$('tabla-wrap').addEventListener('change', e => {
+  if (!editor || e.target.id !== 'ed-porkg') return;
+  editor.precioPorKg = e.target.checked;
+  actualizarPreview($('ed-prev'), editor.codigo, editor.unidades, filaEditada(), editor.precioPorKg);
+  if (editor.precioPorKg && num(editor.peso) === null && num(filaEditada().pesoKg) === null) errorEditor('Para el precio por kg hace falta el peso de la publicación.', $('ed-peso'));
+  else errorEditor('');
 });
 $('tabla-wrap').addEventListener('keydown', e => {
   if (!editor || !e.target.closest('tr.fila-vinc')) return;
@@ -371,6 +386,53 @@ async function importarArchivo(file) {
     $('importar').textContent = 'Importar bajada de ML';
   }
 }
+// ── Exportar: xlsx de la bajada con PRICE = esperado del módulo ──────────────
+function nombreDescarga(resp) {
+  const cd = resp.headers.get('Content-Disposition') || '';
+  const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd);
+  if (!m) return 'bajada_precios_modulo.xlsx';
+  try { return decodeURIComponent(m[1]); } catch (_e) { return m[1]; }
+}
+async function exportarPrecios(file) {
+  if (!file) return;
+  if (!/\.xlsx$/i.test(file.name)) { avisar(`"${file.name}" no es un archivo .xlsx.`, 'error'); return; }
+  if (file.size > MAX_BYTES) { avisar('El archivo supera los 10 MB.', 'error'); return; }
+  const btn = $('exportar');
+  btn.disabled = true;
+  avisar('');
+  try {
+    const form = new FormData();
+    form.append('archivo', file);
+    let r;
+    try { r = await fetch('/api/ml-precios/exportar', { method: 'POST', body: form }); } catch (_e) { throw new Error('No se pudo conectar con el servidor.'); }
+    if (!r.ok) {
+      let cuerpo = null;
+      try { cuerpo = await r.json(); } catch (_e) { /* sin JSON */ }
+      throw new Error((cuerpo && cuerpo.error) || `Error ${r.status} del servidor.`);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreDescarga(r);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const exp = r.headers.get('X-Ml-Exportadas');
+    const sin = r.headers.get('X-Ml-Sin-Cambio');
+    avisar(exp === null || sin === null
+      ? 'Excel exportado.'
+      : `Exportadas ${fmtInt(exp)} · ${fmtInt(sin)} sin cambio (sin vincular o sin carta)`);
+  } catch (err) {
+    avisar(`No se pudo exportar: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('exportar').addEventListener('click', () => $('archivo-exportar').click());
+$('archivo-exportar').addEventListener('change', e => { const file = e.target.files[0]; e.target.value = ''; exportarPrecios(file); });
+
 const elegirArchivo = () => $('archivo').click();
 $('importar').addEventListener('click', elegirArchivo);
 $('importar-vacio').addEventListener('click', elegirArchivo);

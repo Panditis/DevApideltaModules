@@ -141,3 +141,16 @@ test('paridad con bonificación de envío on/off', () => {
     }
   }
 });
+
+test('paridad con precioPorKg true/false (base = carta × pesoKg; sin peso → null en ambos)', () => {
+  const cfg = { ...base, tablaEnvio: [{ topeKg: 0.5, valor: 1000 }, { topeKg: 3, valor: 4500.5 }], envioMonto: 7000, envioGratisDesde: 20000, redondeoPaso: 10 };
+  for (const [carta, unidades] of casos) for (const pesoKg of [0.25, 0.5, 2.5, 4]) for (const precioPorKg of [false, true]) for (const envio of ['gratis', 'comprador']) {
+    const s = ml.precioEsperado(carta, unidades, envio, 'no', cfg, pesoKg, 3, precioPorKg);
+    const c = calcularEsperado(carta, unidades, envio, 'no', cfg, pesoKg, 3, precioPorKg);
+    for (const k of ['base', 'esperado', 'gastosFijos', 'envioMonto', 'envioPorUmbral', 'costoFijoTabla']) assert.strictEqual(c[k], s[k], `${k} ${JSON.stringify({ carta, unidades, pesoKg, precioPorKg, envio })}`);
+  }
+  for (const pesoKg of [null, 0]) {
+    assert.strictEqual(ml.precioEsperado(1000, 1, 'gratis', 'no', cfg, pesoKg, null, true), null);
+    assert.strictEqual(calcularEsperado(1000, 1, 'gratis', 'no', cfg, pesoKg, null, true), null);
+  }
+});

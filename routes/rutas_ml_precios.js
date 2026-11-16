@@ -71,8 +71,8 @@ module.exports = function crearRutasMlPrecios(deps) {
     });
   });
 
-  router.get('/api/ml-precios/control', async (_req, res) => {
-    const { importadoEn = null, publicaciones = [] } = leerJSON(PUBLICACIONES_PATH, {});
+  // Filas del control; null si SIGA falla (ya respondió 502).
+  async function filasControl(publicaciones, res) {
     const vinculos = leerVinculos();
     const cfg = leerConfig();
     let cartas;
@@ -80,10 +80,59 @@ module.exports = function crearRutasMlPrecios(deps) {
       cartas = await cartasDe(publicaciones.map(p => vinculos[p.id] && vinculos[p.id].codigo));
     } catch (e) {
       console.error('[ml-precios] carta de SIGA:', e.message);
-      return res.status(502).json({ error: 'No se pudo leer la lista de precios de SIGA. Probá de nuevo en unos minutos.' });
+      res.status(502).json({ error: 'No se pudo leer la lista de precios de SIGA. Probá de nuevo en unos minutos.' });
+      return null;
     }
-    const filas = publicaciones.map(p => ml.armarFila(p, vinculos[p.id] || null, cartas, cfg));
+    return publicaciones.map(p => ml.armarFila(p, vinculos[p.id] || null, cartas, cfg));
+  }
+
+  router.get('/api/ml-precios/control', async (_req, res) => {
+    const { importadoEn = null, publicaciones = [] } = leerJSON(PUBLICACIONES_PATH, {});
+    const filas = await filasControl(publicaciones, res);
+    if (!filas) return;
     return res.json({ importadoEn, kpis: ml.kpis(filas), filas });
+  });
+
+  // La bajada que sube el usuario, devuelta con PRICE = esperado del módulo y el resto del archivo intacto.
+  router.post('/api/ml-precios/exportar', (req, res) => {
+    upload.single('archivo')(req, res, async err => {
+      if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera los 10 MB.' : 'No se pudo recibir el archivo.' });
+      if (!req.file) return res.status(400).json({ error: 'Falta el archivo (campo "archivo").' });
+      let publicaciones;
+      try {
+        publicaciones = ml.parsearBajada(req.file.buffer).publicaciones;
+      } catch (e) {
+        if (e instanceof ml.ErrorBajada) return res.status(400).json({ error: e.message });
+        console.error('[ml-precios] exportar, leyendo bajada:', e);
+        return res.status(500).json({ error: 'No se pudo generar el Excel.' });
+      }
+      let filas;
+      try { // dentro del callback de multer Express 5 no atrapa el rechazo
+        filas = await filasControl(publicaciones, res);
+      } catch (e) {
+        console.error('[ml-precios] exportar, armando filas:', e);
+        return res.status(500).json({ error: 'No se pudo generar el Excel.' });
+      }
+      if (!filas) return;
+      const esperadoPorId = Object.create(null);
+      for (const f of filas) if (typeof f.esperado === 'number' && f.esperado > 0) esperadoPorId[f.id] = f.esperado;
+      let r;
+      try {
+        r = ml.aplicarPreciosEnBajada(req.file.buffer, esperadoPorId);
+      } catch (e) {
+        if (e instanceof ml.ErrorBajada) return res.status(400).json({ error: e.message });
+        console.error('[ml-precios] exportando bajada:', e);
+        return res.status(500).json({ error: 'No se pudo generar el Excel.' });
+      }
+      const base = String(req.file.originalname || '').replace(/\.xlsx$/i, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'bajada_ml';
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${base}_precios_modulo.xlsx"`,
+        'X-Ml-Exportadas': String(r.exportadas),
+        'X-Ml-Sin-Cambio': String(r.sinCambio),
+      });
+      return res.send(r.buffer);
+    });
   });
 
   // Todos los vínculos (de la bajada o cargados a mano). Si SIGA falla, nombreProducto va en null y la lista igual sale.
@@ -100,7 +149,7 @@ module.exports = function crearRutasMlPrecios(deps) {
       vinculos: Object.entries(vinculos).map(([id, v]) => {
         const pub = pubs.get(id);
         const info = cartas.get(String(v.codigo));
-        return { id, codigo: v.codigo, unidades: v.unidades, pesoKg: typeof v.pesoKg === 'number' ? v.pesoKg : null, pesoEstimado: v.pesoEstimado === true, cuotasQty: Number.isInteger(v.cuotasQty) ? v.cuotasQty : null, titulo: pub ? pub.titulo : null, enBajada: !!pub, nombreProducto: info ? info.nombre : null };
+        return { id, codigo: v.codigo, unidades: v.unidades, pesoKg: typeof v.pesoKg === 'number' ? v.pesoKg : null, pesoEstimado: v.pesoEstimado === true, cuotasQty: Number.isInteger(v.cuotasQty) ? v.cuotasQty : null, precioPorKg: v.precioPorKg === true, titulo: pub ? pub.titulo : null, enBajada: !!pub, nombreProducto: info ? info.nombre : null };
       }),
     });
   });
@@ -137,6 +186,7 @@ module.exports = function crearRutasMlPrecios(deps) {
     if (cuotasQty !== null && (!Number.isInteger(cuotasQty) || cuotasQty < 1 || cuotasQty > 24)) {
       return res.status(400).json({ error: 'Las cuotas deben ser un entero de 1 a 24.' });
     }
+    if ('precioPorKg' in body && typeof body.precioPorKg !== 'boolean') return res.status(400).json({ error: 'precioPorKg debe ser true o false' });
     try {
       const existe = await query(`SELECT TOP 1 IdProducto FROM Productos WHERE IdProducto = '${codigo}'`);
       if (!existe.length) return res.status(400).json({ error: `El código ${codigo} no existe en SIGA.` });
@@ -149,7 +199,9 @@ module.exports = function crearRutasMlPrecios(deps) {
     // Sin la clave pesoKg se conservan peso y pesoEstimado; con pesoKg explícito (número o null) es manual.
     const peso = 'pesoKg' in body ? { pesoKg, pesoEstimado: false }
       : { pesoKg: previo && typeof previo.pesoKg === 'number' ? previo.pesoKg : null, pesoEstimado: !!previo && previo.pesoEstimado === true };
-    const vinculo = { codigo, unidades, ...peso, cuotasQty, actualizado: new Date().toISOString() };
+    // precioPorKg: sin la clave se conserva el previo; se guarda solo `true` (false = key ausente).
+    const porKg = 'precioPorKg' in body ? body.precioPorKg : !!previo && previo.precioPorKg === true;
+    const vinculo = { codigo, unidades, ...peso, cuotasQty, ...(porKg ? { precioPorKg: true } : {}), actualizado: new Date().toISOString() };
     guardarJSON(VINCULOS_PATH, { ...vinculos, [id]: vinculo });
     return res.json({ id, vinculo });
   });

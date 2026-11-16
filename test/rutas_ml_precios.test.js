@@ -212,7 +212,7 @@ test('GET /vinculos: huérfano con enBajada false; SIGA caído → 200 sin nombr
     assert.strictEqual(porId.MLA681472431.enBajada, true);
     assert.ok(porId.MLA681472431.titulo);
     assert.strictEqual(porId.MLA681472431.nombreProducto, 'P7');
-    assert.deepStrictEqual(porId.MLA999, { id: 'MLA999', codigo: 8, unidades: 1, pesoKg: null, pesoEstimado: false, cuotasQty: null, titulo: null, enBajada: false, nombreProducto: 'P8' });
+    assert.deepStrictEqual(porId.MLA999, { id: 'MLA999', codigo: 8, unidades: 1, pesoKg: null, pesoEstimado: false, cuotasQty: null, precioPorKg: false, titulo: null, enBajada: false, nombreProducto: 'P8' });
   });
   await conServidor(null, async (base, dir) => {
     fs.writeFileSync(path.join(dir, 'ml_vinculos.json'), JSON.stringify(vinc));
@@ -306,6 +306,31 @@ test('PUT vínculo con pesoKg: guarda, GET lo devuelve, control lo usa; inválid
     assert.deepStrictEqual([sinClave.vinculo.pesoKg, sinClave.vinculo.pesoEstimado], [1.25, false]); // sin la clave pesoKg se conserva
     const sinPeso = await (await put(`${base}/api/ml-precios/vinculos/MLA681472431`, { codigo: 7, unidades: 2, pesoKg: null })).json();
     assert.deepStrictEqual([sinPeso.vinculo.pesoKg, sinPeso.vinculo.pesoEstimado], [null, false]);
+  });
+});
+
+test('PUT vínculo precioPorKg: no boolean 400; true guarda; sin clave conserva; control usa base por kg; sin peso → sin_peso y kpi', async () => {
+  await conServidor({ 7: 1000 }, async (base, dir) => {
+    await subir(base, FIXTURE);
+    const url = `${base}/api/ml-precios/vinculos/MLA681472431`;
+    for (const precioPorKg of ['true', 1, null]) assert.strictEqual((await put(url, { codigo: 7, unidades: 2, precioPorKg })).status, 400, String(precioPorKg));
+    assert.ok(!fs.existsSync(path.join(dir, 'ml_vinculos.json')));
+    const ok = await (await put(url, { codigo: 7, unidades: 2, pesoKg: 1.5, precioPorKg: true })).json();
+    assert.strictEqual(ok.vinculo.precioPorKg, true);
+    const sinClave = await (await put(url, { codigo: 7, unidades: 2 })).json();
+    assert.strictEqual(sinClave.vinculo.precioPorKg, true);
+    const v = (await (await fetch(`${base}/api/ml-precios/vinculos`)).json()).vinculos.find(x => x.id === 'MLA681472431');
+    assert.strictEqual(v.precioPorKg, true);
+    let ctl = await (await fetch(`${base}/api/ml-precios/control`)).json();
+    let fila = ctl.filas.find(f => f.id === 'MLA681472431');
+    assert.deepStrictEqual([fila.precioPorKg, fila.baseKg, fila.base], [true, 1500, 1500]);
+    await put(url, { codigo: 7, unidades: 2, pesoKg: null });
+    ctl = await (await fetch(`${base}/api/ml-precios/control`)).json();
+    fila = ctl.filas.find(f => f.id === 'MLA681472431');
+    assert.deepStrictEqual([fila.estado, fila.esperado, fila.baseKg], ['sin_peso', null, null]);
+    assert.strictEqual(ctl.kpis.sinPeso, 1);
+    const off = await (await put(url, { codigo: 7, unidades: 2, precioPorKg: false })).json();
+    assert.ok(!('precioPorKg' in off.vinculo)); // false se guarda como key ausente
   });
 });
 
@@ -488,7 +513,7 @@ test('importar vínculos: nuevos, duplicado exacto, conflicto, inválidos, inexi
 test('importar vínculos: pisar false omite; pisar true cambia solo el código y conserva unidades/pesoKg/cuotasQty', async () => {
   await conServidor({ 7: 1000, 8: 50 }, async (base, dir) => {
     const archivo = path.join(dir, 'ml_vinculos.json');
-    const previo = { MLA1: { codigo: 7, unidades: 3, pesoKg: 1.25, cuotasQty: 6 }, MLA2: { codigo: 8, unidades: 2, pesoKg: null, cuotasQty: null } };
+    const previo = { MLA1: { codigo: 7, unidades: 3, pesoKg: 1.25, cuotasQty: 6, precioPorKg: true }, MLA2: { codigo: 8, unidades: 2, pesoKg: null, cuotasQty: null } };
     fs.writeFileSync(archivo, JSON.stringify(previo));
     const antes = fs.readFileSync(archivo, 'utf8');
     const filas = [{ id: 'MLA1', codigo: 8 }, { id: 'MLA2', codigo: 8 }];
@@ -498,7 +523,7 @@ test('importar vínculos: pisar false omite; pisar true cambia solo el código y
     const si = await (await post(base + IMPORTAR, { filas, pisar: true })).json();
     assert.deepStrictEqual([si.nuevos, si.actualizados, si.omitidosExistentes], [0, 1, []]); // MLA2 mismo código: no cuenta
     const v = leerJSON(archivo);
-    assert.deepStrictEqual([v.MLA1.codigo, v.MLA1.unidades, v.MLA1.pesoKg, v.MLA1.cuotasQty], [8, 3, 1.25, 6]);
+    assert.deepStrictEqual([v.MLA1.codigo, v.MLA1.unidades, v.MLA1.pesoKg, v.MLA1.cuotasQty, v.MLA1.precioPorKg], [8, 3, 1.25, 6, true]);
     assert.deepStrictEqual(v.MLA2, previo.MLA2);
   });
 });
@@ -733,5 +758,48 @@ test('límite de body: 2000 filas con formato real < 1 MB y > 100 KB; server.js 
     const r = await post(base + IMPORTAR, { filas, soloValidar: true });
     assert.strictEqual(r.status, 200);
     assert.strictEqual((await r.json()).total, 2000);
+  });
+});
+
+const exportar = (base, buf, nombre = 'pub.xlsx') => {
+  const fd = new FormData();
+  if (buf) fd.append('archivo', new Blob([buf]), nombre);
+  return fetch(`${base}/api/ml-precios/exportar`, { method: 'POST', body: fd });
+};
+
+test('exportar: sin archivo o no bajada → 400 sin escribir', async () => {
+  await conServidor({}, async (base, dir) => {
+    assert.strictEqual((await exportar(base, null)).status, 400);
+    const r = await exportar(base, Buffer.from('hola'), 'x.xlsx');
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /xlsx/);
+    assert.deepStrictEqual(fs.readdirSync(dir), []);
+  });
+});
+
+test('exportar: PRICE = esperado solo en padres con esperado; nombre sanitizado y headers', async () => {
+  const ml = require('../lib/ml_precios');
+  await conServidor({ 7: 1000 }, async (base, dir) => {
+    const [conVinc, ...resto] = ml.parsearBajada(FIXTURE).publicaciones;
+    guardarJSON(path.join(dir, 'ml_vinculos.json'), { [conVinc.id]: { codigo: 7, unidades: 1 } });
+    const r = await exportar(base, FIXTURE, 'Bajada ML (1).xlsx');
+    assert.strictEqual(r.status, 200);
+    assert.match(r.headers.get('content-disposition'), /filename="Bajada_ML_1_precios_modulo.xlsx"/);
+    assert.strictEqual(r.headers.get('x-ml-exportadas'), '1');
+    assert.strictEqual(r.headers.get('x-ml-sin-cambio'), String(resto.length));
+    const vuelta = ml.parsearBajada(Buffer.from(await r.arrayBuffer())).publicaciones;
+    assert.ok(vuelta.find(p => p.id === conVinc.id).precio > 0);
+    assert.notStrictEqual(vuelta.find(p => p.id === conVinc.id).precio, conVinc.precio);
+    for (const p of resto) assert.strictEqual(vuelta.find(v => v.id === p.id).precio, p.precio);
+  });
+});
+
+test('exportar con SIGA caído: 502', async () => {
+  await conServidor(null, async (base, dir) => {
+    const id = require('../lib/ml_precios').parsearBajada(FIXTURE).publicaciones[0].id;
+    guardarJSON(path.join(dir, 'ml_vinculos.json'), { [id]: { codigo: 7, unidades: 1 } });
+    const r = await exportar(base, FIXTURE);
+    assert.strictEqual(r.status, 502);
+    assert.match((await r.json()).error, /SIGA/);
   });
 });

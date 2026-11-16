@@ -191,8 +191,11 @@ function renderPreview() {
   const carta = parseNum($('p-carta').value), unid = parseNum($('p-unid').value);
   const wrap = $('prev-wrap');
   if (!(carta > 0) || !(Number.isInteger(unid) && unid >= 1)) { wrap.innerHTML = '<p class="empty">Escribí un precio de carta y unidades válidos para ver el ejemplo.</p>'; return; }
+  const porKg = $('p-porkg').checked;
+  const peso = $('p-peso').value.trim() === '' ? null : parseNum($('p-peso').value);
+  if (porKg && !(peso > 0)) { wrap.innerHTML = '<p class="empty">Falta el peso (kg): con precio por kg el esperado se calcula como carta &times; peso.</p>'; return; }
   let f;
-  try { f = calcularEsperado(carta, unid, $('p-envio').value, 'no', cfg, $('p-peso').value.trim() === '' ? null : parseNum($('p-peso').value), $('p-cuotas').value.trim() === '' ? null : parseNum($('p-cuotas').value)); } catch (_e) { f = null; }
+  try { f = calcularEsperado(carta, unid, $('p-envio').value, 'no', cfg, peso, $('p-cuotas').value.trim() === '' ? null : parseNum($('p-cuotas').value), porKg); } catch (_e) { f = null; }
   if (!f || !Number.isFinite(f.gastosPct) || f.esperado == null) { wrap.innerHTML = '<p class="empty">Los porcentajes de gastos suman 100 % o más: con esos números no se puede calcular.</p>'; return; }
   wrap.innerHTML = desgloseHtml(f, cfg, true);
 }

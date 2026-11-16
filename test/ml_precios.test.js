@@ -95,7 +95,7 @@ test('armarFila + kpis: sin vínculo no entra en ok/desviadas', () => {
   assert.strictEqual(filas[0].nombreProducto, 'Prod 7');
   assert.strictEqual(filas[1].estado, 'sin_vincular');
   assert.strictEqual(filas[2].estado, 'sin_carta');
-  assert.deepStrictEqual(ml.kpis(filas), { activas: 2, inactivas: 1, ok: 1, desviadas: 0, sinVincular: 1, sinCarta: 1, sinPrecio: 0 });
+  assert.deepStrictEqual(ml.kpis(filas), { activas: 2, inactivas: 1, ok: 1, desviadas: 0, sinVincular: 1, sinCarta: 1, sinPrecio: 0, sinPeso: 0 });
 });
 
 test('validarConfig', () => {
@@ -390,4 +390,28 @@ test('estimarPesoKg: unidades, multiplicador, decimales, 000, sin unidad y vací
     ['Aceite de oliva', null], ['aceite l', null], ['', null], [null, null], ['Polen 0 kg', null], ['Yerba 1.255 kilos', 1.255],
   ];
   for (const [n, kg] of casos) assert.strictEqual(ml.estimarPesoKg(n), kg, String(n));
+});
+
+test('precioPorKg: base = carta × pesoKg, ignora unidades; false = regresión; sin peso → sin_peso', () => {
+  const cfg = ml.normalizarConfig({ redondeoPaso: 0, tablaCostoFijo: [{ precioMax: 5000, valor: 100 }, { precioMax: 99999, valor: 900 }], costoFijoMonto: 2000, envioGratisDesde: 4000 });
+  const kg = ml.precioEsperado(4000, 7, 'comprador', 'no', cfg, 0.5, null, true);
+  const ref = ml.precioEsperado(2000, 1, 'comprador', 'no', cfg, 0.5);
+  assert.strictEqual(kg.base, 2000);
+  assert.strictEqual(kg.baseKg, 2000);
+  assert.deepStrictEqual([kg.esperado, kg.costoFijoTabla, kg.envioPorUmbral], [ref.esperado, ref.costoFijoTabla, ref.envioPorUmbral]); // referencia con la misma base
+  const u = ml.precioEsperado(4000, 7, 'comprador', 'no', cfg, 0.5);
+  assert.strictEqual(u.base, 28000);
+  assert.strictEqual(u.baseKg, null);
+  assert.deepStrictEqual(ml.precioEsperado(4000, 7, 'comprador', 'no', cfg, 0.5, null, false), u);
+  assert.strictEqual(ml.precioEsperado(4000, 7, 'comprador', 'no', cfg, null, null, true), null);
+  const pub = { id: 'MLA1', titulo: 't', activa: true, envio: 'comprador', cuotas: 'no', precio: 3000 };
+  const cartas = new Map([['7', { precio: 4000, nombre: 'x' }]]);
+  const sin = ml.armarFila(pub, { codigo: 7, unidades: 1, pesoKg: null, precioPorKg: true }, cartas, cfg);
+  assert.deepStrictEqual([sin.estado, sin.esperado, sin.desvioPct, sin.precioPorKg, sin.baseKg], ['sin_peso', null, null, true, null]);
+  const con = ml.armarFila(pub, { codigo: 7, unidades: 1, pesoKg: 0.5 }, cartas, cfg);
+  assert.deepStrictEqual([con.precioPorKg, con.baseKg], [false, null]);
+  const sinCarta = ml.armarFila(pub, { codigo: 9, unidades: 1, pesoKg: null, precioPorKg: true }, cartas, cfg);
+  assert.strictEqual(sinCarta.estado, 'sin_carta'); // sin_carta antes que sin_peso
+  const k = ml.kpis([sin, con, sinCarta]);
+  assert.deepStrictEqual([k.sinPeso, k.sinCarta], [1, 1]);
 });

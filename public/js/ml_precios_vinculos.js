@@ -6,8 +6,11 @@ const normMla = s => {
 };
 
 // pesoKg undefined = no se manda la clave (el servidor conserva peso y flag de estimado); null = borrar el peso.
-const putVinculo = (id, codigo, unidades, pesoKg, cuotasQty) => api(`/api/ml-precios/vinculos/${encodeURIComponent(id)}`, {
-  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo, unidades, pesoKg, cuotasQty: cuotasQty ?? null }),
+// precioPorKg undefined = no se manda (el servidor conserva el flag); en ediciones explícitas siempre va el valor actual.
+const TIP_POR_KG = 'Marcalo si el precio en SIGA es por kilo y la publicación es un paquete fraccionado: el precio se multiplica por el peso de la publicación';
+const AVISO_FALTA_PESO = 'Falta el peso: sin peso no hay precio esperado. Cargalo (el estimado "~" sirve).';
+const putVinculo = (id, codigo, unidades, pesoKg, cuotasQty, precioPorKg) => api(`/api/ml-precios/vinculos/${encodeURIComponent(id)}`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo, unidades, pesoKg, cuotasQty: cuotasQty ?? null, precioPorKg }),
 });
 
 // Valida lo tipeado (strings). campo = qué input marcar.
@@ -92,17 +95,18 @@ async function consultarProducto(codigo) {
   }
 }
 
-function resultadoPreviewHtml(res, unidades, fila) {
+function resultadoPreviewHtml(res, unidades, fila, porKg) {
   if (res.noExiste) return `<span class="t-crit">${escHtml(res.error)} Revisá el código antes de guardar.</span>`;
   if (res.error) return `<span class="t-warn">No se pudo consultar SIGA (${escHtml(res.error)}). Igual podés guardar: el servidor lo valida.</span>`;
   const p = res.producto;
   let html = `Producto: <strong>${escHtml(p.nombre)}</strong> &middot; ${p.carta > 0 ? `carta ${fmtMoney(p.carta)}` : '<span class="t-warn">sin precio en la lista</span>'}`;
   if (p.carta > 0 && fila && config && Number.isInteger(unidades) && unidades >= 1) {
     try {
-      const f = calcularEsperado(p.carta, unidades, fila.envio, fila.cuotas, config, num(fila.pesoKg), num(fila.cuotasQty));
-      if (f.esperado != null && Number.isFinite(f.gastosPct)) {
+      const f = calcularEsperado(p.carta, unidades, fila.envio, fila.cuotas, config, num(fila.pesoKg), num(fila.cuotasQty), !!porKg);
+      if (!f) html += '<br><span class="t-warn">Precio por kg: falta el peso de la publicación para calcular el esperado.</span>';
+      else if (f.esperado != null && Number.isFinite(f.gastosPct)) {
         const dif = num(fila.precioMl) === null ? '' : ` &middot; hoy en ML ${fmtMoney(fila.precioMl)} (${fmtDif(fila.precioMl - f.esperado)})`;
-        html += `<br>Con ${fmtInt(unidades)} un. el esperado sería <strong>${fmtMoney(f.esperado)}</strong>${dif}`;
+        html += `<br>${porKg ? `Con ${escHtml(fmtKg(f.pesoKg))} kg` : `Con ${fmtInt(unidades)} un.`} el esperado sería <strong>${fmtMoney(f.esperado)}</strong>${dif}`;
       }
     } catch (_e) { /* config inválida: sin esperado */ }
   }
@@ -110,7 +114,7 @@ function resultadoPreviewHtml(res, unidades, fila) {
 }
 
 // Actualiza `el` con el nombre/carta/esperado del código tipeado. Debounce 300 ms; descarta respuestas viejas.
-function actualizarPreview(el, codigoCrudo, unidadesCrudo, fila) {
+function actualizarPreview(el, codigoCrudo, unidadesCrudo, fila, porKg) {
   const c = String(codigoCrudo).trim();
   const tok = String((Number(el.dataset.tok) || 0) + 1);
   el.dataset.tok = tok;
@@ -118,11 +122,11 @@ function actualizarPreview(el, codigoCrudo, unidadesCrudo, fila) {
   if (!/^\d+$/.test(c) || !(Number(c) > 0)) { el.innerHTML = previewCodigoHtml(c); return; }
   const cacheado = cacheProductos.get(c);
   const unidades = Number(String(unidadesCrudo).trim() || 1);
-  if (cacheado) { el.innerHTML = resultadoPreviewHtml(cacheado, unidades, fila); return; }
+  if (cacheado) { el.innerHTML = resultadoPreviewHtml(cacheado, unidades, fila, porKg); return; }
   el.innerHTML = '<span class="t-gris">Buscando en SIGA...</span>';
   el._timer = setTimeout(async () => {
     const res = await consultarProducto(c);
-    if (el.dataset.tok === tok) el.innerHTML = resultadoPreviewHtml(res, unidades, fila);
+    if (el.dataset.tok === tok) el.innerHTML = resultadoPreviewHtml(res, unidades, fila, porKg);
   }, 300);
 }
 
@@ -150,6 +154,7 @@ function vinculoHtml(v) {
     <td class="num text-right text-sm">${envioPorPesoHtml(v.pesoKg)}</td>
     <td class="num text-right"><input class="celda-input unid v-cuotas" inputmode="numeric" autocomplete="off" placeholder="1" title="Vacío: 1 cuota" value="${escHtml(v.cuotasQty ?? '')}" aria-label="Cuotas de ${id}"></td>
     <td class="num text-right text-sm">${recargoCuotasHtml(num(v.cuotasQty))}</td>
+    <td class="text-center"><input type="checkbox" class="v-porkg" title="${TIP_POR_KG}" aria-label="Precio SIGA por kg de ${id}"${v.precioPorKg ? ' checked' : ''}>${v.precioPorKg ? ' <span class="chip chip--gris" title="' + TIP_POR_KG + '">por kg</span>' : ''}</td>
     <td><button type="button" class="btn btn-peligro sm v-quitar" aria-label="Quitar vínculo de ${id}">Quitar</button></td>
   </tr>`;
 }
@@ -165,7 +170,7 @@ function renderVinculos() {
   }
   wrap.innerHTML = `<table><thead><tr>
     <th scope="col">Publicación</th><th scope="col">Producto en SIGA</th><th scope="col" class="num text-right">Código</th>
-    <th scope="col" class="num text-right">Unidades</th><th scope="col" class="num text-right">Peso (kg)</th><th scope="col" class="num text-right">Envío por peso</th><th scope="col" class="num text-right">Cuotas</th><th scope="col" class="num text-right">Recargo</th><th scope="col"><span class="sr-only">Acciones</span></th>
+    <th scope="col" class="num text-right">Unidades</th><th scope="col" class="num text-right">Peso (kg)</th><th scope="col" class="num text-right">Envío por peso</th><th scope="col" class="num text-right">Cuotas</th><th scope="col" class="num text-right">Recargo</th><th scope="col" title="${TIP_POR_KG}">Precio por kg</th><th scope="col"><span class="sr-only">Acciones</span></th>
   </tr></thead><tbody>${filas.map(vinculoHtml).join('')}</tbody></table>`;
 }
 
@@ -202,11 +207,12 @@ $('vin-form').addEventListener('submit', async e => {
   const btn = $('vin-agregar');
   btn.disabled = true;
   try {
-    await putVinculo(mla, v.codigo, v.unidades, $('vin-peso').value.trim() === '' ? undefined : v.pesoKg, v.cuotasQty);
-    $('vin-mla').value = ''; $('vin-codigo').value = ''; $('vin-peso').value = ''; $('vin-cuotas').value = ''; $('vin-unid').value = '1'; $('vin-peso-sug').innerHTML = '';
+    const porKg = $('vin-porkg').checked;
+    await putVinculo(mla, v.codigo, v.unidades, $('vin-peso').value.trim() === '' ? undefined : v.pesoKg, v.cuotasQty, porKg);
+    $('vin-mla').value = ''; $('vin-codigo').value = ''; $('vin-peso').value = ''; $('vin-cuotas').value = ''; $('vin-unid').value = '1'; $('vin-peso-sug').innerHTML = ''; $('vin-porkg').checked = false;
     await refrescarTrasCambio();
     const enBajada = ((vinculos && vinculos.vinculos) || []).find(x => x.id === mla);
-    avisar(`Vínculo ${mla} guardado${enBajada && enBajada.nombreProducto ? ` («${enBajada.nombreProducto}»)` : ''}.${enBajada && !enBajada.enBajada ? ' No está en la última bajada: se controla cuando una bajada la traiga.' : ''}`);
+    avisar(`Vínculo ${mla} guardado${enBajada && enBajada.nombreProducto ? ` («${enBajada.nombreProducto}»)` : ''}.${enBajada && !enBajada.enBajada ? ' No está en la última bajada: se controla cuando una bajada la traiga.' : ''}${porKg && enBajada && num(enBajada.pesoKg) === null ? ` ${AVISO_FALTA_PESO}` : ''}`);
     $('vin-mla').focus();
   } catch (err) {
     mostrarErrorVin(`No se guardó ${mla}: ${err.message}`);
@@ -216,7 +222,8 @@ $('vin-form').addEventListener('submit', async e => {
 });
 
 async function editarVinculo(tr) {
-  const cod = tr.querySelector('.v-codigo'), uni = tr.querySelector('.v-unidades'), peso = tr.querySelector('.v-peso'), cuo = tr.querySelector('.v-cuotas');
+  const cod = tr.querySelector('.v-codigo'), uni = tr.querySelector('.v-unidades'), peso = tr.querySelector('.v-peso'), cuo = tr.querySelector('.v-cuotas'), pk = tr.querySelector('.v-porkg');
+  const porKg = pk.checked;
   const v = validarVinculo(cod.value, uni.value, peso.value, cuo.value);
   cod.setAttribute('aria-invalid', String(v.campo === 'codigo'));
   uni.setAttribute('aria-invalid', String(v.campo === 'unidades'));
@@ -227,15 +234,16 @@ async function editarVinculo(tr) {
   const previo = (vinculos.vinculos || []).find(x => String(x.id) === id);
   const tocado = peso.dataset.tocado === '1'; // si no tocó el peso no se manda la clave: un estimado sigue siendo estimado
   const pesoSinCambio = !previo || !tocado || (!previo.pesoEstimado && (num(previo.pesoKg) ?? null) === v.pesoKg);
-  if (previo && Number(previo.codigo) === v.codigo && Number(previo.unidades ?? 1) === v.unidades && pesoSinCambio && (num(previo.cuotasQty) ?? null) === v.cuotasQty) return; // sin cambios
+  if (previo && Number(previo.codigo) === v.codigo && Number(previo.unidades ?? 1) === v.unidades && pesoSinCambio && (num(previo.cuotasQty) ?? null) === v.cuotasQty && !!previo.precioPorKg === porKg) return; // sin cambios
   avisar('');
-  cod.disabled = uni.disabled = peso.disabled = cuo.disabled = true;
+  cod.disabled = uni.disabled = peso.disabled = cuo.disabled = pk.disabled = true;
   try {
-    await putVinculo(id, v.codigo, v.unidades, tocado ? v.pesoKg : undefined, v.cuotasQty);
+    await putVinculo(id, v.codigo, v.unidades, tocado ? v.pesoKg : undefined, v.cuotasQty, porKg);
     await refrescarTrasCambio();
-    avisar(`Vínculo ${id} actualizado.`);
+    const nuevo = (vinculos.vinculos || []).find(x => String(x.id) === id);
+    avisar(`Vínculo ${id} actualizado.${porKg && nuevo && num(nuevo.pesoKg) === null ? ` ${AVISO_FALTA_PESO}` : ''}`);
   } catch (err) {
-    cod.disabled = uni.disabled = peso.disabled = cuo.disabled = false;
+    cod.disabled = uni.disabled = peso.disabled = cuo.disabled = pk.disabled = false;
     cod.setAttribute('aria-invalid', 'true');
     avisar(`No se guardó ${id}: ${err.message}`, 'error');
   }
@@ -250,7 +258,7 @@ async function quitarVinculo(tr, boton) {
   try {
     await putVinculo(id, null, 1); // código null = sin vincular
     await refrescarTrasCambio();
-    avisar(`Vínculo ${id} quitado.`, undefined, previo ? { texto: 'Deshacer', fn: () => /* peso previo reenviado: queda exacto (la API no restaura el flag de estimado) */ deshacerVinculo(id, { codigo: previo.codigo, unidades: previo.unidades, pesoKg: previo.pesoKg ?? null, cuotasQty: previo.cuotasQty ?? null }).then(cargarVinculos) } : undefined);
+    avisar(`Vínculo ${id} quitado.`, undefined, previo ? { texto: 'Deshacer', fn: () => /* peso previo reenviado: queda exacto (la API no restaura el flag de estimado) */ deshacerVinculo(id, { codigo: previo.codigo, unidades: previo.unidades, pesoKg: previo.pesoKg ?? null, cuotasQty: previo.cuotasQty ?? null, precioPorKg: !!previo.precioPorKg }).then(cargarVinculos) } : undefined);
   } catch (err) {
     boton.disabled = false;
     avisar(`No se quitó ${id}: ${err.message}`, 'error');
@@ -260,7 +268,7 @@ async function quitarVinculo(tr, boton) {
 $('vin-wrap').addEventListener('input', e => { if (e.target.classList.contains('v-peso')) e.target.dataset.tocado = '1'; });
 $('vin-wrap').addEventListener('change', e => {
   const tr = e.target.closest('tr[data-id]');
-  if (tr && e.target.classList.contains('celda-input')) editarVinculo(tr);
+  if (tr && (e.target.classList.contains('celda-input') || e.target.classList.contains('v-porkg'))) editarVinculo(tr);
 });
 $('vin-wrap').addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.classList.contains('celda-input')) e.target.blur();
@@ -270,8 +278,9 @@ $('vin-wrap').addEventListener('click', e => {
   if (b) quitarVinculo(b.closest('tr'), b);
 });
 const previewAlta = () => actualizarPreview($('vin-prev'), $('vin-codigo').value, $('vin-unid').value,
-  ((datos && datos.filas) || []).find(f => String(f.id) === normMla($('vin-mla').value)) || null);
+  ((datos && datos.filas) || []).find(f => String(f.id) === normMla($('vin-mla').value)) || null, $('vin-porkg').checked);
 ['vin-mla', 'vin-codigo', 'vin-unid', 'vin-peso', 'vin-cuotas'].forEach(id => $(id).addEventListener('input', previewAlta));
+$('vin-porkg').addEventListener('change', previewAlta);
 ['vin-codigo', 'vin-unid'].forEach(id => $(id).addEventListener('input', sugerirPesoAlta));
 $('vin-peso-sug').addEventListener('click', e => {
   const b = e.target.closest('#vin-peso-usar');
