@@ -102,7 +102,7 @@ function productoHtml(f) {
   if (f.codigo === null || f.codigo === undefined) return '<span class="t-gris">-</span>';
   const id = escHtml(f.id);
   return `<div class="prod-nombre" title="${escHtml(f.nombreProducto || '')}">${f.nombreProducto ? escHtml(f.nombreProducto) : '<span class="t-warn">No se encontró el producto</span>'}</div>
-    <div class="pub-meta"><span class="num">Cód. ${escHtml(f.codigo)} &times; ${escHtml(f.unidades)} un.${num(f.pesoKg) === null ? '' : ` &middot; ${escHtml(f.pesoKg)} kg`}${num(f.carta) === null ? '' : ` &middot; carta ${fmtMoney(f.carta)}`}</span>
+    <div class="pub-meta"><span class="num">Cód. ${escHtml(f.codigo)} &times; ${escHtml(f.unidades)} un.${num(f.pesoKg) === null ? '' : ` &middot; ${f.pesoEstimado ? `<span title="Estimado por el nombre del producto; editalo si no es correcto">~${escHtml(f.pesoKg)}</span>` : escHtml(f.pesoKg)} kg`}${num(f.carta) === null ? '' : ` &middot; carta ${fmtMoney(f.carta)}`}</span>
     <button type="button" class="link-btn" data-act="editar" data-id="${id}" aria-label="Editar vínculo de ${id}">Editar</button></div>`;
 }
 
@@ -135,7 +135,7 @@ function editorHtml(f) {
       <div class="campo"><label for="ed-codigo">Código de producto en SIGA</label><input id="ed-codigo" inputmode="numeric" autocomplete="off" value="${escHtml(editor.codigo)}" aria-describedby="ed-prev"></div>
       <div class="campo"><label for="ed-unid">Unidades en la publicación</label><input id="ed-unid" inputmode="numeric" autocomplete="off" value="${escHtml(editor.unidades)}" style="width:110px"></div>
       <div class="campo"><label for="ed-cuotas">Cuotas (vacío = 1)</label><input id="ed-cuotas" inputmode="numeric" autocomplete="off" value="${escHtml(editor.cuotas)}" style="width:110px"></div>
-      <div class="campo"><label for="ed-peso">Peso (kg, opcional)</label><input id="ed-peso" inputmode="decimal" autocomplete="off" value="${escHtml(editor.peso)}" style="width:110px" title="Vacío: usa envío por defecto"></div>
+      <div class="campo"><label for="ed-peso">Peso (kg, opcional)</label><input id="ed-peso" inputmode="decimal" autocomplete="off" value="${escHtml(editor.peso)}" style="width:110px" title="Vacío: usa envío por defecto" aria-describedby="ed-peso-ayuda">${f.pesoEstimado ? `<span id="ed-peso-ayuda" class="ayuda">~ Estimado por el nombre del producto; editalo si no es correcto</span>` : ''}</div>
       <button type="button" class="btn btn-primario" data-act="guardar">${vinculada ? 'Guardar vínculo' : 'Vincular'}</button>
       <button type="button" class="btn btn-secundario" data-act="cancelar">Cancelar</button>
       ${vinculada ? '<button type="button" class="btn btn-peligro" data-act="quitar">Quitar vínculo</button>' : ''}
@@ -211,7 +211,7 @@ async function copiarPrecioSugerido(id, boton) {
 function abrirEditor(id) {
   const f = (datos.filas || []).find(x => String(x.id) === String(id));
   if (!f) return;
-  editor = { id: String(f.id), codigo: f.codigo ?? '', unidades: f.unidades ?? 1, peso: f.pesoKg ?? '', cuotas: f.cuotasQty ?? '' };
+  editor = { id: String(f.id), codigo: f.codigo ?? '', unidades: f.unidades ?? 1, peso: f.pesoKg ?? '', pesoTocado: false, cuotas: f.cuotasQty ?? '' };
   renderTabla();
   const c = $('ed-codigo');
   if (c) { actualizarPreview($('ed-prev'), editor.codigo, editor.unidades, f); c.focus(); c.select(); c.closest('tr').scrollIntoView({ block: 'nearest' }); }
@@ -236,11 +236,11 @@ async function guardarEditor() {
   errorEditor('');
   const id = editor.id;
   const previo = (datos.filas || []).find(x => String(x.id) === id);
-  const antes = previo ? { codigo: previo.codigo ?? null, unidades: previo.unidades ?? 1, pesoKg: previo.pesoKg ?? null, cuotasQty: previo.cuotasQty ?? null } : { codigo: null, unidades: 1, pesoKg: null, cuotasQty: null };
+  const antes = previo ? { codigo: previo.codigo ?? null, unidades: previo.unidades ?? 1, pesoKg: editor.pesoTocado ? previo.pesoKg ?? null : undefined, cuotasQty: previo.cuotasQty ?? null } : { codigo: null, unidades: 1, pesoKg: null, cuotasQty: null };
   const botones = document.querySelectorAll('tr.fila-vinc button');
   botones.forEach(b => { b.disabled = true; });
   try {
-    await putVinculo(id, v.codigo, v.unidades, v.pesoKg, v.cuotasQty);
+    await putVinculo(id, v.codigo, v.unidades, editor.pesoTocado ? v.pesoKg : undefined, v.cuotasQty); // sin tocar el peso no se manda: un estimado sigue siendo estimado
     editor = null;
     await cargarControl();
     const f = (datos.filas || []).find(x => String(x.id) === id);
@@ -271,7 +271,8 @@ async function quitarEditor() {
   const id = editor.id;
   const previo = (datos.filas || []).find(x => String(x.id) === id);
   if (!await apdConfirmar(`¿Quitar el vínculo de ${id}? La publicación vuelve a quedar sin vincular.`, { titulo: 'Quitar vínculo', aceptar: 'Quitar', cancelar: 'Cancelar', peligro: true })) return;
-  const antes = { codigo: previo ? previo.codigo : null, unidades: previo ? previo.unidades : 1, pesoKg: previo ? previo.pesoKg ?? null : null, cuotasQty: previo ? previo.cuotasQty ?? null : null };
+  const antes = { codigo: previo ? previo.codigo : null, unidades: previo ? previo.unidades : 1, pesoKg: previo ? previo.pesoKg ?? null : null, // se reenvía como exacto: la API no restaura el flag de estimado
+    cuotasQty: previo ? previo.cuotasQty ?? null : null };
   try {
     await putVinculo(id, null, 1);
     editor = null;
@@ -304,7 +305,7 @@ $('tabla-wrap').addEventListener('input', e => {
   if (!editor) return;
   if (e.target.id === 'ed-codigo') editor.codigo = e.target.value;
   if (e.target.id === 'ed-unid') editor.unidades = e.target.value;
-  if (e.target.id === 'ed-peso') editor.peso = e.target.value;
+  if (e.target.id === 'ed-peso') { editor.peso = e.target.value; editor.pesoTocado = true; }
   if (e.target.id === 'ed-cuotas') editor.cuotas = e.target.value;
   if (e.target.id === 'ed-codigo' || e.target.id === 'ed-unid') actualizarPreview($('ed-prev'), editor.codigo, editor.unidades, filaEditada());
 });

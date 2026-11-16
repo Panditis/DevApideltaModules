@@ -381,3 +381,13 @@ test('identidad esperado − comisiones ≈ base con envío bonificado', () => {
     assert.ok(Math.abs(neto - r.base) <= 0.01 + 1e-9, JSON.stringify({ carta, envio, peso, neto }));
   }
 });
+
+test('estimarPesoKg: unidades, multiplicador, decimales, 000, sin unidad y vacío', () => {
+  const casos = [
+    ['Yerba Mate 1 kg', 1], ['Azúcar 1,5 KG', 1.5], ['Miel 500g', 0.5], ['Café 250 gr', 0.25], ['Té 20 grs', 0.02],
+    ['Aceite 900 ml', 0.9], ['Jugo 200cc', 0.2], ['Lavandina 1 l', 1], ['Leche 1 litro', 1], ['Agua 2 lts', 2],
+    ['Pack 6 x 500g', 3], ['Pack 6x500 ml', 3], ['Harina 000 x 1 kg', 1], ['Galletitas x 12 un', null], ['Pack 12 latas', null],
+    ['Aceite de oliva', null], ['aceite l', null], ['', null], [null, null], ['Polen 0 kg', null], ['Yerba 1.255 kilos', 1.255],
+  ];
+  for (const [n, kg] of casos) assert.strictEqual(ml.estimarPesoKg(n), kg, String(n));
+});

@@ -582,6 +582,7 @@ WHERE s.SoyLaCentral=1 AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${inList})
 const app = express();
 // Importar planilla de Precios (Reventa): hasta 5000 filas no entran en los 100 kB por defecto; el parser global la saltea (ya parseada).
 app.use('/api/precios/esquema/importar-decisiones', express.json({ limit: '2mb' }));
+app.use('/api/ml-precios/vinculos/importar', express.json({ limit: '1mb' }));
 app.use(express.json());
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -675,6 +676,7 @@ app.get('/js/ml_precios_control.js', (_req, res) => res.sendFile(path.join(__dir
 app.get('/js/ml_precios_vinculos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'ml_precios_vinculos.js')));
 app.get('/js/ml_precios_costos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'ml_precios_costos.js')));
 app.get('/js/ml_precios_init.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'ml_precios_init.js')));
+app.get('/js/ml_precios_importar.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'ml_precios_importar.js')));
 app.get('/js/tn_precios.js',(_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'tn_precios.js')));
 app.get('/js/precios_produccion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion.js')));
 app.get('/js/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_detalle.js')));

@@ -16,6 +16,8 @@ module.exports = function crearRutasMlPrecios(deps) {
   const CONFIG_PATH = path.join(DATA_DIR, 'ml_config.json');
   const SUCURSAL_CARTA = 1; // misma carta que precios-historico y el facturador
   const MAX_ARCHIVO_BYTES = 10 * 1024 * 1024;
+  const MAX_FILAS_IMPORTAR = 2000;
+  const MAX_UNIDADES_IMPORTAR = 9999;
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ARCHIVO_BYTES, files: 1, fields: 4, parts: 6 } });
 
   class ErrorEntrada extends Error {}
@@ -98,7 +100,7 @@ module.exports = function crearRutasMlPrecios(deps) {
       vinculos: Object.entries(vinculos).map(([id, v]) => {
         const pub = pubs.get(id);
         const info = cartas.get(String(v.codigo));
-        return { id, codigo: v.codigo, unidades: v.unidades, pesoKg: typeof v.pesoKg === 'number' ? v.pesoKg : null, cuotasQty: Number.isInteger(v.cuotasQty) ? v.cuotasQty : null, titulo: pub ? pub.titulo : null, enBajada: !!pub, nombreProducto: info ? info.nombre : null };
+        return { id, codigo: v.codigo, unidades: v.unidades, pesoKg: typeof v.pesoKg === 'number' ? v.pesoKg : null, pesoEstimado: v.pesoEstimado === true, cuotasQty: Number.isInteger(v.cuotasQty) ? v.cuotasQty : null, titulo: pub ? pub.titulo : null, enBajada: !!pub, nombreProducto: info ? info.nombre : null };
       }),
     });
   });
@@ -114,16 +116,16 @@ module.exports = function crearRutasMlPrecios(deps) {
       return res.status(502).json({ error: 'No se pudo consultar SIGA. Probá de nuevo en unos minutos.' });
     }
     if (!info) return res.status(404).json({ error: `El código ${codigo} no existe en SIGA.` });
-    return res.json({ codigo, nombre: info.nombre, carta: info.precio });
+    return res.json({ codigo, nombre: info.nombre, carta: info.precio, pesoUnitarioEstimadoKg: ml.estimarPesoKg(info.nombre) });
   });
 
   router.put('/api/ml-precios/vinculos/:id', async (req, res) => {
     const id = String(req.params.id || '').trim();
-    const { codigo, unidades, pesoKg = null, cuotasQty = null } = req.body || {};
+    const body = req.body || {};
+    const { codigo, unidades, pesoKg = null, cuotasQty = null } = body;
     if (!/^MLA\d+$/.test(id)) return res.status(400).json({ error: 'ID de publicación inválido.' });
-    const vinculos = leerVinculos();
     if (codigo === null) {
-      const { [id]: _quitado, ...resto } = vinculos;
+      const { [id]: _quitado, ...resto } = leerVinculos();
       guardarJSON(VINCULOS_PATH, resto);
       return res.json({ id, vinculo: null });
     }
@@ -142,9 +144,98 @@ module.exports = function crearRutasMlPrecios(deps) {
       console.error('[ml-precios] validando código:', e.message);
       return res.status(502).json({ error: 'No se pudo consultar SIGA para validar el código.' });
     }
-    const vinculo = { codigo, unidades, pesoKg, cuotasQty, actualizado: new Date().toISOString() };
+    const vinculos = leerVinculos(); // después del await: no pisa un import que haya escrito mientras tanto
+    const previo = vinculos[id];
+    // Sin la clave pesoKg se conservan peso y pesoEstimado; con pesoKg explícito (número o null) es manual.
+    const peso = 'pesoKg' in body ? { pesoKg, pesoEstimado: false }
+      : { pesoKg: previo && typeof previo.pesoKg === 'number' ? previo.pesoKg : null, pesoEstimado: !!previo && previo.pesoEstimado === true };
+    const vinculo = { codigo, unidades, ...peso, cuotasQty, actualizado: new Date().toISOString() };
     guardarJSON(VINCULOS_PATH, { ...vinculos, [id]: vinculo });
     return res.json({ id, vinculo });
+  });
+
+  // Carga masiva del cruce PLU SIGA ↔ MLA. Una sola consulta a SIGA y una sola escritura (si hay cambios).
+  router.post('/api/ml-precios/vinculos/importar', async (req, res) => {
+    const { filas, pisar = false, soloValidar = false, estimarPeso = true } = req.body || {};
+    if (!Array.isArray(filas)) return res.status(400).json({ error: 'filas debe ser una lista.' });
+    if (filas.length > MAX_FILAS_IMPORTAR) return res.status(400).json({ error: `No se pueden importar más de ${MAX_FILAS_IMPORTAR} filas por vez.` });
+    for (const [k, v] of Object.entries({ pisar, soloValidar, estimarPeso })) {
+      if (typeof v !== 'boolean') return res.status(400).json({ error: `${k} debe ser true o false.` });
+    }
+    const entero = v => (typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v.trim()) : v);
+    const invalidas = [];
+    const porId = new Map(); // id → [{ codigo, unidades }] (unidades null = la fila no la trae)
+    for (const f of filas) {
+      const id = String((f && f.id) ?? '').trim().toUpperCase();
+      const crudo = f ? f.codigo : undefined;
+      const codigo = entero(crudo);
+      const uCrudo = f ? f.unidades : undefined;
+      const unidades = uCrudo == null || uCrudo === '' ? null : entero(uCrudo);
+      const fila = { id: f ? f.id ?? null : null, codigo: crudo ?? null };
+      if (!/^MLA\d+$/.test(id)) { invalidas.push({ ...fila, motivo: 'ID de publicación inválido' }); continue; }
+      if (!esCodigo(codigo)) { invalidas.push({ ...fila, id, motivo: 'El código debe ser un entero mayor a 0' }); continue; }
+      if (unidades !== null && (!Number.isInteger(unidades) || unidades < 1 || unidades > MAX_UNIDADES_IMPORTAR)) {
+        invalidas.push({ ...fila, id, motivo: `La cantidad debe ser un entero de 1 a ${MAX_UNIDADES_IMPORTAR}` }); continue;
+      }
+      const lista = porId.get(id) || [];
+      if (!lista.some(x => x.codigo === codigo && x.unidades === unidades)) lista.push({ codigo, unidades }); // duplicado exacto: se ignora
+      porId.set(id, lista);
+    }
+    const unicos = xs => [...new Set(xs)];
+    const conflictos = [...porId].filter(([, l]) => l.length > 1)
+      .map(([id, l]) => ({ id, codigos: unicos(l.map(x => x.codigo)), unidades: unicos(l.map(x => x.unidades)) }));
+    const candidatos = [...porId].filter(([, l]) => l.length === 1).map(([id, [x]]) => ({ id, ...x }));
+    let existentes;
+    try {
+      existentes = await cartasDe(candidatos.map(x => x.codigo));
+    } catch (e) {
+      console.error('[ml-precios] importando vínculos, SIGA:', e.message);
+      return res.status(502).json({ error: 'No se pudo consultar SIGA para validar los códigos.' });
+    }
+    const codigosInexistentes = candidatos.filter(x => !existentes.has(String(x.codigo))).map(({ id, codigo }) => ({ id, codigo }));
+    const vinculos = leerVinculos();
+    const enBajadaIds = new Set((leerJSON(PUBLICACIONES_PATH, {}).publicaciones || []).map(p => p.id));
+    const cambios = {};
+    const omitidosExistentes = [];
+    const sinPesoEstimado = [];
+    let nuevos = 0, actualizados = 0, pesosEstimados = 0;
+    const ahora = new Date().toISOString();
+    // Peso estimado por nombre × unidades; un peso manual (pesoKg no null y pesoEstimado no true) nunca se pisa.
+    const conPeso = (id, v) => {
+      if (!estimarPeso || (typeof v.pesoKg === 'number' && v.pesoEstimado !== true)) return v;
+      const nombre = existentes.get(String(v.codigo)).nombre;
+      const unitario = ml.estimarPesoKg(nombre);
+      const total = unitario == null ? null : Math.round(unitario * v.unidades * 1000) / 1000;
+      if (total == null || total > ml.PESO_MAX_ESTIMADO_KG) {
+        sinPesoEstimado.push({ id, codigo: v.codigo, nombre, ...(total == null ? {} : { motivo: `peso mayor a ${ml.PESO_MAX_ESTIMADO_KG} kg` }) });
+        return { ...v, pesoKg: null, pesoEstimado: false };
+      }
+      pesosEstimados++;
+      return { ...v, pesoKg: total, pesoEstimado: true };
+    };
+    for (const { id, codigo, unidades } of candidatos) {
+      if (!existentes.has(String(codigo))) continue;
+      const previo = vinculos[id];
+      if (!previo) {
+        cambios[id] = conPeso(id, { codigo, unidades: unidades ?? 1, pesoKg: null, pesoEstimado: false, cuotasQty: null, actualizado: ahora });
+        nuevos++;
+        continue;
+      }
+      if (!pisar) { omitidosExistentes.push(id); continue; }
+      // Mismo código y unidades: igual se evalúa el peso si es estimable (null o estimado); solo se escribe si cambia.
+      const mismo = previo.codigo === codigo && (unidades === null || previo.unidades === unidades);
+      if (mismo && !(estimarPeso && (typeof previo.pesoKg !== 'number' || previo.pesoEstimado === true))) continue;
+      const nuevo = conPeso(id, { ...previo, codigo, unidades: unidades ?? previo.unidades, actualizado: ahora });
+      if (mismo && nuevo.pesoKg === (previo.pesoKg ?? null) && nuevo.pesoEstimado === (previo.pesoEstimado === true)) continue;
+      cambios[id] = nuevo;
+      actualizados++;
+    }
+    const importadas = Object.keys(cambios);
+    if (!soloValidar && importadas.length) guardarJSON(VINCULOS_PATH, { ...vinculos, ...cambios });
+    return res.json({
+      soloValidar, total: filas.length, nuevos, actualizados, omitidosExistentes, invalidas, conflictos, codigosInexistentes, pesosEstimados, sinPesoEstimado,
+      enBajada: importadas.filter(id => enBajadaIds.has(id)).length, fueraDeBajada: importadas.filter(id => !enBajadaIds.has(id)),
+    });
   });
 
   router.get('/api/ml-precios/config', apiRoute(async () => leerConfig()));
