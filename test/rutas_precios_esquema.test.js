@@ -378,7 +378,7 @@ test('margen del producto: sin precios-config → 403 al guardar y ni listado ni
 
 test('export: Reventa decidida con bulto vinculado → su PLU en minorista y el bulto en las dos listas de bulto', async () => {
   const query = async sql => {
-    if (sql.includes("'Almacen Bultos/Cajas'")) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
+    if (sql.includes('b.IdRubro = 25')) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
     if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: 1800 }, { IdProducto: '2', Precio: 16000 }];
     return sigaFalso(sql);
   };
@@ -395,7 +395,7 @@ test('export: Reventa decidida con bulto vinculado → su PLU en minorista y el 
 test('export: con la última compra decidida, Costo y Venta salen de ella (no de sistema) en Reventa, su bulto vinculado y Fraccionado; Codigo numérico', async () => {
   const ultima = { 1: 1500, 50: 15000 }; // última compra neta de factura (sistema: 1000 y 10000)
   const query = async sql => {
-    if (sql.includes("'Almacen Bultos/Cajas'")) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
+    if (sql.includes('b.IdRubro = 25')) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
     if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: 1800 }, { IdProducto: '2', Precio: 16000 }];
     if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1000, UcPrecioNeto: ultima[1], UcTipo: 'FACTCOM', IvaCompraPct: 21 }];
     const ids = (sql.match(/p\.IdProducto IN \(([^)]*)\)/) || [])[1];
@@ -440,7 +440,7 @@ test('tipo de proveedor: PUT guarda/cambia/quita en una fila de Reventa; rechaza
 
 test('importar planilla: marca por Costo/Precio con usuario y foto de vigentes (también sin clasificar) en una escritura; informa no encontrados', async () => {
   const query = async sql => {
-    if (sql.includes("'Almacen Bultos/Cajas'")) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
+    if (sql.includes('b.IdRubro = 25')) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
     if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: 1800 }, { IdProducto: '2', Precio: 16000 }];
     if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1000, UcPrecioNeto: 1500, UcTipo: 'FACTCOM', IvaCompraPct: 21 },
       { IdProducto: '4', NombreProducto: 'Yerba', CostoSistema: 2000, IvaCompraPct: 21 }, { IdProducto: '5', NombreProducto: 'Fideos', CostoSistema: 300, IvaCompraPct: 21 }];

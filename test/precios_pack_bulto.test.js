@@ -30,16 +30,26 @@ const FILAS = [
   { plu: '94000', nombre: 'MAYORISTA X 10', basePlu: '7', cantidad: 10 },
 ];
 
-test('armarVinculos: 1 componente + tipo por nombre → vínculo SIGA; el resto a sinVincular con motivo', () => {
+test('armarVinculos: 1 componente → vínculo SIGA (tipo del nombre, ambiguo → bulto); el resto a sinVincular con motivo', () => {
   const { vinculos, sinVincular } = armarVinculos(FILAS, {});
   assert.deepStrictEqual(vinculos, [
     { plu: '91031', nombre: 'PEPAS MEMBRILLO PACK', basePlu: '6051', baseNombre: null, cantidad: 3, tipo: 'pack', origen: 'siga' },
     { plu: '91449', nombre: 'PEPAS MEMBRILLO BULTO', basePlu: '6051', baseNombre: null, cantidad: 12, tipo: 'bulto', origen: 'siga' },
+    { plu: '94000', nombre: 'MAYORISTA X 10', basePlu: '7', baseNombre: null, cantidad: 10, tipo: 'bulto', origen: 'siga' },
   ]);
   assert.deepStrictEqual(sinVincular, [
     { plu: '92000', nombre: 'COMBO BULTO', motivo: 'fórmula con 2 componentes' },
     { plu: '93000', nombre: 'SIN FORMULA BULTO', motivo: 'sin fórmula activa' },
-    { plu: '94000', nombre: 'MAYORISTA X 10', motivo: 'tipo ambiguo por nombre' },
+  ]);
+});
+
+test('armarVinculos: nombre sin pack/bulto/caja ("X10 Unidades") → bulto SIGA', () => {
+  const { vinculos, sinVincular } = armarVinculos([
+    { plu: '3281', nombre: 'Sal Marina Macrozen Gruesa X10 Unidades', basePlu: '257', cantidad: 10 },
+  ], {});
+  assert.deepStrictEqual(sinVincular, []);
+  assert.deepStrictEqual(vinculos, [
+    { plu: '3281', nombre: 'Sal Marina Macrozen Gruesa X10 Unidades', basePlu: '257', baseNombre: null, cantidad: 10, tipo: 'bulto', origen: 'siga' },
   ]);
 });
 
@@ -54,7 +64,7 @@ test('armarVinculos: el vínculo manual gana sobre SIGA y saca al producto de si
   assert.deepStrictEqual(por['91031'], { plu: '91031', nombre: 'PEPAS MEMBRILLO PACK', basePlu: '6052', baseNombre: null, cantidad: null, tipo: 'bulto', origen: 'manual' });
   assert.strictEqual(por['92000'].origen, 'manual');
   assert.deepStrictEqual(por['99999'], { plu: '99999', nombre: null, basePlu: '6051', baseNombre: null, cantidad: null, tipo: 'pack', origen: 'manual' });
-  assert.deepStrictEqual(sinVincular.map(s => s.plu), ['93000', '94000']);
+  assert.deepStrictEqual(sinVincular.map(s => s.plu), ['93000']);
 });
 
 // ── configPackBultoSanitizada ────────────────────────────────────────────────
@@ -89,7 +99,11 @@ function montarPackBulto() {
   const sqls = [];
   const query = async (sql) => {
     sqls.push(sql);
-    if (sql.includes('Almacen Bultos/Cajas')) return FILAS_SQL;
+    // por IdRubro, no por nombre (hay otro rubro homónimo para fraccionado; PLU 3281 no se vinculaba)
+    if (sql.includes('b.IdRubro = 25')) {
+      assert.ok(!sql.includes('Almacen Bultos/Cajas'), 'vinculosPackBulto no debe filtrar por NombreRubro');
+      return FILAS_SQL;
+    }
     if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '6051', Precio: 2995 }, { IdProducto: '91031', Precio: 2855 }];
     const ids = [...sql.matchAll(/'(\d+)'/g)].map(m => m[1]);
     return ids.filter(id => id === '6051').map(id => ({ IdProducto: id, NombreProducto: 'PEPAS MEMBRILLO' }));

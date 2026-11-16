@@ -29,7 +29,7 @@ function pintarConfigPB() {
   const { vinculos, sinVincular } = pbConfig;
   const manuales = vinculos.filter(v => v.origen === 'manual');
   document.getElementById('configPackBulto').innerHTML = cardPB(`
-    <p class="cfg-ayuda">Vínculo automático: productos del rubro "Almacen Bultos/Cajas" con un solo componente en su fórmula activa de SIGA.
+    <p class="cfg-ayuda">Vínculo automático: productos del rubro "Almacen Bultos/Cajas" con un solo componente en su fórmula activa de SIGA, sin importar el nombre. El tipo sale del nombre (Pack → pack; Bulto o Caja → bulto); si no lo dice, es bulto (se cambia vinculando a mano).
       ${vinculos.length} vinculados · ${sinVincular.length} sin vincular.</p>
     ${htmlManualesPB(manuales)}
     ${htmlSinVincularPB(sinVincular)}`);
@@ -52,7 +52,7 @@ function htmlSinVincularPB(lista) {
     : '<tr><td colspan="4" class="p-3 text-center text-gris text-sm">Todos los productos del rubro quedaron vinculados.</td></tr>';
   return `<details class="mt-5 border-t border-borde pt-4" open>
     <summary class="font-semibold cursor-pointer">Sin vincular <span class="text-gris font-normal">(${lista.length})</span></summary>
-    <p class="text-[11px] text-gris mt-1">Sin fórmula, fórmula con varios componentes o tipo ambiguo por nombre (los de un granel se ven en su detalle de Fraccionado). Vinculalos a mano con su producto normal.</p>
+    <p class="text-[11px] text-gris mt-1">Sin fórmula o fórmula con varios componentes (los de un granel se ven en su detalle de Fraccionado). Vinculalos a mano con su producto normal.</p>
     <div class="overflow-auto mt-2 rounded-lg border border-borde" style="max-height:420px"><table class="w-full text-sm"><tbody id="pbSinVincular">${filas}</tbody></table></div></details>`;
 }
 
