@@ -194,3 +194,13 @@ test('hubDeUsuario ata a /sucursales sólo con el permiso + el módulo, y nunca 
   assert.strictEqual(hubDeUsuario({ activo: false, modulos: ['sucursales', 'solo-sucursales'] }), null);
   assert.strictEqual(hubDeUsuario(null), null);
 });
+
+test('Redistribución: /api/distribucion/redistribucion exige el módulo distribucion; /rotacion ya no tiene guard propio', () => {
+  const ref = moduloDeRuta('/api/distribucion/redistribucion?dias=30');
+  assert.strictEqual(ref, 'distribucion');
+  assert.strictEqual(puedeAcceder({ modulos: ['distribucion'] }, ref), true);
+  assert.strictEqual(puedeAcceder({ modulos: ['compras'] }, ref), false);   // el middleware responde 403
+  assert.strictEqual(moduloDeRuta('/API/Distribucion/Redistribucion'), 'distribucion');
+  assert.strictEqual(moduloDeRuta('/api/distribucion/rotacion'), null);
+  assert.strictEqual(moduloDeRuta('/api/distribucion/redistribucionX'), null);
+});

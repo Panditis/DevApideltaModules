@@ -1,69 +1,60 @@
-// Pestaña Rotación de Distribución: un puntaje 0..100 por producto que dice qué tan dispar
-// se vende entre las sucursales tildadas, dónde se vende más y las unidades de cada
-// sucursal, con la celda pintada según el peso del producto ahí. Se carga al final de
-// distribucion.html; usa escHtml de ese archivo y apdAvisar de apd-dialogo.js.
-let rot = { rows: [], sucursales: [], filtro: '', key: 'puntaje', desc: true };
-let rotSucs = [];            // [{id, nombre}] elegibles
-let rotSel = new Set();      // ids tildados
+// Pestaña Redistribución de Distribución (id interno "rotacion"): cuando la central no cubre lo
+// que piden las sucursales, sugiere traslados sucursal -> sucursal (solo informa). Datos de
+// GET /api/distribucion/redistribucion?dias=N. Se carga al final de distribucion.html; usa
+// escHtml de ese archivo.
+let rot = { rows: [], resumen: {}, totales: null, umbrales: null, rango: null, filtro: '', key: 'mover', desc: true };
+let rotNombres = {};          // idSucursal -> nombre
+let rotAbiertos = new Set();  // PLU con el detalle expandido
 let rotInicializado = false;
-let rotRango = { desde: '', hasta: '' };
-// Umbral del KPI "muy dispares": a partir de acá la diferencia entre sucursales es marcada.
-const ROT_PUNTAJE_ALTO = 50;
-const ROT_DIAS_DEFAULT = 30;
-// Sucursales ficticias: no son reales y no entran en ningún cálculo.
-const ROT_SUC_FICTICIAS = new Set([6, 8, 11]);
+const ROT_DIAS_DEFAULT = 30, ROT_DIAS_MIN = 7, ROT_DIAS_MAX = 365;
 
 const rotNum = n => Math.round(n || 0).toLocaleString('es-AR');
 const rotDec = n => Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const rotMoney = n => '$' + rotNum(n);
 const rotNorm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const rotCmp = (a, b) => (typeof a === 'number' && typeof b === 'number')
   ? a - b
   : String(a ?? '').localeCompare(String(b ?? ''), 'es', { numeric: true, sensitivity: 'base' });
 const rotEl = id => document.getElementById(id);
 
-function rotIso(d){
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// Pesables con un decimal (son kilos); el resto en unidades enteras.
+const rotCant = (n, pesable) => pesable ? rotDec(n) : rotNum(n);
+const rotUni = r => r.pesable ? 'kg' : 'u';
+// Venta diaria: dos decimales para que 0,25 u/día no se vea como 0.
+const rotDia = n => Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function rotMensaje(texto, tipo){
+  rotEl('rotMsg').innerHTML = texto ? `<div class="rot-vacio${tipo === 'err' ? ' err' : ''}">${escHtml(texto)}</div>` : '';
 }
 
-function rotMensaje(texto, esError){
-  rotEl('rotMsg').innerHTML = texto ? `<div class="rot-vacio${esError ? ' err' : ''}">${escHtml(texto)}</div>` : '';
+function rotNombreSuc(id){
+  return rotNombres[id] || `Suc. ${id}`;
 }
 
-function rotChips(){
-  rotEl('rotChips').innerHTML = rotSucs.map(s =>
-    `<button type="button" class="suc-tog${rotSel.has(s.id) ? ' on' : ''}" data-id="${s.id}" aria-pressed="${rotSel.has(s.id)}">${escHtml(s.nombre)}</button>`).join('');
+// Nombre largo corto para columnas angostas: "Villa Ramallo" -> "V. Ramallo".
+function rotAbrev(nombre){
+  const p = String(nombre).trim().split(/\s+/);
+  return nombre.length <= 10 || p.length < 2 ? nombre : `${p[0][0]}. ${p.slice(1).join(' ')}`;
 }
 
-async function rotCargarSucursales(){
-  const r = await fetch('/api/distribucion/sucursales');
-  if (!r.ok) throw new Error('No se pudo cargar la lista de sucursales');
-  const filas = await r.json();
-  rotSucs = filas
-    .filter(s => !s.SoyLaCentral && !ROT_SUC_FICTICIAS.has(Number(s.IdSucursal)))
-    .map(s => ({ id: Number(s.IdSucursal), nombre: s.Nombre }));
-  rotSel = new Set(rotSucs.map(s => s.id));
-  rotChips();
+// Los nombres son solo cosmética: si falla, se muestra "Suc. N".
+async function rotCargarNombres(){
+  try {
+    const r = await fetch('/api/distribucion/sucursales');
+    if (!r.ok) return;
+    (await r.json()).forEach(s => { rotNombres[s.IdSucursal] = s.Nombre; });
+  } catch (_) { /* sin nombres: queda "Suc. N" */ }
 }
 
 function rotIniciar(){
-  const hoy = new Date();
-  const desde = new Date(hoy); desde.setDate(desde.getDate() - ROT_DIAS_DEFAULT);
-  rotEl('rotDesde').value = rotIso(desde);
-  rotEl('rotHasta').value = rotIso(hoy);
-  rotEl('rotChips').onclick = e => {
-    const b = e.target.closest('.suc-tog'); if (!b) return;
-    const id = Number(b.dataset.id);
-    rotSel.has(id) ? rotSel.delete(id) : rotSel.add(id);
-    rotChips();
-  };
-  rotEl('rotTodas').onclick = () => { rotSel = new Set(rotSucs.map(s => s.id)); rotChips(); };
-  rotEl('rotNinguna').onclick = () => { rotSel.clear(); rotChips(); };
+  rotEl('rotDias').value = ROT_DIAS_DEFAULT;
   rotEl('rotConsultar').onclick = rotConsultar;
-  rotEl('rotBusc').oninput = e => rotBuscar(e.target.value);
-  rotEl('rotExcel').onclick = rotExportar;
+  rotEl('rotDias').onkeydown = e => { if (e.key === 'Enter') rotConsultar(); };
+  rotEl('rotBusc').oninput = e => { rot = { ...rot, filtro: e.target.value }; rotTabla(); };
   rotEl('rotTabla').onclick = e => {
-    const th = e.target.closest('th[data-orden]'); if (th) rotOrdenar(th.dataset.orden);
+    const th = e.target.closest('th[data-orden]');
+    if (th) { rotOrdenar(th.dataset.orden); return; }
+    const b = e.target.closest('button[data-plu]');
+    if (b) rotAlternar(b.dataset.plu);
   };
 }
 
@@ -72,58 +63,84 @@ async function rotAbrir(){
   if (rotInicializado) return;
   rotInicializado = true;
   rotIniciar();
-  try {
-    await rotCargarSucursales();
-  } catch (e) {
-    rotInicializado = false;
-    rotMensaje(e.message, true);
-    return;
-  }
+  await rotCargarNombres();
   rotConsultar();
 }
 
+function rotDiasValidos(){
+  const d = Number(rotEl('rotDias').value);
+  return Number.isInteger(d) && d >= ROT_DIAS_MIN && d <= ROT_DIAS_MAX ? d : null;
+}
+
 async function rotConsultar(){
-  const desde = rotEl('rotDesde').value, hasta = rotEl('rotHasta').value;
-  if (!desde || !hasta || desde > hasta){ rotMensaje('Elegí un rango de fechas válido.', true); return; }
-  if (rotSel.size < 2){ rotMensaje('Tildá al menos 2 sucursales para comparar.', true); return; }
+  const dias = rotDiasValidos();
+  if (!dias){ rotMensaje(`Los días tienen que ser un número entero entre ${ROT_DIAS_MIN} y ${ROT_DIAS_MAX}.`, 'err'); return; }
   const btn = rotEl('rotConsultar');
   btn.disabled = true;
-  rotMensaje('Consultando… con muchas sucursales tarda.');
+  rotMensaje('Calculando redistribución… puede tardar unos segundos.');
   try {
-    const r = await fetch(`/api/distribucion/rotacion?desde=${desde}&hasta=${hasta}&sucursales=${[...rotSel].join(',')}`);
+    const r = await fetch(`/api/distribucion/redistribucion?dias=${dias}`);
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
     rotMensaje('');
-    rotRango = { desde, hasta };
     rotPintar(d);
   } catch (e) {
-    rotMensaje(`No se pudo consultar: ${e.message}`, true);
+    rotMensaje(`No se pudo consultar: ${e.message}`, 'err');
   } finally {
     btn.disabled = false;
   }
 }
 
 function rotPintar(d){
-  rot = { ...rot, rows: d.productos || [], sucursales: d.sucursales || [], filtro: '' };
+  rot = { ...rot, rows: d.productos || [], resumen: d.resumenSucursales || {}, totales: d.totales || null,
+    umbrales: d.umbrales || null, rango: d.rango || null, filtro: '' };
+  rotAbiertos = new Set();
   rotEl('rotBusc').value = '';
-  rotEl('rotKpis').innerHTML = [
-    ['Productos analizados', rotNum(rot.rows.length)],
-    [`Puntaje ≥ ${ROT_PUNTAJE_ALTO}`, rotNum(rot.rows.filter(r => r.puntaje >= ROT_PUNTAJE_ALTO).length)],
-  ].map(([lbl, val]) => `<div class="kpi"><div class="l">${lbl}</div><div class="v">${val}</div></div>`).join('');
+  rotKpis();
+  rotResumen();
   rotTabla();
 }
 
-function rotNombreSuc(id){
-  return (rotSucs.find(s => s.id === Number(id)) || {}).nombre || `Suc. ${id}`;
+// Unidades y kilos no se mezclan: los totales de cantidad los muestran por separado.
+function rotSumaMixta(filas, campo){
+  const unid = filas.filter(r => !r.pesable), kg = filas.filter(r => r.pesable);
+  const sumar = f => f.reduce((t, r) => t + (r[campo] || 0), 0);
+  return [unid.length ? `${rotNum(sumar(unid))} u` : '', kg.length ? `${rotDec(sumar(kg))} kg` : ''].filter(Boolean).join(' + ') || '0';
 }
 
-// Pesables con un decimal (son kilos); el resto en unidades enteras.
-const rotCant = (n, pesable) => pesable ? rotDec(n) : rotNum(n);
+function rotKpis(){
+  const rows = rot.rows, t = rot.totales || {};
+  const kpis = [
+    ['Productos a redistribuir', rotNum(t.productos ?? rows.length)],
+    ['Movimientos sugeridos', rotNum(t.movimientos ?? rows.reduce((n, r) => n + r.movimientos.length, 0))],
+    ['Faltante en central', rotSumaMixta(rows, 'faltante')],
+    ['A mover entre sucursales', rotSumaMixta(rows, 'mover')],
+    ['Cubiertos al 100%', rotNum(rows.filter(r => r.cubierto >= 1).length)],
+  ];
+  rotEl('rotKpis').innerHTML = kpis.map(([l, v]) => `<div class="kpi"><div class="l">${escHtml(l)}</div><div class="v">${escHtml(v)}</div></div>`).join('');
+}
+
+// Resumen antes/después por sucursal (unidades y kilos sumados: es una vista de volumen).
+function rotResumen(){
+  const ids = Object.keys(rot.resumen);
+  const el = rotEl('rotResumen');
+  if (!ids.length){ el.innerHTML = ''; return; }
+  const fila = id => {
+    const s = rot.resumen[id];
+    return `<tr><td class="l" title="${escHtml(rotNombreSuc(id))}">${escHtml(rotAbrev(rotNombreSuc(id)))}</td>
+      <td>${rotNum(s.stockAntes)}</td>
+      <td>${s.sale ? `<span class="rot-mover">−${rotNum(s.sale)}</span>` : '<span class="rot-sin-dato">—</span>'}</td>
+      <td>${s.entra ? `<span class="rot-recibe">+${rotNum(s.entra)}</span>` : '<span class="rot-sin-dato">—</span>'}</td>
+      <td><b>${rotNum(s.stockDespues)}</b></td></tr>`;
+  };
+  el.innerHTML = `<div class="rot-card"><div class="rot-head"><h3>Antes y después por sucursal</h3></div>
+    <p class="rot-desc">Stock de los productos de esta lista, sumando unidades y kilos.</p>
+    <table class="rot-table rot-res"><thead><tr><th class="l">Sucursal</th><th>Antes</th><th>Sale</th><th>Entra</th><th>Después</th></tr></thead>
+    <tbody>${ids.map(fila).join('')}</tbody></table></div>`;
+}
 
 function rotValor(r, key){
-  if (key === 'nombre') return r.nombre;
-  if (key === 'unidades') return r.unidades;
-  return r.puntaje;
+  return key === 'nombre' ? r.nombre : (r[key] || 0);
 }
 
 // Primer clic en una columna numérica ordena de más a menos; de nuevo sobre la misma, invierte.
@@ -132,82 +149,72 @@ function rotOrdenar(key){
   rotTabla();
 }
 
-function rotBuscar(texto){
-  rot = { ...rot, filtro: texto };
+function rotAlternar(plu){
+  rotAbiertos.has(plu) ? rotAbiertos.delete(plu) : rotAbiertos.add(plu);
   rotTabla();
 }
 
-// Búsqueda y orden vigentes. Lo usan la tabla y el Excel: se descarga lo que se ve.
+// Búsqueda (nombre o PLU) y orden vigentes.
 function rotFilas(){
   const terminos = rotNorm(rot.filtro).split(/\s+/).filter(Boolean);
   const signo = rot.desc ? -1 : 1;
   return rot.rows
-    .filter(r => terminos.every(t => rotNorm(r.nombre).includes(t)))
+    .filter(r => terminos.every(t => rotNorm(`${r.nombre} ${r.plu}`).includes(t)))
     .sort((a, b) => signo * rotCmp(rotValor(a, rot.key), rotValor(b, rot.key)));
 }
 
 function rotTh(key, etiqueta, clase){
   const activa = rot.key === key;
   const flecha = activa ? (rot.desc ? ' ▼' : ' ▲') : '';
-  return `<th class="${clase}" data-orden="${key}">${escHtml(etiqueta)}${flecha}</th>`;
+  return `<th class="${clase}" data-orden="${key}" title="Ordenar por ${escHtml(etiqueta)}"${activa ? ` aria-sort="${rot.desc ? 'descending' : 'ascending'}"` : ''}>${escHtml(etiqueta)}${flecha}</th>`;
 }
 
-// Verde del theme (--verde, #405936) con más opacidad cuanto más alto el valor (0..1). El
-// piso hace que hasta lo más bajo se distinga del blanco de una celda vacía.
-const rotVerde = valor => `rgba(64,89,54,${(0.08 + 0.55 * valor).toFixed(2)})`;
-
-function rotPill(puntaje){
-  const v = (puntaje || 0) / 100;
-  const texto = v > 0.55 ? '#fff' : 'var(--verde-dark)';
-  return `<span class="rot-pill" style="background:${rotVerde(v)};color:${texto}">${rotNum(puntaje)}</span>`;
+function rotCubierto(v){
+  const p = Math.round((v || 0) * 100);
+  return `<span class="rot-cub${p >= 100 ? ' ok' : ''}" style="--p:${Math.min(p, 100)}%">${p}%</span>`;
 }
 
-function rotCelda(c, pesable){
-  if (!c || !c.unidades) return '<td class="rot-sin-dato">—</td>';
-  const titulo = `Facturación: ${rotMoney(c.facturacion)}\nParticipación: ${rotDec(c.participacion * 100)}% de lo que factura la sucursal`;
-  return `<td style="background:${rotVerde(c.intensidad)}" title="${escHtml(titulo)}">${rotCant(c.unidades, pesable)}</td>`;
+// Detalle expandido: movimientos origen -> destino y situación de cada sucursal.
+function rotDetalle(r){
+  const q = n => rotCant(n, r.pesable), u = rotUni(r);
+  const movs = r.movimientos.map(m => `<tr><td class="l"><span class="rot-mover">sale</span> ${escHtml(rotNombreSuc(m.origen))}</td>
+      <td class="rot-flecha" aria-hidden="true">→</td>
+      <td class="l"><span class="rot-recibe">entra</span> ${escHtml(rotNombreSuc(m.destino))}</td>
+      <td><b>${q(m.cantidad)} ${u}</b></td></tr>`).join('');
+  const sucs = Object.entries(r.sucursales || {}).map(([id, s]) => {
+    const marca = s.pocasVentas ? '<span class="rot-falta" title="Vende menos que el umbral: queda en presencia mínima">pocas ventas</span>' : '';
+    return `<tr><td class="l">${escHtml(rotNombreSuc(id))} ${marca}</td><td>${q(s.stock)}</td><td>${rotDia(s.ventaDia)}</td>
+      <td>${q(s.objetivo)}</td><td>${s.necesidad ? q(s.necesidad) : '—'}</td><td>${s.sobrante ? q(s.sobrante) : '—'}</td>
+      <td><b>${q(s.stockFinal)}</b></td></tr>`;
+  }).join('');
+  return `<div class="rot-det"><div><h4>Movimientos sugeridos (${r.movimientos.length})</h4>
+      <table class="rot-sub"><tbody>${movs}</tbody></table></div>
+    <div><h4>Situación por sucursal (${r.pesable ? 'kg' : 'unidades'}, ventas por día)</h4>
+      <table class="rot-sub"><thead><tr><th class="l">Sucursal</th><th>Stock</th><th>Vta/día</th><th>Objetivo</th><th>Necesita</th><th>Sobra</th><th>Final</th></tr></thead>
+      <tbody>${sucs}</tbody></table></div></div>`;
+}
+
+function rotFila(r){
+  const abierto = rotAbiertos.has(r.plu), q = n => rotCant(n, r.pesable), u = rotUni(r);
+  const fila = `<tr class="rot-fila${abierto ? ' abierta' : ''}">
+    <td class="rot-n"><button type="button" class="rot-exp" data-plu="${escHtml(r.plu)}" aria-expanded="${abierto}" aria-label="Ver movimientos de ${escHtml(r.nombre)}">${abierto ? '▾' : '▸'}</button></td>
+    <td class="l nombre" title="${escHtml(`${r.nombre}${r.rubro ? `\nRubro: ${r.rubro}` : ''}\nPLU ${r.plu}`)}">${escHtml(r.nombre)}</td>
+    <td>${q(r.central)}</td><td>${q(r.demanda)}</td><td><b>${q(r.faltante)}</b></td>
+    <td><b class="rot-rep">${q(r.mover)}</b> <span class="rot-sin-dato">${u}</span></td>
+    <td>${rotCubierto(r.cubierto)}</td>
+    <td>${rotNum(r.movimientos.length)}</td></tr>`;
+  return abierto ? `${fila}<tr class="rot-detalle"><td></td><td colspan="7">${rotDetalle(r)}</td></tr>` : fila;
 }
 
 function rotTabla(){
   const el = rotEl('rotTabla');
-  if (rot.sucursales.length < 2){
-    el.innerHTML = '<div class="rot-vacio">Tildá al menos 2 sucursales para comparar.</div>';
-    return;
-  }
   const filas = rotFilas();
   if (!filas.length){
-    el.innerHTML = `<div class="rot-vacio">${rot.filtro ? 'Ningún producto coincide con la búsqueda.' : 'No hay productos con ventas suficientes en el rango.'}</div>`;
+    el.innerHTML = `<div class="rot-vacio">${rot.filtro ? 'Ningún producto coincide con la búsqueda.' : 'No hay faltantes en central que se puedan cubrir con mercadería parada en sucursales.'}</div>`;
     return;
   }
-  const cuerpo = filas.map((r, i) => `<tr>
-      <td>${rotNum(i + 1)}</td>
-      <td class="l nombre">${escHtml(r.nombre)}</td>
-      <td>${rotPill(r.puntaje)}</td>
-      <td class="l">${escHtml(rotNombreSuc(r.masVende.suc))} <span class="rot-porc">${rotNum(r.masVende.porc)}%</span></td>
-      <td>${rotCant(r.unidades, r.pesable)}</td>
-      ${rot.sucursales.map(s => rotCelda(r.porSucursal[s], r.pesable)).join('')}
-    </tr>`).join('');
-  el.innerHTML = `<table><thead><tr>
-      <th>#</th>
-      ${rotTh('nombre', 'Producto', 'l')}
-      ${rotTh('puntaje', 'Puntaje', '')}
-      <th class="l">Se vende más en</th>
-      ${rotTh('unidades', 'Unidades', '')}
-      ${rot.sucursales.map(s => `<th>${escHtml(rotNombreSuc(s))}</th>`).join('')}
-    </tr></thead><tbody>${cuerpo}</tbody></table>`;
-}
-
-// Números sin formatear para que Excel pueda sumarlos.
-function rotExportar(){
-  const filas = rotFilas();
-  if (!filas.length){ apdAvisar('No hay productos para exportar con la búsqueda actual.'); return; }
-  const encabezado = ['Producto', 'Rubro', 'Puntaje', 'Se vende más en',
-    ...rot.sucursales.map(s => `${rotNombreSuc(s)} unidades`)];
-  const cuerpo = filas.map(r => [
-    r.nombre, r.rubro, r.puntaje ?? '', rotNombreSuc(r.masVende.suc),
-    ...rot.sucursales.map(s => (r.porSucursal[s] || {}).unidades || 0),
-  ]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([encabezado, ...cuerpo]), 'Rotación');
-  XLSX.writeFile(wb, `rotacion_${rotRango.desde}_${rotRango.hasta}.xlsx`);
+  el.innerHTML = `<table class="rot-table"><colgroup><col class="c-n"><col><col class="c-u"><col class="c-u"><col class="c-u"><col class="c-u"><col class="c-p"><col class="c-m"></colgroup>
+    <thead><tr><th></th>${rotTh('nombre', 'Producto', 'l')}${rotTh('central', 'Central', '')}${rotTh('demanda', 'Demanda', '')}
+      ${rotTh('faltante', 'Faltante', '')}${rotTh('mover', 'A mover', '')}${rotTh('cubierto', 'Cubierto', '')}<th title="Cantidad de traslados">Mov.</th>
+    </tr></thead><tbody>${filas.map(rotFila).join('')}</tbody></table>`;
 }

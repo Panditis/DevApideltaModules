@@ -3,7 +3,9 @@ const express = require('express');
 const path = require('path');
 const XLSX = require('xlsx');
 const insumos = require('../lib/insumos');
-const { calcularAlmacen, presentacionDistribucion } = require('../lib/distribucion');
+const { calcularAlmacen, presentacionDistribucion, pisoMinimo } = require('../lib/distribucion');
+const { redistribuirProducto } = require('../lib/rotacion_reparto');
+const analisisVentas = require('../lib/analisis_ventas');
 const { calcularPesables, ultimoFraccionadoPorPlu } = require('../lib/pesables');
 const productividad = require('../lib/productividad');
 const { universoLista, universoPesables } = require('../lib/listas_universo');
@@ -367,12 +369,107 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
       cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
       peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG, mins: f.mins, sLev: f.sLev,
       J: f.J, D: f.D, G: f.G, objDep: f.objDep, BL: f.BL, prioridad, prioridadSala, prioridadBase, prioridadSalaBase,
-      granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {},
+      granelRatio: f.granelRatio, presKg: f.presKg, stkSuc: stocks.get(String(f.plu)) || {},
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null,
       diasSinFraccionar: f.diasSinFraccionar, ultimoFraccionado: f.ultimoFraccionado };
   });
 }
 router.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
+
+// ── Redistribución sucursal → sucursal (docs/specs/redistribucion_sucursales.md) ──
+// Toma el pedido del motor (ideal = S − stock, sin racionar) y, donde la central no alcanza,
+// sugiere traslados desde sucursales de pocas ventas. Solo lectura.
+// Clave motor → IdSucursal (sin 6/8/11). Almacén y pesables nombran distinto a Ramallo/San Pedro.
+const REDIST_ALM = { riv: 5, urq: 2, nacion: 3, chaca: 4, pergamino: 10, sanPedro: 7, sucursal9: 9 };
+const REDIST_PES = { riv: 5, urq: 2, nacion: 3, chaca: 4, pergamino: 10, sanpedro: 7, ramallo: 9 };
+const REDIST_DEFAULT = { dias: 30, pocasVentasUnidDia: 0.25, pocasVentasKgDia: 0.05 };
+const sinEnvio = (v) => v === 'Fact' || v === 'Restringido';
+// Presencia de góndola por clase ABC (pesables: tramos por peso de bolsa si están configurados).
+function presenciaDe(emp, clase, presKg) {
+  const tramos = emp.presenciaPorPresentacion;
+  if (Array.isArray(tramos) && tramos.length && presKg != null) {
+    const t = tramos.find(x => x.hastaKg == null || presKg <= x.hastaKg + 1e-9);
+    return t ? Number(t.piso) || 0 : 0;
+  }
+  const pc = emp.presenciaPorClase || {};
+  return clase && pc[clase] != null ? Number(pc[clase]) || 0 : 0;   // sin clase → min A8020
+}
+async function calcularRedistribucion(dias) {
+  const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {}) || {};
+  const rc = { ...REDIST_DEFAULT, ...(distCfg.redistribucion || {}) };
+  const cfg = { dias, umbrales: { unidDia: Number(rc.pocasVentasUnidDia), kgDia: Number(rc.pocasVentasKgDia) } };
+  const abc = (leerJSON(A8020_CALC_PATH, {}) || {}).abc || {};
+  const micro = distCfg.umbralMicroEnvio || {};
+  const tramosMicro = micro.tramos || [{ hastaS: null, pct: 0.20 }];
+  const pisoAbsMicro = micro.pisoAbsoluto != null ? micro.pisoAbsoluto : 1;
+  const [alm, pes] = await Promise.all([calcularDistribucionAlmacen(), calcularDistribucionPesables(true)]);
+
+  const filas = [];
+  for (const f of alm) {
+    const caja = (f.presentacion && f.presentacion.unidadesPorBulto) > 1 ? f.presentacion.unidadesPorBulto : 1;
+    const presencia = presenciaDe((distCfg.empujeDeposito || {}), abc[String(f.plu)]);
+    const sucursales = {};
+    for (const [k, id] of Object.entries(REDIST_ALM)) {
+      const S = (f.sSuc || {})[k] || 0;
+      sucursales[id] = { stock: (f.stkSuc || {})[k] || 0, min: (f.minSuc || {})[k] || 0, S, presencia,
+        necesidad: sinEnvio((f.enviar || {})[k]) || sinEnvio((f.enviarTexto || {})[k]) ? 0 : ((f.ideal || {})[k] || 0),
+        piso: pisoMinimo(S, tramosMicro, pisoAbsMicro) };
+    }
+    filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: false, central: f.central,
+      unidad: caja, minimo: Math.max(caja, 1), sucursales });
+  }
+  for (const f of pes) {
+    const bolsa = f.presKg > 0 ? f.presKg : 1;
+    const presencia = presenciaDe((distCfg.empujeDepositoPesables || {}), abc[String(f.plu)], bolsa);
+    const sucursales = {};
+    for (const [k, id] of Object.entries(REDIST_PES)) {
+      sucursales[id] = { stock: Math.max(0, (f.stkSuc || {})[k] || 0), min: (f.mins || {})[k] || 0, S: (f.sLev || {})[k] || 0,
+        presencia, necesidad: sinEnvio((f.enviar || {})[k]) ? 0 : ((f.ideal || {})[k] || 0), piso: 0 };
+    }
+    filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: true, central: f.H,
+      unidad: bolsa, minimo: Math.max(bolsa, 1), sucursales });
+  }
+  // Ventas solo de los candidatos (necesidad > central): el resto no puede tener faltante.
+  const candidatas = filas.filter(f => Object.values(f.sucursales).reduce((a, s) => a + s.necesidad, 0) > Math.max(0, Number(f.central) || 0));
+  const rango = analisisVentas.rangoUltimosDias(dias);
+  const idsCsv = analisisVentas.idsCsvSeguro(candidatas.map(f => f.plu));
+  const sucIds = [...new Set([...Object.values(REDIST_ALM), ...Object.values(REDIST_PES)])];
+  const ventasRows = idsCsv
+    ? await query(analisisVentas.sqlUnidadesPorSucursal({ ...rango, sucIdsCsv: sucIds.join(',') }, idsCsv))
+    : [];
+  const ventas = new Map();
+  for (const r of ventasRows) {
+    const k = String(r.IdProducto).trim();
+    ventas.set(k, { ...(ventas.get(k) || {}), [r.IdSucursal]: Number(r.Unidades) || 0 });
+  }
+  // ponytail: pesables en kg = Cantidad × bolsa (supuesto: Cantidad son bolsas; en "por kilo" bolsa=1). Sin verificar contra Siga.
+  const productos = candidatas.map(f => {
+    const v = ventas.get(String(f.plu)) || {};
+    const vs = f.pesable ? Object.fromEntries(Object.entries(v).map(([s, q]) => [s, q * f.unidad])) : v;
+    return redistribuirProducto(f, vs, cfg);
+  }).filter(Boolean).sort((a, b) => b.mover - a.mover);
+
+  const resumenSucursales = {};
+  for (const p of productos) for (const [s, x] of Object.entries(p.sucursales)) {
+    const r = resumenSucursales[s] || { sale: 0, entra: 0, stockAntes: 0, stockDespues: 0 };
+    const sale = p.movimientos.filter(m => String(m.origen) === s).reduce((a, m) => a + m.cantidad, 0);
+    const entra = p.movimientos.filter(m => String(m.destino) === s).reduce((a, m) => a + m.cantidad, 0);
+    resumenSucursales[s] = { sale: r.sale + sale, entra: r.entra + entra,
+      stockAntes: r.stockAntes + x.stock, stockDespues: r.stockDespues + x.stockFinal };
+  }
+  // ponytail: el resumen suma unidades y kg juntos; separar por unidad si el front lo necesita.
+  return { rango: { ...rango, dias }, umbrales: cfg.umbrales, productos, resumenSucursales,
+    totales: { productos: productos.length, movimientos: productos.reduce((a, p) => a + p.movimientos.length, 0) } };
+}
+router.get('/api/distribucion/redistribucion', async (req, res) => {
+  const raw = req.query.dias;
+  const def = Number((leerJSON(DISTRIB_CONFIG_PATH, {}) || {}).redistribucion?.dias) || REDIST_DEFAULT.dias;
+  const dias = raw == null || raw === '' ? def : Number(raw);
+  if (!Number.isInteger(dias) || dias < 7 || dias > 365)
+    return res.status(400).json({ error: 'dias debe ser un entero entre 7 y 365.' });
+  try { res.json(await calcularRedistribucion(dias)); }
+  catch (err) { console.error('[redistribucion]', err.message); res.status(500).json({ error: err.message }); }
+});
 // Export xlsx de la tab "Sin fraccionar": el front manda las filas tal cual las ve (filtro, búsqueda,
 // orden y modo Sala ya aplicados) y acá solo se valida y se arma el libro.
 const SIN_FRAC_XLSX_MAX = 2000;

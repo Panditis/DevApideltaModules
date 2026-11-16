@@ -267,39 +267,6 @@ router.get('/api/analisis-ventas/quiebres', apiRoute(async req => {
   };
 }));
 
-// ── Rotación entre sucursales ────────────────────────────────────────────────
-// Qué productos se venden dispares entre las sucursales tildadas: un puntaje 0..100 por
-// producto que compara la participación de cada sucursal (ver filasRotacion). Mismo universo
-// que Quiebres (vendidos en el rango, sin insumos). Las ventas van en una consulta agrupada
-// por producto y sucursal, sin stock ni serie diaria: es liviana.
-// La pestaña vive en Distribución (/distribucion): la URL cuelga de /api/distribucion/rotacion,
-// que tiene su apiPrefijo propio bajo el módulo 'distribucion' en auth.js. El handler queda
-// acá porque usa sinInsumosSQL/subRubroDisponible, que son estado local de este router.
-// ponytail: mover a rutas_distribucion si sinInsumosSQL pasa a lib/ o a deps.
-router.get('/api/distribucion/rotacion', apiRoute(async req => {
-  const desde = safeDate(req.query.desde);
-  const hasta = safeDate(req.query.hasta);
-  const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);
-  const sinInsumos = await sinInsumosSQL();
-  const p = { desde, hasta, sucIdsCsv: sucIds.join(','), subRubroDisponible };
-  const productos = await query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos));
-  const idsCsv = analisisVentas.idsCsvSeguro(productos.map(r => r.IdProducto));
-  // Sin productos el IN () vacío sería SQL inválido (y sin filtro traería el catálogo entero).
-  const [ventasPorSuc, pesablesRows] = idsCsv
-    ? await Promise.all([
-        query(analisisVentas.sqlUnidadesPorSucursal(p, idsCsv)),
-        query(analisisVentas.sqlPesables(idsCsv)),
-      ])
-    : [[], []];
-  return {
-    rango: { desde, hasta },
-    sucursales: sucIds,
-    productos: analisisVentas.filasRotacion({
-      productos, ventasPorSuc, sucIds, pesables: pesablesRows.map(r => r.IdProducto),
-    }),
-  };
-}));
-
 // ── Tickets por monto (alcance sucursales) ──────────────────────────────────
 // Endpoint aparte del análisis grande a propósito: el monto se cambia muchas veces
 // seguidas y volver a correr las ocho consultas del panel por cada prueba sería
