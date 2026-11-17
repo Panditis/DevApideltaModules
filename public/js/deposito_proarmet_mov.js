@@ -12,12 +12,19 @@
     { key: 'devolver', verbo: 'devolver', ok: 'Confirmar devolución', soloConStock: true, def: (ctl, central) => [ctl, central] },
   ];
 
+  // Usuarios responsables: se piden una sola vez y se comparten entre las dos tabs.
+  const LS_USUARIO = 'proarmet_usuario';
+  let usuariosP = null;
+  const cargarUsuarios = () => usuariosP || (usuariosP = api('/api/proarmet/usuarios').then(r => r.usuarios || []));
+  const leerUsuario = () => { try { return localStorage.getItem(LS_USUARIO) || ''; } catch (_) { return ''; } };
+  const guardarUsuario = v => { try { localStorage.setItem(LS_USUARIO, v); } catch (_) { /* sin storage: sigue funcionando */ } };
+
   function crear(preset) {
     const k = preset.key;
     const root = P.$('panel-' + k);
     const q = id => root.querySelector('#' + k + '-' + id);
     const cant = new Map();     // idProducto -> cantidad (string); se conserva al cambiar origen/destino/filtro
-    let catalogo = null, pedido = 0, enviando = false, iniciado = false;
+    let catalogo = null, pedido = 0, enviando = false, iniciado = false, usuariosOk = false;
 
     root.innerHTML = `<form novalidate>
       <div class="flex flex-wrap items-end gap-3 mb-3">
@@ -32,13 +39,16 @@
         <th scope="col" class="num" style="width:90px">Código</th><th scope="col">Descripción</th>
         <th scope="col" class="num" style="width:120px">Stock origen</th><th scope="col" class="num" style="width:120px">Stock destino</th>
         <th scope="col" class="num" style="width:130px">Cantidad</th></tr></thead><tbody id="${k}-cuerpo"></tbody></table></div>
+      <div class="mt-3"><label class="lbl" for="${k}-usuario">Usuario responsable</label>
+        <select id="${k}-usuario" class="ctl" required><option value="">Cargando usuarios…</option></select></div>
       <div class="mt-3"><label class="lbl" for="${k}-desc">Descripción del movimiento (obligatoria)</label>
         <input id="${k}-desc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required></div>
       <div id="${k}-error" class="error hidden mt-3" role="alert"></div>
       <div class="mt-3 flex"><button type="submit" id="${k}-ok" class="btn btn-primario ml-auto" disabled>${preset.ok}</button></div>
     </form>`;
 
-    const error = t => { q('error').textContent = t || ''; q('error').classList.toggle('hidden', !t); };
+    let avisoUsuarios = ''; // aviso persistente si no hay usuarios: error('') no lo borra
+    const error = t => { const m = t || avisoUsuarios; q('error').textContent = m; q('error').classList.toggle('hidden', !m); };
     const par = () => ({ origen: Number(q('origen').value) || null, destino: Number(q('destino').value) || null });
     const contar = () => {
       const n = [...cant.values()].filter(v => Number(v) > 0).length;
@@ -60,6 +70,22 @@
       contar();
     }
 
+    const habilitar = () => { q('ok').disabled = enviando || !catalogo || !usuariosOk; };
+
+    cargarUsuarios().then(us => {
+      q('usuario').innerHTML = '<option value="">Elegí un usuario…</option>'
+        + us.map(u => `<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('');
+      const g = leerUsuario();
+      if (g && us.some(u => String(u.id) === g)) q('usuario').value = g;
+      usuariosOk = us.length > 0;
+      if (!usuariosOk) { avisoUsuarios = 'No hay usuarios disponibles para asignar el movimiento.'; error(''); }
+      habilitar();
+    }).catch(e => {
+      q('usuario').innerHTML = '<option value="">No se pudieron cargar</option>';
+      avisoUsuarios = 'No se pudo cargar la lista de usuarios: ' + e.message + ' No se puede confirmar sin usuario responsable.'; error('');
+      habilitar();
+    });
+
     async function cargarCatalogo() {
       const { origen, destino } = par();
       error('');
@@ -72,7 +98,7 @@
         const r = await api(`/api/proarmet/productos?origen=${origen}&destino=${destino}`);
         if (mio !== pedido) return;
         catalogo = preset.soloConStock ? r.productos.filter(p => Number(p.stockOrigen) > 0) : r.productos;
-        q('ok').disabled = enviando;
+        habilitar();
         render();
       } catch (e) {
         if (mio !== pedido) return;
@@ -97,7 +123,10 @@
       const descripcion = q('desc').value.trim();
       if (!descripcion) { error('La descripción es obligatoria.'); q('desc').setAttribute('aria-invalid', 'true'); q('desc').focus(); return null; }
       q('desc').removeAttribute('aria-invalid');
-      return { depOrigen: origen, depDestino: destino, descripcion, lineas };
+      const idUsuario = Number(q('usuario').value);
+      if (!idUsuario) { error('Elegí el usuario responsable del movimiento.'); q('usuario').setAttribute('aria-invalid', 'true'); q('usuario').focus(); return null; }
+      q('usuario').removeAttribute('aria-invalid');
+      return { depOrigen: origen, depDestino: destino, descripcion, lineas, idUsuario };
     }
 
     async function confirmar(body) {
@@ -106,6 +135,7 @@
       q('ok').disabled = true; q('ok').textContent = 'Enviando…';
       error('');
       try {
+        guardarUsuario(String(body.idUsuario));
         const r = await api('/api/proarmet/movimiento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         toast(`Movimiento ${r.numeroMovimiento} registrado (${body.lineas.length} producto${body.lineas.length === 1 ? '' : 's'}).`);
         cant.clear(); q('desc').value = '';
@@ -114,7 +144,7 @@
       } catch (e) {
         error(e.message); toast(e.message, true);
       } finally {
-        enviando = false; q('ok').textContent = preset.ok; q('ok').disabled = !catalogo;
+        enviando = false; q('ok').textContent = preset.ok; habilitar();
       }
     }
 
@@ -146,7 +176,7 @@
     });
     root.querySelector('form').addEventListener('submit', e => {
       e.preventDefault();
-      if (!catalogo) return;
+      if (!catalogo || !usuariosOk) return;
       const body = armar();
       if (body) confirmar(body);
     });
