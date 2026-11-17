@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas } = require('../lib/proarmet');
+const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos } = require('../lib/proarmet');
 
 test('cfg: defaults y central desde reserva', () => {
   assert.deepStrictEqual(cfgProarmet(undefined, 1), { idSucursal: 1, idDeposito: 'DepositoProarmet', idDepositoCentral: 1, idTipoMovimiento: 'REC-SUC' });
@@ -37,4 +37,23 @@ test('chequearLineas', () => {
   assert.match(chequearLineas([{ idProducto: '2', cantidad: 1 }], p), /inactivo/);
   assert.match(chequearLineas([{ idProducto: '1', cantidad: 5 }], p), /hay 4/);
   assert.strictEqual(chequearLineas([{ idProducto: '1', cantidad: 4 }], p), null);
+});
+
+test('historialMovimientos: filtra, ordena, normaliza', () => {
+  const log = [
+    { id: 'a', origen: 'traslado', idSucursal: 1, depOrigen: 1, depDestino: 4, fechaHora: 't1', estado: 'confirmado', observacion: 'ida', lineas: [{ plu: '10', nombre: null, cantidad: 2 }] },
+    { id: 'b', origen: 'reserva', idSucursal: 1, depOrigen: 1, depDestino: 4, lineas: [] },
+    { id: 'c', origen: 'traslado', idSucursal: 2, depOrigen: 4, depDestino: 1, lineas: [] },
+    { id: 'd', origen: 'traslado', idSucursal: 1, depOrigen: 4, depDestino: 9, revertidoPor: 'z', lineas: [] },
+    { id: 'e', origen: 'traslado', idSucursal: 1, depOrigen: 1, depDestino: 2, lineas: [] },
+  ];
+  const r = historialMovimientos(log, { idSucursal: 1, idDeposito: 4, limit: 10, nombres: new Map([[1, 'Principal'], [4, 'Proarmet']]) });
+  assert.deepStrictEqual(r.map(m => m.id), ['d', 'a']);
+  assert.strictEqual(r[0].tipo, 'salida');
+  assert.strictEqual(r[0].depDestinoNombre, null);
+  assert.strictEqual(r[0].revertidoPor, 'z');
+  assert.deepStrictEqual(r[1], { id: 'a', fecha: 't1', numeroMovimiento: null, estado: 'confirmado', tipo: 'ingreso', depOrigen: 1, depDestino: 4,
+    depOrigenNombre: 'Principal', depDestinoNombre: 'Proarmet', usuario: null, descripcion: 'ida',
+    lineas: [{ idProducto: '10', descripcion: null, cantidad: 2 }], revertidoPor: null });
+  assert.strictEqual(historialMovimientos(log, { idSucursal: 1, idDeposito: 4, limit: 1, nombres: new Map() }).length, 1);
 });

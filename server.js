@@ -2708,7 +2708,7 @@ app.use(require('./routes/rutas_cruce_bancario')({ query }));
 // Depósito Proarmet: stock y traslados internos casa central <-> Proarmet (config.json "proarmet").
 app.use(require('./routes/rutas_proarmet')({
   apiRoute, query, depositosActivos, cfgReserva, getPoolStock,
-  trasladarStock, ejecutarYRegistrar, conLogError, TIPOS_MOVIMIENTO_STOCK_PERMITIDOS,
+  trasladarStock, ejecutarYRegistrar, conLogError, TIPOS_MOVIMIENTO_STOCK_PERMITIDOS, leerMovLog,
 }));
 // Tickets de Desarrollo: persiste en data/tickets.json; los destinatarios válidos son los usuarios activos de SIGA.
 app.use(require('./routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso }));

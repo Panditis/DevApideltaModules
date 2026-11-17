@@ -2,7 +2,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas } = require('../lib/proarmet');
+const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos } = require('../lib/proarmet');
 
 // ── Depósito Proarmet ─────────────────────────────────────────────────────────
 // Stock del depósito Proarmet y traslados entre depósitos elegidos de la misma sucursal.
@@ -11,7 +11,7 @@ const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas } = requi
 module.exports = function crearRutasProarmet(deps) {
   const {
     apiRoute, query, depositosActivos, cfgReserva, getPoolStock,
-    trasladarStock, ejecutarYRegistrar, conLogError, TIPOS_MOVIMIENTO_STOCK_PERMITIDOS,
+    trasladarStock, ejecutarYRegistrar, conLogError, TIPOS_MOVIMIENTO_STOCK_PERMITIDOS, leerMovLog,
   } = deps;
   const router = express.Router();
 
@@ -74,6 +74,25 @@ module.exports = function crearRutasProarmet(deps) {
     if (origen === null || destino === null) return { error: `origen y destino deben ser depósitos activos de la sucursal ${ctx.c.idSucursal}` };
     const filas = await query(sqlProductos(ctx.c.idSucursal, origen, destino, 'p.Activo = 1'));
     return { productos: filas.map(f => ({ idProducto: f.idProducto, descripcion: f.descripcion, stockOrigen: Number(f.stockOrigen), stockDestino: Number(f.stockDestino) })) };
+  }));
+
+  router.get('/api/proarmet/movimientos', apiRoute(async req => {
+    const ctx = await contexto();
+    const pedido = req.query.idDeposito;
+    const tieneParam = pedido !== undefined && pedido !== '';
+    const idDep = tieneParam ? depValido(ctx, pedido) : ctx.defaultControlado;
+    if (tieneParam && idDep === null) return { error: `El depósito ${pedido} no está activo en la sucursal ${ctx.c.idSucursal}` };
+    if (idDep === null) return { movimientos: [] };
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 500);
+    const nombres = new Map(ctx.depositos.map(d => [d.idDeposito, d.nombre]));
+    const movimientos = historialMovimientos(leerMovLog(), { idSucursal: ctx.c.idSucursal, idDeposito: idDep, limit, nombres });
+    // El log de Proarmet guarda nombre null: una sola query IN completa las descripciones (PLUs saneados).
+    const faltan = [...new Set(movimientos.flatMap(m => m.lineas).filter(l => l.descripcion == null).map(l => l.idProducto))]
+      .filter(id => /^[A-Za-z0-9_-]+$/.test(id));
+    if (!faltan.length) return { movimientos };
+    const filas = await query(`SELECT RTRIM(IdProducto) AS idProducto, RTRIM(NombreProducto) AS descripcion FROM Productos WHERE IdProducto IN (${faltan.map(id => `'${id}'`).join(',')})`);
+    const desc = new Map(filas.map(f => [String(f.idProducto).trim(), f.descripcion]));
+    return { movimientos: movimientos.map(m => ({ ...m, lineas: m.lineas.map(l => (l.descripcion == null ? { ...l, descripcion: desc.get(l.idProducto) ?? null } : l)) })) };
   }));
 
   router.post('/api/proarmet/movimiento', apiRoute(async req => {
