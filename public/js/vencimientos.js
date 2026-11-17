@@ -11,7 +11,7 @@ const TIPO_MOV = { alta: 'Alta', correccion: 'Corrección', oferta: 'Oferta', ve
 const MIN_BUSQUEDA = 2;
 const DEBOUNCE_MS = 300;
 
-const estado = { datos: null, nombres: {}, miSucursal: null, sucursalesLista: [], loteAcc: null, productoElegido: null, tabActiva: 'listado' };
+const estado = { datos: null, nombres: {}, miSucursal: null, sucursalesLista: [], loteAcc: null, productoElegido: null, tabActiva: 'listado', cruce: null, filtroLote: null };
 
 async function api(url, opciones) {
   const init = opciones && opciones.body !== undefined
@@ -24,7 +24,39 @@ async function api(url, opciones) {
 }
 
 const nombreSuc = id => estado.nombres[id] || `Suc. ${id}`;
-const esCerrado = lote => Object.values(lote.sucursales).every(c => c.estado === 'cerrado');
+const cruceDe = (idLote, suc) => (estado.cruce && estado.cruce.cruce && estado.cruce.cruce[idLote] && estado.cruce.cruce[idLote][suc]) || null;
+const estadoLoteSuc = (lote, suc) => { const x = cruceDe(lote.id, suc); return x && x.estadoLote ? x.estadoLote : lote.sucursales[suc].estado; };
+const esCerrado = lote => Object.keys(lote.sucursales).every(s => estadoLoteSuc(lote, s) === 'cerrado');
+
+// Cruce con SIGA: textos y clases (siempre con texto además del color).
+const CRUCE_TXT = { ok: 'OK', diferencia: 'Diferencia', 'sin movimiento': 'Sin movimiento' };
+const CRUCE_CLASE = { ok: 'verde', diferencia: 'amarillo', 'sin movimiento': 'gris' };
+const LOTE_TXT = { cargado: 'Cargado', 'en oferta': 'En oferta', cerrado: 'Cerrado' };
+function explicarDiferencia(x) {
+  if (x.diferencia > 0) return 'se movió de más';
+  if (x.diferencia < 0) return x.movidoOferta > 0 ? 'oferta parcial' : 'sin movimiento';
+  return '';
+}
+const signo = n => (n > 0 ? '+' : '') + fmtNum(n);
+function detalleCruce(x) {
+  const ex = explicarDiferencia(x);
+  return `Unidades del lote: ${fmtNum(x.unidades)} · Movido a oferta: ${fmtNum(x.movidoOferta)} · Movido vencido: ${fmtNum(x.movidoVencido)} · Diferencia: ${signo(x.diferencia)}${ex ? ` (${ex})` : ''}`;
+}
+function pillCruce(x) {
+  const clase = CRUCE_CLASE[x.estadoCruce] || 'gris';
+  return `<span class="pill pill--${clase}" title="${esc(detalleCruce(x))}">${esc(CRUCE_TXT[x.estadoCruce] || x.estadoCruce)}</span>`;
+}
+const rotuloVendido = x => (x.origenVendido === 'siga' ? 'SIGA' : 'manual');
+const loteAlerta = l => Object.keys(l.sucursales).some(s => { const x = cruceDe(l.id, s); return x && (x.aviso || x.estadoCruce === 'diferencia'); });
+function validarConfigCliente(c) {
+  for (const k of ['tipoOferta', 'tipoNoVendido']) {
+    if (c[k] === undefined) continue;
+    if (!c[k].trim() || c[k].trim().length > 50) return 'Los tipos de movimiento no pueden estar vacíos ni pasar de 50 caracteres.';
+  }
+  if (c.depositoMovimientos !== undefined && !esEnteroPositivo(c.depositoMovimientos)) return 'El depósito tiene que ser un entero mayor a 0.';
+  for (const k of ['diasAviso', 'margenDias']) if (c[k] !== undefined && !/^\d+$/.test(String(c[k]).trim())) return 'Los días de aviso y margen tienen que ser enteros mayores o iguales a 0.';
+  return '';
+}
 
 function pillSemaforo(lote) {
   const txt = lote.semaforo === 'rojo' && lote.dias < 0 ? 'Vencido' : SEMAFORO[lote.semaforo] || lote.semaforo;
@@ -83,7 +115,14 @@ async function cargarSucursales() {
 async function cargarLotes() {
   $('listadoMsg').innerHTML = '<div class="msg-vacio"><span class="spin"></span> Cargando…</div>';
   try {
-    estado.datos = await api('/api/vencimientos/lotes');
+    const [datos, cruce] = await Promise.all([
+      api('/api/vencimientos/lotes'),
+      api('/api/vencimientos/cruce').catch(() => null),
+    ]);
+    estado.datos = datos;
+    estado.cruce = cruce && cruce.cruceDisponible ? cruce : null;
+    $('cruceAviso').textContent = estado.cruce ? '' : 'Cruce con SIGA no disponible';
+    $('cruceAviso').title = !estado.cruce && cruce && cruce.mensaje ? cruce.mensaje : '';
   } catch (e) {
     $('listadoMsg').innerHTML = `<div class="error-box" role="alert">${esc(e.message)}</div>`;
     $('tablaListado').innerHTML = '';
@@ -93,6 +132,7 @@ async function cargarLotes() {
   const { umbrales, usuario } = estado.datos;
   $('umbralesTxt').textContent = `Rojo ≤ ${umbrales.rojo} d · Amarillo ≤ ${umbrales.amarillo} d · Verde > ${umbrales.amarillo} d`;
   $('btnUmbrales').hidden = !usuario.esAdmin;
+  renderAvisos();
   renderListado();
   if (estado.tabActiva === 'mia') renderMia();
 }
@@ -103,7 +143,7 @@ function lotesFiltrados() {
   const sem = $('fSemaforo').value;
   const cerrados = $('fCerrados').checked;
   return estado.datos.lotes.filter(l =>
-    (cerrados || !esCerrado(l)) && (!sem || l.semaforo === sem) &&
+    (!estado.filtroLote || l.id === estado.filtroLote) && (cerrados || !esCerrado(l) || l.id === estado.filtroLote) && (!sem || l.semaforo === sem) &&
     (!txt || `${l.nombre || ''} ${l.codigo || ''} ${l.idProducto}`.toLowerCase().includes(txt)));
 }
 
@@ -121,17 +161,51 @@ function renderListado() {
   const th = sucursales.map(s => `<th class="num${propia(s) ? ' propia' : ''}">${esc(nombreSuc(s))}${propia(s) ? ' (tuya)' : ''}</th>`).join('');
   const cuerpo = filas.map(l => {
     const celdas = sucursales.map(s => {
-      const c = l.sucursales[s];
-      return `<td class="num${propia(s) ? ' propia' : ''}">${c ? fmtNum(c.unidades) : '<span class="text-gris">–</span>'}</td>`;
+      const c = l.sucursales[s], x = cruceDe(l.id, s);
+      const extra = x ? `<div class="mt-0.5">${pillCruce(x)}</div><div class="text-xs text-gris" title="${esc(detalleCruce(x))}">${esc(LOTE_TXT[x.estadoLote] || x.estadoLote)} · vendido ${fmtNum(x.vendido)} (${rotuloVendido(x)})${x.diferencia ? ` · dif ${signo(x.diferencia)}` : ''}</div>` : '';
+      return `<td class="num${propia(s) ? ' propia' : ''}">${c ? fmtNum(c.unidades) + extra : '<span class="text-gris">–</span>'}</td>`;
     }).join('');
     const borrar = usuario.esAdmin ? `<td><button type="button" class="btn btn-mini" data-borrar="${esc(l.id)}" aria-label="Borrar lote de ${esc(l.nombre || l.idProducto)}">Borrar</button></td>` : '';
-    return `<tr class="${esCerrado(l) ? 'cerrado' : ''}"><td>${pillSemaforo(l)}</td><td>${celdaProducto(l)}</td><td>${esc(fmtFecha(l.vencimiento))}</td>
+    return `<tr class="${esCerrado(l) ? 'cerrado' : ''}${loteAlerta(l) ? ' alerta' : ''}"><td>${pillSemaforo(l)}</td><td>${celdaProducto(l)}</td><td>${esc(fmtFecha(l.vencimiento))}</td>
       <td class="num">${fmtNum(l.dias)}</td>${celdas}<td class="num font-semibold">${fmtNum(l.totalUnidades)}</td>${borrar}</tr>`;
   }).join('');
   $('tablaListado').innerHTML = `<thead><tr><th>Estado</th><th>Producto</th><th>Vence</th><th class="num">Días</th>${th}<th class="num">Total</th>${usuario.esAdmin ? '<th></th>' : ''}</tr></thead><tbody>${cuerpo}</tbody>`;
 }
 
 ['fTexto', 'fSemaforo', 'fCerrados'].forEach(id => $(id).addEventListener('input', renderListado));
+
+// ── Avisos y huérfanos ────────────────────────────────────────────────────────
+function renderAvisos() {
+  const banda = $('avisosBanda'), btnH = $('btnHuerfanos');
+  const cr = estado.cruce;
+  const huer = cr && cr.huerfanos ? cr.huerfanos : [];
+  btnH.hidden = !huer.length; btnH.textContent = `Movimientos sin lote (${huer.length})`;
+  const propia = estado.datos.usuario.idSucursal;
+  const avisos = (cr && cr.avisos ? cr.avisos : []).map(a => ({ ...a, lote: estado.datos.lotes.find(l => l.id === a.idLote) })).filter(a => a.lote);
+  if (!avisos.length) { banda.hidden = true; banda.innerHTML = ''; return; }
+  const grupos = new Map();
+  avisos.forEach(a => { if (!grupos.has(a.idLote)) grupos.set(a.idLote, []); grupos.get(a.idLote).push(a); });
+  const esPropio = g => g.some(a => String(a.idSucursal) === String(propia));
+  const orden = [...grupos.entries()].sort((a, b) => Number(esPropio(b[1])) - Number(esPropio(a[1])));
+  const chips = orden.map(([id, g]) => {
+    const l = g[0].lote, sucs = g.map(a => nombreSuc(a.idSucursal) + (String(a.idSucursal) === String(propia) ? ' (tuya)' : '')).join(', ');
+    return `<button type="button" class="chip${estado.filtroLote === id ? ' on' : ''}" data-aviso="${esc(id)}" aria-pressed="${estado.filtroLote === id}">${esc(l.nombre || l.idProducto)} · vence ${esc(fmtFecha(l.vencimiento))} · falta movimiento: ${esc(sucs)}</button>`;
+  }).join('');
+  banda.hidden = false;
+  banda.innerHTML = `<div class="font-semibold mb-1">${avisos.length} ${avisos.length === 1 ? 'aviso' : 'avisos'}: lotes sin movimiento PARA OFERTA cerca de vencer${estado.filtroLote ? ' <button type="button" class="btn btn-mini ml-2" data-aviso="">Quitar filtro</button>' : ''}</div><div class="flex flex-wrap gap-2">${chips}</div>`;
+}
+$('avisosBanda').addEventListener('click', e => {
+  const b = e.target.closest('[data-aviso]'); if (!b) return;
+  const id = b.dataset.aviso;
+  estado.filtroLote = id && id !== estado.filtroLote ? id : null;
+  renderAvisos(); renderListado();
+});
+
+$('btnHuerfanos').addEventListener('click', () => {
+  const nombreProd = id => { const l = estado.datos.lotes.find(x => String(x.idProducto) === String(id)); return l && l.nombre ? l.nombre : `Producto ${id}`; };
+  $('huerCuerpo').innerHTML = estado.cruce.huerfanos.map(h => `<tr><td>${esc(nombreSuc(h.idSucursal))}</td><td>${esc(nombreProd(h.idProducto))}<div class="text-xs text-gris">${esc(h.idProducto)}</div></td><td class="num">${fmtNum(h.movidoOferta)}</td><td class="num">${fmtNum(h.movidoVencido)}</td></tr>`).join('');
+  abrirModal('mHuer', 'huerCerrar');
+});
 
 // ── Alta ──────────────────────────────────────────────────────────────────────
 let timerBusqueda = null, secBusqueda = 0;
@@ -210,17 +284,29 @@ $('mDel').querySelector('form').addEventListener('submit', async e => {
   if (ok) { cerrarModal('mDel'); await cargarLotes(); }
 });
 
-// ── Umbrales (admin) ──────────────────────────────────────────────────────────
-$('btnUmbrales').addEventListener('click', () => {
+// ── Configuración (admin) ─────────────────────────────────────────────────────
+const CAMPOS_CFG = { tipoOferta: 'cfgOferta', tipoNoVendido: 'cfgNoVendido', depositoMovimientos: 'cfgDeposito', diasAviso: 'cfgDiasAviso', margenDias: 'cfgMargen' };
+$('btnUmbrales').addEventListener('click', async () => {
   $('umbRojo').value = estado.datos.umbrales.rojo; $('umbAmarillo').value = estado.datos.umbrales.amarillo;
+  Object.values(CAMPOS_CFG).forEach(id => { $(id).value = ''; });
   mostrarError('umbError', ''); abrirModal('mUmb', 'umbRojo');
+  try {
+    const cfg = await api('/api/vencimientos/config');
+    Object.entries(CAMPOS_CFG).forEach(([k, id]) => { if (cfg[k] !== undefined) $(id).value = cfg[k]; });
+  } catch (e) { mostrarError('umbError', `No se pudo leer la configuración del cruce: ${e.message}`); }
 });
 $('mUmb').querySelector('form').addEventListener('submit', async e => {
   e.preventDefault();
   const rojo = $('umbRojo').value, amarillo = $('umbAmarillo').value;
   const err = validarUmbralesCliente(rojo, amarillo);
   if (err) return mostrarError('umbError', err);
-  const ok = await enviar('umbOk', 'umbError', () => api('/api/vencimientos/config', { method: 'PUT', body: { umbrales: { rojo: Number(rojo), amarillo: Number(amarillo) } } }));
+  const extra = {};
+  Object.entries(CAMPOS_CFG).forEach(([k, id]) => { const v = $(id).value.trim(); if (v !== '') extra[k] = v; });
+  const errCfg = validarConfigCliente(extra);
+  if (errCfg) return mostrarError('umbError', errCfg);
+  ['depositoMovimientos', 'diasAviso', 'margenDias'].forEach(k => { if (extra[k] !== undefined) extra[k] = Number(extra[k]); });
+  const body = { umbrales: { rojo: Number(rojo), amarillo: Number(amarillo) }, ...extra };
+  const ok = await enviar('umbOk', 'umbError', () => api('/api/vencimientos/config', { method: 'PUT', body }));
   if (ok) { cerrarModal('mUmb'); await cargarLotes(); }
 });
 
@@ -242,20 +328,31 @@ function renderMia() {
   cargarHistorial();
 }
 
+// Columnas Cruce / Oferta SIGA / Vencido SIGA / Vendido. Sin cruce: solo el vendido manual.
+function celdasSiga(l, suc, c) {
+  const x = cruceDe(l.id, suc);
+  if (!x) return `<td class="num">${fmtNum(c.vendido)}</td>`;
+  const ex = explicarDiferencia(x);
+  const ref = x.origenVendido === 'siga' ? `<div class="text-xs text-gris">manual: ${fmtNum(x.vendidoManual)}</div>` : '';
+  return `<td>${pillCruce(x)}${x.diferencia ? `<div class="text-xs text-gris">${signo(x.diferencia)}${ex ? ` · ${esc(ex)}` : ''}</div>` : ''}</td>
+      <td class="num">${fmtNum(x.movidoOferta)}</td><td class="num">${fmtNum(x.movidoVencido)}</td>
+      <td class="num">${fmtNum(x.vendido)}<div class="text-xs text-gris">${rotuloVendido(x)}</div>${ref}</td>`;
+}
+
 function renderMisLotes() {
   const suc = String(estado.miSucursal);
   const lotes = estado.datos.lotes.filter(l => l.sucursales[suc]);
   $('miaMsg').innerHTML = lotes.length ? '' : '<div class="msg-vacio">Esta sucursal todavía no cargó vencimientos.</div>';
   if (!lotes.length) { $('tablaMia').innerHTML = ''; return; }
   const filas = lotes.map(l => {
-    const c = l.sucursales[suc], cerrado = c.estado === 'cerrado';
+    const c = l.sucursales[suc], cerrado = estadoLoteSuc(l, suc) === 'cerrado';
     const bt = (accion, txt) => `<button type="button" class="btn btn-mini" data-acc="${accion}" data-lote="${esc(l.id)}" aria-label="${esc(txt)} de ${esc(l.nombre || l.idProducto)}">${txt}</button>`;
-    return `<tr class="${cerrado ? 'cerrado' : ''}"><td>${pillSemaforo(l)}</td><td>${celdaProducto(l)}</td><td>${esc(fmtFecha(l.vencimiento))}</td><td class="num">${fmtNum(l.dias)}</td>
-      <td class="num">${fmtNum(c.unidades)}</td><td class="num">${fmtNum(c.oferta)}</td><td class="num">${fmtNum(c.vendido)}</td><td class="num font-semibold">${fmtNum(c.pendiente)}</td>
-      <td><span class="pill ${cerrado ? 'pill--gris' : 'pill--verde'}">${cerrado ? 'Cerrado' : 'Cargado'}</span></td>
+    return `<tr class="${cerrado ? 'cerrado' : ''}${loteAlerta(l) ? ' alerta' : ''}"><td>${pillSemaforo(l)}</td><td>${celdaProducto(l)}</td><td>${esc(fmtFecha(l.vencimiento))}</td><td class="num">${fmtNum(l.dias)}</td>
+      <td class="num">${fmtNum(c.unidades)}</td><td class="num">${fmtNum(c.oferta)}</td>${celdasSiga(l, suc, c)}<td class="num font-semibold">${fmtNum(c.pendiente)}</td>
+      <td><span class="pill ${cerrado ? 'pill--gris' : 'pill--verde'}">${esc(LOTE_TXT[estadoLoteSuc(l, suc)] || (cerrado ? 'Cerrado' : 'Cargado'))}</span></td>
       <td class="whitespace-nowrap">${bt('unidades', 'Corregir')} ${bt('oferta', 'Oferta')} ${bt('vendido', 'Vendido')}</td></tr>`;
   }).join('');
-  $('tablaMia').innerHTML = `<thead><tr><th>Semáforo</th><th>Producto</th><th>Vence</th><th class="num">Días</th><th class="num">Unidades</th><th class="num">Oferta</th><th class="num">Vendido</th><th class="num">Pendiente</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${filas}</tbody>`;
+  $('tablaMia').innerHTML = `<thead><tr><th>Semáforo</th><th>Producto</th><th>Vence</th><th class="num">Días</th><th class="num">Unidades</th><th class="num">Oferta</th>${estado.cruce ? '<th>Cruce</th><th class="num">Oferta SIGA</th><th class="num">Vencido SIGA</th>' : ''}<th class="num">Vendido</th><th class="num">Pendiente</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${filas}</tbody>`;
 }
 
 async function cargarHistorial() {

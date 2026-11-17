@@ -94,9 +94,9 @@ test('umbrales: inválidos rechazados, válidos persistidos', async () => {
     assert.throws(() => validarUmbrales(u), e => e.status === 400);
   }
   const { store } = nuevoStore();
-  assert.deepStrictEqual(await store.leerConfig(), { umbrales: { ...UMBRALES_DEFAULT } });
-  await store.guardarUmbrales({ rojo: 7, amarillo: 30 });
-  assert.deepStrictEqual(await store.leerConfig(), { umbrales: { rojo: 7, amarillo: 30 } });
+  assert.deepStrictEqual((await store.leerConfig()).umbrales, { ...UMBRALES_DEFAULT });
+  await store.guardarConfig({ umbrales: { rojo: 7, amarillo: 30 } });
+  assert.deepStrictEqual((await store.leerConfig()).umbrales, { rojo: 7, amarillo: 30 });
 });
 
 test('concurrencia: altas simultáneas no pierden datos', async () => {

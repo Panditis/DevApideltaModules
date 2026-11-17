@@ -42,6 +42,13 @@ td.propia, th.propia { background: rgba(64,89,54,.07); }
 .opcion:hover { background: #f5f8f1; }
 .opcion small { color: #5c5f52; margin-left: 6px; }
 .scroll-x { overflow-x: auto; }
+tr.alerta td:first-child { box-shadow: inset 3px 0 0 #8a5d00; }
+tr.alerta { background: #fffaf0; }
+.banda { background: #fff4ce; color: #5c3d00; border: 1px solid #f0d98a; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+.banda[hidden] { display: none; }
+.chip { border: 1px solid #d9b94d; background: #fff; border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.chip:hover, .chip.on { background: #8a5d00; color: #fff; }
+.chip:focus-visible { outline: 2px solid #405936; outline-offset: 1px; }
 </style>
 </head>
 <body class="font-body text-ink">
@@ -76,6 +83,11 @@ td.propia, th.propia { background: rgba(64,89,54,.07); }
         <button id="btnUmbrales" type="button" class="btn btn-mini" hidden>Editar umbrales</button>
       </div>
     </div>
+    <div class="flex items-center gap-3 mb-2">
+      <div id="cruceAviso" class="text-xs text-gris" role="status"></div>
+      <button id="btnHuerfanos" type="button" class="btn btn-mini ml-auto" hidden>Movimientos sin lote</button>
+    </div>
+    <div id="avisosBanda" class="banda" role="region" aria-label="Avisos de falta de movimiento" hidden></div>
     <div id="listadoMsg"></div>
     <div class="bg-card rounded-xl border border-borde shadow-fluent scroll-x"><table id="tablaListado"></table></div>
   </section>
@@ -88,6 +100,7 @@ td.propia, th.propia { background: rgba(64,89,54,.07); }
         <div id="miaSelWrap" class="w-60" hidden><label class="lbl" for="miaSucursal">Sucursal</label><select id="miaSucursal" class="campo"></select></div>
         <h2 id="miaTitulo" class="font-bold text-verde pb-1"></h2>
       </div>
+      <p class="text-xs text-gris mb-2">Anotar oferta o vendido a mano es solo respaldo: si SIGA tiene el movimiento, manda SIGA.</p>
       <div id="miaMsg"></div>
       <div class="bg-card rounded-xl border border-borde shadow-fluent scroll-x"><table id="tablaMia"></table></div>
 
@@ -139,11 +152,19 @@ td.propia, th.propia { background: rgba(64,89,54,.07); }
 <!-- Modal: umbrales (admin) -->
 <div id="mUmb" class="velo" hidden>
   <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mUmbT" novalidate>
-    <h2 id="mUmbT" class="font-bold text-lg mb-1">Umbrales del semáforo</h2>
+    <h2 id="mUmbT" class="font-bold text-lg mb-1">Configuración</h2>
     <p class="text-sm text-gris mb-3">Rojo: hasta N días o vencido. Amarillo: hasta M días. Verde: más allá.</p>
     <div class="grid grid-cols-2 gap-3 mb-3">
       <div><label class="lbl" for="umbRojo">Rojo (días)</label><input id="umbRojo" class="campo" type="number" min="0" step="1"></div>
       <div><label class="lbl" for="umbAmarillo">Amarillo (días)</label><input id="umbAmarillo" class="campo" type="number" min="0" step="1"></div>
+    </div>
+    <h3 class="text-sm font-bold text-verde mb-1">Cruce con SIGA</h3>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label class="lbl" for="cfgOferta">Tipo "para oferta"</label><input id="cfgOferta" class="campo" type="text" maxlength="50"></div>
+      <div><label class="lbl" for="cfgNoVendido">Tipo "vencido / no vendido"</label><input id="cfgNoVendido" class="campo" type="text" maxlength="50"></div>
+      <div><label class="lbl" for="cfgDeposito">Depósito de movimientos</label><input id="cfgDeposito" class="campo" type="number" min="1" step="1"></div>
+      <div><label class="lbl" for="cfgDiasAviso">Días de aviso</label><input id="cfgDiasAviso" class="campo" type="number" min="0" step="1"></div>
+      <div><label class="lbl" for="cfgMargen">Margen (días)</label><input id="cfgMargen" class="campo" type="number" min="0" step="1"></div>
     </div>
     <div id="umbError" class="error-box mb-3" role="alert" hidden></div>
     <div class="flex justify-end gap-2">
@@ -151,6 +172,16 @@ td.propia, th.propia { background: rgba(64,89,54,.07); }
       <button type="submit" id="umbOk" class="btn btn-prim">Guardar</button>
     </div>
   </form>
+</div>
+
+<!-- Modal: movimientos de SIGA sin lote -->
+<div id="mHuer" class="velo" hidden>
+  <div class="modal fade-in" style="max-width:640px" role="dialog" aria-modal="true" aria-labelledby="mHuerT">
+    <h2 id="mHuerT" class="font-bold text-lg mb-1">Movimientos sin lote</h2>
+    <p class="text-sm text-gris mb-3">Movimientos de SIGA a oferta o vencido que no corresponden a ningún lote cargado. Revisalos y cargá el lote si falta.</p>
+    <div class="scroll-x" style="max-height:340px;overflow-y:auto"><table><thead><tr><th>Sucursal</th><th>Producto</th><th class="num">Oferta</th><th class="num">Vencido</th></tr></thead><tbody id="huerCuerpo"></tbody></table></div>
+    <div class="flex justify-end mt-3"><button type="button" id="huerCerrar" class="btn" data-cerrar>Cerrar</button></div>
+  </div>
 </div>
 
 <!-- Modal: confirmar borrado (admin) -->

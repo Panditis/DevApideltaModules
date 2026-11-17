@@ -16,12 +16,12 @@ const USUARIOS = {
   admin: { id: 4, usuario: 'admin', esAdmin: true },
 };
 
-function armar({ filas = [] } = {}) {
+function armar({ filas = [], falla = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'venc-rutas-'));
   const store = crearStore({ rutaDatos: path.join(dir, 'v.json'), rutaConfig: path.join(dir, 'c.json') });
   const sql = { query: null, inputs: {} };
   const getPool = async () => ({ request() {
-    const r = { input(k, v) { sql.inputs[k] = v; return r; }, async query(q) { sql.query = q; return { recordset: filas }; } };
+    const r = { input(k, v) { sql.inputs[k] = v; return r; }, async query(q) { sql.query = q; if (falla) throw new Error("SIGA caído"); return { recordset: filas }; } };
     return r;
   } });
   const app = express();
@@ -96,7 +96,8 @@ test('DELETE y PUT config solo admin', async () => {
     assert.strictEqual((await a.pedir('ana', 'PUT', '/api/vencimientos/config', { umbrales: { rojo: 5, amarillo: 10 } })).status, 403);
     assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { umbrales: { rojo: 20, amarillo: 10 } })).status, 400);
     const ok = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { umbrales: { rojo: 5, amarillo: 10 } });
-    assert.deepStrictEqual(ok.body, { umbrales: { rojo: 5, amarillo: 10 } });
+    assert.deepStrictEqual(ok.body.umbrales, { rojo: 5, amarillo: 10 });
+    assert.strictEqual(ok.body.diasAviso, 5, "diasAviso sigue al rojo");
     assert.deepStrictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/config')).body, ok.body);
   } finally { a.cerrar(); }
 });
@@ -207,4 +208,47 @@ test('sin sesión: 401; /vencimientos y /js/vencimientos.js se sirven', async ()
     assert.strictEqual(html.status, 200);
     assert.match(await html.text(), /\/js\/vencimientos\.js/);
   } finally { a.cerrar(); srv.closeAllConnections(); srv.close(); }
+});
+
+test('GET /cruce: lote con PARA OFERTA queda ok y en oferta; ve todas las sucursales', async () => {
+  const a = armar({ filas: [{ IdSucursal: 2, IdProducto: 10, Tipo: 'PARA OFERTA', IdDeposito: 1, Cantidad: -5 }] });
+  try {
+    const { body: lote } = await a.pedir('beto', 'POST', '/api/vencimientos/lotes', ALTA);
+    const r = await a.pedir('ana', 'GET', '/api/vencimientos/cruce');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.cruceDisponible, true);
+    assert.strictEqual(r.body.cruce[lote.id]['2'].estadoCruce, 'ok');
+    assert.strictEqual(r.body.cruce[lote.id]['2'].estadoLote, 'en oferta');
+    assert.deepStrictEqual(r.body.huerfanos, []);
+    assert.match(a.sql.query, /mp\.IdDeposito = @deposito/);
+  } finally { a.cerrar(); }
+});
+
+test('(l) GET /cruce con SIGA caído: 200 cruceDisponible:false y el listado sigue', async () => {
+  const a = armar({ falla: true });
+  const errorOriginal = console.error;
+  console.error = () => {};
+  try {
+    await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const r = await a.pedir('ana', 'GET', '/api/vencimientos/cruce');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.cruceDisponible, false);
+    assert.strictEqual(r.body.mensaje, 'Cruce no disponible');
+    assert.strictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/lotes')).status, 200);
+  } finally { console.error = errorOriginal; a.cerrar(); }
+});
+
+test('config de cruce: defaults, PUT admin valida, diasAviso sigue al rojo', async () => {
+  const a = armar();
+  try {
+    const d = (await a.pedir('ana', 'GET', '/api/vencimientos/config')).body;
+    assert.deepStrictEqual(d, { umbrales: { rojo: 15, amarillo: 45 }, tipoOferta: 'PARA OFERTA', tipoNoVendido: 'VENCIDO', depositoMovimientos: 1, margenDias: 7, diasAviso: 15 });
+    assert.strictEqual((await a.pedir('ana', 'PUT', '/api/vencimientos/config', { diasAviso: 3 })).status, 403);
+    for (const malo of [{ diasAviso: -1 }, { depositoMovimientos: 0 }, { tipoOferta: '  ' }, { tipoNoVendido: 'x'.repeat(51) }, {}]) {
+      assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', malo)).status, 400, JSON.stringify(malo));
+    }
+    const ok = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAviso: 3, depositoMovimientos: 2, tipoOferta: ' Para Oferta ' });
+    assert.strictEqual(ok.status, 200);
+    assert.deepStrictEqual([ok.body.diasAviso, ok.body.depositoMovimientos, ok.body.tipoOferta, ok.body.umbrales.rojo], [3, 2, 'Para Oferta', 15]);
+  } finally { a.cerrar(); }
 });

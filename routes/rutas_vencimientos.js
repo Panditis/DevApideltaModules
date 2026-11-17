@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const { semaforo, diasParaVencer, pendiente, estadoSucursal, hoyLocal } = require('../lib/vencimientos');
 const { esSucursalReal } = require('../lib/sucursales_no_reales');
+const { cruzarLote, consultarMovimientos } = require('../lib/vencimientos_siga');
 
 // ── Rutas del Control de vencimientos (Sucursales), Etapa 1 ───────────────────
 // Listado compartido de lotes; cada usuario escribe solo en la columna de su sucursal
@@ -118,7 +119,29 @@ module.exports = function crearRutasVencimientos(deps) {
 
   router.put('/api/vencimientos/config', api(async req => {
     soloAdmin(contexto(req));
-    return store.guardarUmbrales((req.body || {}).umbrales || req.body);
+    const b = req.body || {};
+    // Compatibilidad: { rojo, amarillo } plano sigue valiendo como umbrales.
+    const umbrales = b.umbrales || (b.rojo !== undefined || b.amarillo !== undefined ? { rojo: b.rojo, amarillo: b.amarillo } : undefined);
+    const { tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias } = b;
+    return store.guardarConfig({ umbrales, tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias });
+  }));
+
+  // Cruce de solo lectura contra SIGA. Si SIGA falla, 200 con cruceDisponible:false: el listado sigue andando.
+  router.get('/api/vencimientos/cruce', api(async req => {
+    contexto(req);
+    const [lotes, config] = await Promise.all([store.listarLotes(), store.leerConfig()]);
+    const hoy = hoyLocal();
+    let filas;
+    try {
+      filas = await consultarMovimientos(getPool, lotes, config, hoy);
+    } catch (err) {
+      console.error('[vencimientos] cruce SIGA falló', { lotes: lotes.length, deposito: config.depositoMovimientos, hoy }, err);
+      return { cruceDisponible: false, mensaje: 'Cruce no disponible', cruce: {}, huerfanos: [], avisos: [], config };
+    }
+    const { porLote, huerfanos } = cruzarLote(lotes, filas, config, hoy);
+    const avisos = Object.entries(porLote).flatMap(([idLote, sucs]) =>
+      Object.values(sucs).filter(r => r.aviso).map(r => ({ idLote, idSucursal: r.idSucursal, aviso: r.aviso })));
+    return { cruceDisponible: true, cruce: porLote, huerfanos, avisos, config };
   }));
 
   router.get('/api/vencimientos/historial', api(async req => {
