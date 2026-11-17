@@ -698,6 +698,8 @@ app.get('/js/precios_config_esquema.js', (_req, res) => res.sendFile(path.join(_
 app.get('/js/precios_config_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_fraccionado.js')));
 app.get('/js/precios_fraccionado_historial.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_fraccionado_historial.js')));
 app.get('/js/compras_siga.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'compras_siga.js')));
+app.get('/js/deposito_proarmet.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'deposito_proarmet.js')));
+app.get('/js/deposito_proarmet_mov.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'deposito_proarmet_mov.js')));
 // Reemplazo compartido de alert()/confirm()/prompt() nativos (apdAvisar/apdConfirmar/apdPedir).
 app.get('/js/apd-dialogo.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'apd-dialogo.js')));
 // Whitelist explícita: el proyecto no usa express.static.
