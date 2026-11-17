@@ -76,18 +76,22 @@ dialog[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
   <div id="aviso" class="hidden mb-4" role="alert"></div>
 
   <div class="flex flex-wrap items-center gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <label class="text-sm font-semibold text-gris" for="selControlado">Depósito a controlar</label>
+      <select id="selControlado" class="ctl" disabled><option value="">Cargando…</option></select>
+    </div>
     <div class="buscar">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input id="flBuscar" type="search" class="ctl" placeholder="Buscar por código o descripción" aria-label="Buscar en el stock de Proarmet">
+      <input id="flBuscar" type="search" class="ctl" placeholder="Buscar por código o descripción" aria-label="Buscar en el stock del depósito">
     </div>
     <span id="conteo" class="text-sm text-gris tabular-nums"></span>
     <div class="ml-auto flex items-center gap-2">
-      <button id="btnVuelta" type="button" class="btn" disabled>Devolver a Casa central</button>
-      <button id="btnIda" type="button" class="btn btn-primario" disabled>Mover a Proarmet</button>
+      <button id="btnVuelta" type="button" class="btn" disabled>Devolver</button>
+      <button id="btnIda" type="button" class="btn btn-primario" disabled>Ingresar mercadería</button>
     </div>
   </div>
 
-  <section class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden" aria-label="Stock en Proarmet">
+  <section class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden" aria-label="Stock del depósito">
     <table class="tabla">
       <thead>
         <tr>
@@ -103,25 +107,24 @@ dialog[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
   </section>
 </main>
 
-<!-- Ida: Casa central -> Proarmet -->
-<dialog id="dlgIda" class="dlg" aria-labelledby="iTitulo">
-  <form id="formIda" novalidate>
+<!-- Movimiento entre depósitos (ingreso / devolución) -->
+<dialog id="dlgMov" class="dlg" aria-labelledby="mTitulo">
+  <form id="formMov" novalidate>
     <div class="dlg-cab">
-      <div>
-        <h2 id="iTitulo" class="text-lg font-bold">Mover a Proarmet</h2>
-        <p id="iRuta" class="text-xs text-gris mt-0.5"></p>
-      </div>
+      <h2 id="mTitulo" class="text-lg font-bold">Ingresar mercadería</h2>
       <button type="button" class="btn-ico ml-auto" data-cerrar aria-label="Cerrar">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
     </div>
     <div class="dlg-cuerpo">
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="flex flex-wrap items-end gap-3">
+        <div><label class="lbl" for="mOrigen">Origen</label><select id="mOrigen" class="ctl"></select></div>
+        <div><label class="lbl" for="mDestino">Destino</label><select id="mDestino" class="ctl"></select></div>
         <div class="buscar">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          <input id="iBuscar" type="search" class="ctl" placeholder="Buscar producto de SIGA" aria-label="Buscar producto de SIGA">
+          <input id="mBuscar" type="search" class="ctl" placeholder="Buscar producto de SIGA" aria-label="Buscar producto de SIGA">
         </div>
-        <span id="iConteo" class="text-sm text-gris tabular-nums"></span>
-        <span id="iCargados" class="text-sm font-semibold text-verde tabular-nums ml-auto"></span>
+        <span id="mConteo" class="text-sm text-gris tabular-nums"></span>
+        <span id="mCargados" class="text-sm font-semibold text-verde tabular-nums ml-auto"></span>
       </div>
       <div class="scroll-tabla">
         <table class="tabla">
@@ -129,63 +132,23 @@ dialog[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
             <tr>
               <th scope="col" class="num" style="width:90px">Código</th>
               <th scope="col">Descripción</th>
-              <th scope="col" class="num" style="width:110px">Casa central</th>
-              <th scope="col" class="num" style="width:110px">Proarmet</th>
+              <th scope="col" class="num" style="width:120px">Stock origen</th>
+              <th scope="col" class="num" style="width:120px">Stock destino</th>
               <th scope="col" class="num" style="width:120px">Cantidad</th>
             </tr>
           </thead>
-          <tbody id="iCuerpo"></tbody>
+          <tbody id="mCuerpo"></tbody>
         </table>
       </div>
       <div>
-        <label class="lbl" for="iDesc">Descripción del movimiento (obligatoria)</label>
-        <input id="iDesc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required>
+        <label class="lbl" for="mDesc">Descripción del movimiento (obligatoria)</label>
+        <input id="mDesc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required>
       </div>
-      <div id="iError" class="error hidden" role="alert"></div>
+      <div id="mError" class="error hidden" role="alert"></div>
     </div>
     <div class="dlg-pie">
-      <span class="text-xs text-gris">Casa central → Proarmet</span>
       <button type="button" class="btn ml-auto" data-cerrar>Cancelar</button>
-      <button type="submit" id="iOk" class="btn btn-primario">Confirmar movimiento</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Vuelta: Proarmet -> Casa central -->
-<dialog id="dlgVuelta" class="dlg" aria-labelledby="vTitulo">
-  <form id="formVuelta" novalidate>
-    <div class="dlg-cab">
-      <div>
-        <h2 id="vTitulo" class="text-lg font-bold">Devolver a Casa central</h2>
-        <p id="vRuta" class="text-xs text-gris mt-0.5"></p>
-      </div>
-      <button type="button" class="btn-ico ml-auto" data-cerrar aria-label="Cerrar">
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-    </div>
-    <div class="dlg-cuerpo">
-      <div class="scroll-tabla">
-        <table class="tabla">
-          <thead>
-            <tr>
-              <th scope="col" class="num" style="width:90px">Código</th>
-              <th scope="col">Descripción</th>
-              <th scope="col" class="num" style="width:110px">Stock</th>
-              <th scope="col" class="num" style="width:120px">Cantidad</th>
-            </tr>
-          </thead>
-          <tbody id="vCuerpo"></tbody>
-        </table>
-      </div>
-      <div>
-        <label class="lbl" for="vDesc">Descripción del movimiento (obligatoria)</label>
-        <input id="vDesc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required>
-      </div>
-      <div id="vError" class="error hidden" role="alert"></div>
-    </div>
-    <div class="dlg-pie">
-      <span class="text-xs text-gris">Proarmet → Casa central</span>
-      <button type="button" class="btn ml-auto" data-cerrar>Cancelar</button>
-      <button type="submit" id="vOk" class="btn btn-primario">Confirmar movimiento</button>
+      <button type="submit" id="mOk" class="btn btn-primario">Confirmar movimiento</button>
     </div>
   </form>
 </dialog>

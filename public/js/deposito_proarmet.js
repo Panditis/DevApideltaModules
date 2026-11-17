@@ -1,19 +1,22 @@
 'use strict';
-// Pantalla "Depósito Proarmet" (/deposito-proarmet). Tabla con el stock del depósito, devolución a Casa central
-// (selección de filas + cantidad) y envío desde Casa central (modal con todos los productos de SIGA).
-// API: GET /api/proarmet/stock, GET /api/proarmet/productos, POST /api/proarmet/movimiento ({ error } si falla).
+// Pantalla "Depósito Proarmet" (/deposito-proarmet). Se elige el depósito a controlar; la tabla muestra su stock y un
+// único modal mueve mercadería entre dos depósitos cualesquiera (ingreso o devolución: solo cambia el preset).
+// API: GET /api/proarmet/depositos, /stock?idDeposito=, /productos?origen=&destino=, POST /movimiento ({ error } si falla).
 // Todo texto que viene del servidor pasa por esc() antes de ir a innerHTML.
 (() => {
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const fmt = n => Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 3 });
   const norm = s => String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const MAX_FILAS_IDA = 200; // el catálogo de SIGA es largo: se pintan las primeras coincidencias, el buscador afina
+  const MAX_FILAS = 200; // el catálogo de SIGA es largo: se pintan las primeras coincidencias, el buscador afina
+  const SK = '<tr><td colspan="5"><div class="sk"></div><div class="sk"></div><div class="sk"></div></td></tr>';
 
-  let stock = null;               // respuesta de /api/proarmet/stock
-  let catalogo = null;            // respuesta de /api/proarmet/productos (se pide al abrir el modal de ida)
-  const aDevolver = new Map();    // idProducto -> cantidad (string del input), solo filas tildadas
-  const aEnviar = new Map();      // idProducto -> cantidad (string del input) del modal de ida
+  let deps = null;                // respuesta de /api/proarmet/depositos
+  let stock = null;               // respuesta de /api/proarmet/stock del depósito controlado
+  let catalogo = null;            // respuesta de /api/proarmet/productos para el par origen/destino del modal
+  let pedidoCat = 0;              // descarta respuestas viejas del catálogo
+  const aDevolver = new Map();    // idProducto -> cantidad (string), filas tildadas de la tabla
+  const aMover = new Map();       // idProducto -> cantidad (string) del modal
   let enviando = false;
 
   const msgFalla = (e, resp) => (e && e.error) || (resp ? `Error ${resp.status}` : 'No se pudo conectar con el servidor');
@@ -33,6 +36,14 @@
     setTimeout(() => t.remove(), error ? 9000 : 6000);
   }
 
+  function aviso(texto) {
+    $('aviso').textContent = texto || '';
+    $('aviso').className = texto ? 'error mb-4' : 'hidden mb-4';
+  }
+
+  const idControlado = () => Number($('selControlado').value) || null;
+  const nombreDep = id => ((deps && deps.depositos.find(d => d.idDeposito === id)) || {}).nombre || '';
+
   // ── Tabla principal ───────────────────────────────────────────────────
   const filtrados = () => {
     const q = norm($('flBuscar').value.trim());
@@ -45,7 +56,7 @@
     const lista = filtrados();
     $('conteo').textContent = `${lista.length} de ${stock.productos.length} productos`;
     if (!lista.length) {
-      cuerpo.innerHTML = `<tr><td colspan="5"><div class="vacio"><b>${stock.productos.length ? 'Sin coincidencias' : 'No hay stock en Proarmet'}</b>${stock.productos.length ? 'Probá con otra búsqueda.' : 'Usá "Mover a Proarmet" para cargar productos.'}</div></td></tr>`;
+      cuerpo.innerHTML = `<tr><td colspan="5"><div class="vacio"><b>${stock.productos.length ? 'Sin coincidencias' : 'No hay stock en este depósito'}</b>${stock.productos.length ? 'Probá con otra búsqueda.' : 'Usá "Ingresar mercadería" para cargar productos.'}</div></td></tr>`;
     } else {
       cuerpo.innerHTML = lista.map(p => {
         const on = aDevolver.has(p.idProducto);
@@ -60,11 +71,12 @@
     actualizarBotones();
   }
 
+  // Ingresar y Devolver dependen solo de que haya depósitos cargados, no de que el stock se haya podido leer.
   function actualizarBotones() {
     const n = aDevolver.size;
-    $('btnVuelta').disabled = n === 0;
-    $('btnVuelta').textContent = n ? `Devolver a Casa central (${n})` : 'Devolver a Casa central';
-    $('btnIda').disabled = !stock;
+    $('btnIda').disabled = !deps;
+    $('btnVuelta').disabled = !deps || n === 0;
+    $('btnVuelta').textContent = n ? `Devolver (${n})` : 'Devolver';
   }
 
   function marcar(id, on) {
@@ -73,191 +85,215 @@
     if (on) aDevolver.set(id, String(p.stock)); else aDevolver.delete(id);
   }
 
+  function sinStock(texto) {
+    stock = null;
+    $('cuerpo').innerHTML = texto ? `<tr><td colspan="5"><div class="vacio"><b>${esc(texto)}</b></div></td></tr>` : '';
+    $('conteo').textContent = '';
+    actualizarBotones();
+  }
+
   async function cargarStock() {
-    $('aviso').classList.add('hidden');
-    $('cuerpo').innerHTML = '<tr><td colspan="5"><div class="sk"></div><div class="sk"></div><div class="sk"></div></td></tr>';
+    aviso('');
+    const id = idControlado();
+    $('titulo').textContent = (nombreDep(id) || 'Depósito Proarmet').toUpperCase();
+    if (!deps) return;
+    if (!id) { aDevolver.clear(); sinStock('Elegí un depósito'); return; }
+    $('cuerpo').innerHTML = SK;
     $('btnRecargar').disabled = true;
     try {
-      stock = await api('/api/proarmet/stock');
-      catalogo = null; // el stock cambió: el catálogo del modal de ida se vuelve a pedir
+      const r = await api(`/api/proarmet/stock?idDeposito=${id}`);
+      if (id !== idControlado()) return; // se cambió de depósito mientras cargaba
+      stock = r;
       const vigentes = new Set(stock.productos.map(p => p.idProducto));
-      for (const id of [...aDevolver.keys()]) if (!vigentes.has(id)) aDevolver.delete(id);
-      const d = stock.deposito || {};
-      $('titulo').textContent = String(d.nombre || 'Depósito Proarmet').toUpperCase();
+      for (const k of [...aDevolver.keys()]) if (!vigentes.has(k)) aDevolver.delete(k);
       $('bajada').textContent = stock.tipoMovimiento ? `Tipo de movimiento: ${stock.tipoMovimiento}` : '';
       renderTabla();
     } catch (e) {
-      stock = null;
-      $('cuerpo').innerHTML = '';
-      $('conteo').textContent = '';
-      $('aviso').textContent = e.message;
-      $('aviso').className = 'error mb-4';
-      actualizarBotones();
+      sinStock('');
+      aviso(e.message);
     } finally {
       $('btnRecargar').disabled = false;
     }
   }
 
-  // ── Diálogos ──────────────────────────────────────────────────────────
-  function mostrarError(id, texto) {
-    const n = $(id);
+  async function cargarDepositos() {
+    aviso('');
+    $('btnRecargar').disabled = true;
+    try {
+      deps = await api('/api/proarmet/depositos');
+      const sel = $('selControlado');
+      sel.innerHTML = '<option value="">Elegí un depósito…</option>' + deps.depositos.map(d => `<option value="${esc(d.idDeposito)}">${esc(d.nombre)}</option>`).join('');
+      sel.disabled = false;
+      if (deps.defaultControlado != null) sel.value = String(deps.defaultControlado);
+      actualizarBotones();
+    } catch (e) {
+      deps = null;
+      sinStock('');
+      aviso(`No se pudieron cargar los depósitos: ${e.message}`);
+      $('btnRecargar').disabled = false;
+      return;
+    }
+    await cargarStock();
+  }
+
+  // ── Modal de movimiento ───────────────────────────────────────────────
+  function mostrarError(texto) {
+    const n = $('mError');
     n.textContent = texto || '';
     n.classList.toggle('hidden', !texto);
   }
 
-  function abrir(dlg) {
-    dlg.querySelectorAll('.error').forEach(n => n.classList.add('hidden'));
-    dlg.showModal();
-  }
+  const opcionesDep = sel => { $(sel).innerHTML = deps.depositos.map(d => `<option value="${esc(d.idDeposito)}">${esc(d.nombre)}</option>`).join(''); };
+  const parMov = () => ({ origen: Number($('mOrigen').value) || null, destino: Number($('mDestino').value) || null });
 
-  const nombreSitio = s => (s && s.nombre) || '—';
-  const ruta = (a, b) => `${nombreSitio(a)} → ${nombreSitio(b)}`;
-
-  // Valida cantidades y descripción; devuelve { lineas } o muestra el error y devuelve null.
-  function armarLineas(items, descId, errId, max) {
-    const descripcion = $(descId).value.trim();
-    const lineas = [];
-    for (const [id, cant] of items) {
-      const cantidad = Number(cant);
-      if (!(cantidad > 0)) continue;
-      const tope = max && max(id);
-      if (tope != null && cantidad > tope) { mostrarError(errId, `La cantidad del producto ${id} supera el stock (${fmt(tope)}).`); return null; }
-      lineas.push({ idProducto: id, cantidad });
-    }
-    if (!lineas.length) { mostrarError(errId, 'Cargá una cantidad mayor a 0 en al menos un producto.'); return null; }
-    if (!descripcion) { mostrarError(errId, 'La descripción es obligatoria.'); $(descId).setAttribute('aria-invalid', 'true'); $(descId).focus(); return null; }
-    $(descId).removeAttribute('aria-invalid');
-    return { descripcion, lineas };
-  }
-
-  async function confirmar(sentido, payload, dlg, errId, btnId) {
-    if (enviando) return; // evita doble envío
-    enviando = true;
-    const btn = $(btnId);
-    const textoBtn = btn.textContent;
-    btn.disabled = true; btn.textContent = 'Enviando…';
-    mostrarError(errId, '');
-    try {
-      const r = await api('/api/proarmet/movimiento', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sentido, descripcion: payload.descripcion, lineas: payload.lineas }),
-      });
-      dlg.close();
-      toast(`Movimiento ${r.numeroMovimiento} registrado (${payload.lineas.length} producto${payload.lineas.length === 1 ? '' : 's'}).`);
-      if (sentido === 'ida') aEnviar.clear(); else aDevolver.clear();
-      await cargarStock();
-    } catch (e) {
-      mostrarError(errId, e.message);
-      toast(e.message, true);
-    } finally {
-      enviando = false;
-      btn.disabled = false; btn.textContent = textoBtn;
-    }
-  }
-
-  // ── Ida: Casa central -> Proarmet ─────────────────────────────────────
-  function renderIda() {
+  function renderCat() {
     if (!catalogo) return;
-    const q = norm($('iBuscar').value.trim());
+    const q = norm($('mBuscar').value.trim());
     const todos = catalogo.productos.filter(p => !q || String(p.idProducto).includes(q) || norm(p.descripcion).includes(q));
-    const lista = todos.slice(0, MAX_FILAS_IDA);
-    $('iConteo').textContent = todos.length > lista.length ? `Mostrando ${lista.length} de ${todos.length}: afiná la búsqueda` : `${todos.length} productos`;
-    $('iCuerpo').innerHTML = lista.length ? lista.map(p => `<tr data-id="${esc(p.idProducto)}">
+    const lista = todos.slice(0, MAX_FILAS);
+    $('mConteo').textContent = todos.length > lista.length ? `Mostrando ${lista.length} de ${todos.length}: afiná la búsqueda` : `${todos.length} productos`;
+    $('mCuerpo').innerHTML = lista.length ? lista.map(p => `<tr data-id="${esc(p.idProducto)}">
         <td class="num">${esc(p.idProducto)}</td><td>${esc(p.descripcion)}</td>
-        <td class="num">${fmt(p.stockCentral)}</td><td class="num">${fmt(p.stockDeposito)}</td>
-        <td class="num"><input type="number" class="ctl qty" data-qty min="0" step="any" inputmode="decimal"
-          aria-label="Cantidad a mover de ${esc(p.descripcion)}" value="${esc(aEnviar.get(p.idProducto) || '')}"></td></tr>`).join('')
+        <td class="num">${fmt(p.stockOrigen)}</td><td class="num">${fmt(p.stockDestino)}</td>
+        <td class="num"><input type="number" class="ctl qty" data-qty min="0" max="${esc(Math.max(0, Number(p.stockOrigen) || 0))}" step="any" inputmode="decimal"
+          aria-label="Cantidad a mover de ${esc(p.descripcion)}" value="${esc(aMover.get(p.idProducto) || '')}"></td></tr>`).join('')
       : '<tr><td colspan="5"><div class="vacio"><b>Sin coincidencias</b>Probá con otra búsqueda.</div></td></tr>';
     contarCargados();
   }
 
   function contarCargados() {
-    const n = [...aEnviar.values()].filter(v => Number(v) > 0).length;
-    $('iCargados').textContent = n ? `${n} producto${n === 1 ? '' : 's'} con cantidad` : '';
+    const n = [...aMover.values()].filter(v => Number(v) > 0).length;
+    $('mCargados').textContent = n ? `${n} producto${n === 1 ? '' : 's'} con cantidad` : '';
   }
 
-  async function abrirIda() {
-    $('iRuta').textContent = ruta(stock.central, stock.deposito);
-    $('iDesc').value = '';
-    $('iBuscar').value = '';
-    $('iOk').disabled = true;
-    $('iCuerpo').innerHTML = '<tr><td colspan="5"><div class="sk"></div><div class="sk"></div><div class="sk"></div></td></tr>';
-    aEnviar.clear();
-    abrir($('dlgIda'));
+  // Pide el catálogo del par origen/destino actual; las cantidades cargadas se conservan (están en aMover).
+  async function cargarCatalogo() {
+    const { origen, destino } = parMov();
+    mostrarError('');
+    catalogo = null;
+    pedidoCat++;
+    $('mOk').disabled = true;
+    if (!origen || !destino) { $('mCuerpo').innerHTML = ''; return; }
+    if (origen === destino) { $('mCuerpo').innerHTML = ''; mostrarError('El origen y el destino no pueden ser el mismo depósito.'); return; }
+    const mio = pedidoCat;
+    $('mCuerpo').innerHTML = SK;
     try {
-      if (!catalogo) catalogo = await api('/api/proarmet/productos');
-      $('iOk').disabled = false;
-      renderIda();
-      $('iBuscar').focus();
+      const r = await api(`/api/proarmet/productos?origen=${origen}&destino=${destino}`);
+      if (mio !== pedidoCat) return;
+      catalogo = r;
+      $('mOk').disabled = false;
+      renderCat();
     } catch (e) {
-      $('iCuerpo').innerHTML = '';
-      mostrarError('iError', e.message);
+      if (mio !== pedidoCat) return;
+      $('mCuerpo').innerHTML = '';
+      mostrarError(e.message);
     }
   }
 
-  // ── Vuelta: Proarmet -> Casa central ──────────────────────────────────
-  function abrirVuelta() {
-    const items = stock.productos.filter(p => aDevolver.has(p.idProducto));
-    $('vRuta').textContent = ruta(stock.deposito, stock.central);
-    $('vDesc').value = '';
-    $('vCuerpo').innerHTML = items.map(p => `<tr data-id="${esc(p.idProducto)}">
-        <td class="num">${esc(p.idProducto)}</td><td>${esc(p.descripcion)}</td><td class="num">${fmt(p.stock)}</td>
-        <td class="num"><input type="number" class="ctl qty" data-qty min="0" max="${esc(p.stock)}" step="any" inputmode="decimal"
-          aria-label="Cantidad a devolver de ${esc(p.descripcion)}" value="${esc(aDevolver.get(p.idProducto))}"></td></tr>`).join('');
-    abrir($('dlgVuelta'));
-    $('vDesc').focus();
+  // preset: 'ingreso' (origen = central, destino = controlado) o 'devolucion' (al revés, con las filas tildadas).
+  function abrirMov(preset) {
+    if (!deps) return;
+    const devol = preset === 'devolucion';
+    const ctl = idControlado() || (deps.depositos[0] || {}).idDeposito;
+    const central = deps.defaultCentral != null ? deps.defaultCentral : (deps.depositos.find(d => d.idDeposito !== ctl) || {}).idDeposito;
+    $('mTitulo').textContent = devol ? 'Devolver mercadería' : 'Ingresar mercadería';
+    opcionesDep('mOrigen'); opcionesDep('mDestino');
+    $('mOrigen').value = String(devol ? ctl : central);
+    $('mDestino').value = String(devol ? central : ctl);
+    $('mDesc').value = ''; $('mDesc').removeAttribute('aria-invalid');
+    $('mBuscar').value = '';
+    aMover.clear();
+    if (devol) for (const [id, c] of aDevolver) aMover.set(id, c);
+    $('dlgMov').showModal();
+    cargarCatalogo().then(() => $('mBuscar').focus());
+  }
+
+  // Valida cantidades (tope = stock en origen) y descripción; devuelve el body o null tras mostrar el error.
+  function armarMovimiento() {
+    const { origen, destino } = parMov();
+    if (!origen || !destino || origen === destino) { mostrarError('Elegí un origen y un destino distintos.'); return null; }
+    const lineas = [];
+    for (const [id, cant] of aMover) {
+      const cantidad = Number(cant);
+      if (!(cantidad > 0)) continue;
+      const p = catalogo.productos.find(x => x.idProducto === id);
+      if (!p) continue;
+      if (cantidad > Number(p.stockOrigen)) { mostrarError(`La cantidad del producto ${id} supera el stock en origen (${fmt(p.stockOrigen)}).`); return null; }
+      lineas.push({ idProducto: id, cantidad });
+    }
+    if (!lineas.length) { mostrarError('Cargá una cantidad mayor a 0 en al menos un producto.'); return null; }
+    const descripcion = $('mDesc').value.trim();
+    if (!descripcion) { mostrarError('La descripción es obligatoria.'); $('mDesc').setAttribute('aria-invalid', 'true'); $('mDesc').focus(); return null; }
+    $('mDesc').removeAttribute('aria-invalid');
+    return { depOrigen: origen, depDestino: destino, descripcion, lineas };
+  }
+
+  async function confirmar(body) {
+    if (enviando) return; // evita doble envío
+    enviando = true;
+    const btn = $('mOk');
+    const textoBtn = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    mostrarError('');
+    try {
+      const r = await api('/api/proarmet/movimiento', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      $('dlgMov').close();
+      toast(`Movimiento ${r.numeroMovimiento} registrado (${body.lineas.length} producto${body.lineas.length === 1 ? '' : 's'}).`);
+      aMover.clear(); aDevolver.clear();
+      await cargarStock();
+    } catch (e) {
+      mostrarError(e.message);
+      toast(e.message, true);
+    } finally {
+      enviando = false;
+      btn.disabled = !catalogo; btn.textContent = textoBtn;
+    }
   }
 
   // ── Eventos ───────────────────────────────────────────────────────────
   const idDeFila = e => { const tr = e.target.closest('tr[data-id]'); return tr ? Number(tr.dataset.id) : null; };
 
   $('flBuscar').addEventListener('input', renderTabla);
-  $('btnRecargar').addEventListener('click', cargarStock);
-  $('btnIda').addEventListener('click', abrirIda);
-  $('btnVuelta').addEventListener('click', abrirVuelta);
+  $('btnRecargar').addEventListener('click', cargarDepositos);
+  $('selControlado').addEventListener('change', () => { aDevolver.clear(); cargarStock(); });
+  $('btnIda').addEventListener('click', () => abrirMov('ingreso'));
+  $('btnVuelta').addEventListener('click', () => abrirMov('devolucion'));
 
   $('cuerpo').addEventListener('change', e => {
     const id = idDeFila(e);
-    if (id == null) return;
-    if (e.target.matches('[data-chk]')) { marcar(id, e.target.checked); renderTabla(); }
+    if (id != null && e.target.matches('[data-chk]')) { marcar(id, e.target.checked); renderTabla(); }
   });
   $('cuerpo').addEventListener('input', e => {
     const id = idDeFila(e);
     if (id != null && e.target.matches('[data-qty]')) aDevolver.set(id, e.target.value);
   });
   $('selTodos').addEventListener('change', e => {
+    if (!stock) return;
     for (const p of filtrados()) marcar(p.idProducto, e.target.checked);
     renderTabla();
   });
 
-  $('iBuscar').addEventListener('input', renderIda);
-  $('iCuerpo').addEventListener('input', e => {
+  $('mOrigen').addEventListener('change', cargarCatalogo);
+  $('mDestino').addEventListener('change', cargarCatalogo);
+  $('mBuscar').addEventListener('input', renderCat);
+  $('mCuerpo').addEventListener('input', e => {
     const id = idDeFila(e);
     if (id == null || !e.target.matches('[data-qty]')) return;
-    aEnviar.set(id, e.target.value);
+    aMover.set(id, e.target.value);
     contarCargados();
   });
-  $('vCuerpo').addEventListener('input', e => {
-    const id = idDeFila(e);
-    if (id != null && e.target.matches('[data-qty]')) aDevolver.set(id, e.target.value);
-  });
-
-  $('formIda').addEventListener('submit', e => {
+  $('formMov').addEventListener('submit', e => {
     e.preventDefault();
     if (!catalogo) return;
-    const p = armarLineas(aEnviar, 'iDesc', 'iError');
-    if (p) confirmar('ida', p, $('dlgIda'), 'iError', 'iOk');
-  });
-  $('formVuelta').addEventListener('submit', e => {
-    e.preventDefault();
-    const p = armarLineas(aDevolver, 'vDesc', 'vError', id => (stock.productos.find(x => x.idProducto === id) || {}).stock);
-    if (p) confirmar('vuelta', p, $('dlgVuelta'), 'vError', 'vOk');
+    const body = armarMovimiento();
+    if (body) confirmar(body);
   });
 
-  document.querySelectorAll('dialog').forEach(d => {
-    d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-cerrar]')) { if (!enviando) d.close(); } });
-    d.addEventListener('cancel', e => { if (enviando) e.preventDefault(); }); // Esc no cierra mientras se envía
-  });
+  const dlg = $('dlgMov');
+  dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-cerrar]')) { if (!enviando) dlg.close(); } });
+  dlg.addEventListener('cancel', e => { if (enviando) e.preventDefault(); }); // Esc no cierra mientras se envía
 
-  cargarStock();
+  cargarDepositos();
 })();
