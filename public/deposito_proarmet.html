@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Depósito Proarmet · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+.hidden{display:none!important}
+.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ctl{border:1px solid rgba(26,28,24,.16);border-radius:8px;padding:7px 10px;font-size:14px;color:#242423;background:#fff;transition:border-color 140ms ease,box-shadow 140ms ease}
+.ctl:hover{border-color:rgba(26,28,24,.28)}
+.ctl:focus{outline:none;border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.16)}
+.ctl[aria-invalid=true]{border-color:#a4262c;box-shadow:0 0 0 3px rgba(164,38,44,.12)}
+.ctl:disabled{background:#f4f5f1;color:#5c5f52;cursor:not-allowed}
+.lbl{display:block;font-size:12px;font-weight:600;color:#5c5f52;margin-bottom:6px}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:7px 14px;font-size:14px;font-weight:600;border:1px solid rgba(26,28,24,.16);background:#fff;color:#242423;cursor:pointer;transition:background-color 140ms ease}
+.btn:hover{background:#f5f8f1}
+.btn-primario{background:#405936;border-color:#405936;color:#fff}
+.btn-primario:hover{background:#4f6e42}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-ico{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:8px;border:0;background:none;color:#5c5f52;cursor:pointer}
+.btn-ico:hover{background:rgba(26,28,24,.06);color:#242423}
+:where(button,a,select,input,textarea):focus-visible{outline:2px solid #405936;outline-offset:2px}
+.buscar{position:relative}
+.buscar .ico{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#5c5f52;pointer-events:none}
+.buscar input{padding-left:32px;width:300px}
+.tabla{width:100%;border-collapse:collapse;font-size:14px}
+.tabla th{color:#5c5f52;font-weight:600;font-size:12px;text-align:left;padding:10px 12px;border-bottom:1px solid rgba(26,28,24,.09);background:#fafbf8;text-transform:uppercase}
+.tabla td{padding:8px 12px;border-bottom:1px solid rgba(26,28,24,.09);vertical-align:middle}
+.tabla tbody tr:hover{background:#f5f8f1}
+.tabla tbody tr.sel{background:#eef3e8}
+.tabla td.num,.tabla th.num{text-align:right;font-variant-numeric:tabular-nums}
+.tabla input[type=checkbox]{width:16px;height:16px;accent-color:#405936}
+.qty{width:96px;text-align:right;font-variant-numeric:tabular-nums;padding:5px 8px}
+.vacio{display:flex;flex-direction:column;align-items:center;gap:6px;padding:48px 16px;color:#5c5f52;text-align:center;font-size:14px}
+.vacio b{color:#242423;font-size:15px}
+.error{display:flex;gap:10px;align-items:flex-start;background:#fdf3f4;color:#a4262c;border:1px solid #f3cdd0;padding:10px 14px;border-radius:10px;font-size:14px}
+.sk{height:36px;margin:8px 12px;border-radius:8px;background:linear-gradient(90deg,#fff 0%,#f3f5ef 50%,#fff 100%);background-size:200% 100%;animation:sk 1.3s ease-in-out infinite}
+@keyframes sk{from{background-position:100% 0}to{background-position:-100% 0}}
+dialog{padding:0;border:0;color:#242423;background:#fff;border-radius:16px;box-shadow:0 24px 48px -12px rgba(26,28,24,.28),0 4px 12px rgba(26,28,24,.08)}
+dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
+dialog[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
+@keyframes pop{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+.dlg{width:820px;max-width:calc(100vw - 48px);max-height:calc(100vh - 64px)}
+.dlg form{display:flex;flex-direction:column;max-height:calc(100vh - 64px)}
+.dlg-cab{display:flex;align-items:flex-start;gap:12px;padding:20px 24px 16px;border-bottom:1px solid rgba(26,28,24,.09)}
+.dlg-cuerpo{padding:16px 24px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:0}
+.dlg-pie{display:flex;align-items:center;gap:10px;padding:14px 24px;border-top:1px solid rgba(26,28,24,.09);background:#fafbf8}
+.scroll-tabla{overflow-y:auto;max-height:42vh;border:1px solid rgba(26,28,24,.09);border-radius:10px}
+.scroll-tabla thead th{position:sticky;top:0;z-index:1}
+#toasts{position:fixed;right:24px;bottom:24px;z-index:80;display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:440px}
+.tst{display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:10px;background:#242423;color:#fff;font-size:14px;line-height:1.35;box-shadow:0 24px 48px -12px rgba(26,28,24,.28);animation:toast 220ms ease}
+.tst-ok{box-shadow:0 24px 48px -12px rgba(26,28,24,.28),inset 4px 0 0 #FFCC00}
+.tst-err{background:#7a1d22}
+@keyframes toast{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){dialog[open],.tst,.sk{animation:none}}
+</style>
+</head>
+<body class="font-body text-ink">
+
+<header class="acrylic filo-amarillo sticky top-0 z-20 shadow-fluent">
+  <div class="max-w-[1200px] mx-auto px-6 py-3 flex items-center gap-3">
+    <h1 id="titulo" class="font-disp text-2xl font-bold">DEPÓSITO PROARMET</h1>
+    <span id="bajada" class="text-sm"></span>
+    <div class="ml-auto flex items-center gap-4">
+      <button id="btnRecargar" type="button" class="px-3 py-1.5 rounded-lg border text-sm">Recargar</button>
+      <a href="/" class="text-sm">← Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1200px] mx-auto px-6 py-5">
+  <div id="aviso" class="hidden mb-4" role="alert"></div>
+
+  <div class="flex flex-wrap items-center gap-3 mb-4">
+    <div class="buscar">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="flBuscar" type="search" class="ctl" placeholder="Buscar por código o descripción" aria-label="Buscar en el stock de Proarmet">
+    </div>
+    <span id="conteo" class="text-sm text-gris tabular-nums"></span>
+    <div class="ml-auto flex items-center gap-2">
+      <button id="btnVuelta" type="button" class="btn" disabled>Devolver a Casa central</button>
+      <button id="btnIda" type="button" class="btn btn-primario" disabled>Mover a Proarmet</button>
+    </div>
+  </div>
+
+  <section class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden" aria-label="Stock en Proarmet">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th scope="col" style="width:44px"><input type="checkbox" id="selTodos" aria-label="Seleccionar todos los visibles"></th>
+          <th scope="col" class="num" style="width:110px">Código</th>
+          <th scope="col">Descripción</th>
+          <th scope="col" class="num" style="width:130px">Stock</th>
+          <th scope="col" class="num" style="width:140px">A devolver</th>
+        </tr>
+      </thead>
+      <tbody id="cuerpo"></tbody>
+    </table>
+  </section>
+</main>
+
+<!-- Ida: Casa central -> Proarmet -->
+<dialog id="dlgIda" class="dlg" aria-labelledby="iTitulo">
+  <form id="formIda" novalidate>
+    <div class="dlg-cab">
+      <div>
+        <h2 id="iTitulo" class="text-lg font-bold">Mover a Proarmet</h2>
+        <p id="iRuta" class="text-xs text-gris mt-0.5"></p>
+      </div>
+      <button type="button" class="btn-ico ml-auto" data-cerrar aria-label="Cerrar">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="dlg-cuerpo">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="buscar">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="iBuscar" type="search" class="ctl" placeholder="Buscar producto de SIGA" aria-label="Buscar producto de SIGA">
+        </div>
+        <span id="iConteo" class="text-sm text-gris tabular-nums"></span>
+        <span id="iCargados" class="text-sm font-semibold text-verde tabular-nums ml-auto"></span>
+      </div>
+      <div class="scroll-tabla">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th scope="col" class="num" style="width:90px">Código</th>
+              <th scope="col">Descripción</th>
+              <th scope="col" class="num" style="width:110px">Casa central</th>
+              <th scope="col" class="num" style="width:110px">Proarmet</th>
+              <th scope="col" class="num" style="width:120px">Cantidad</th>
+            </tr>
+          </thead>
+          <tbody id="iCuerpo"></tbody>
+        </table>
+      </div>
+      <div>
+        <label class="lbl" for="iDesc">Descripción del movimiento (obligatoria)</label>
+        <input id="iDesc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required>
+      </div>
+      <div id="iError" class="error hidden" role="alert"></div>
+    </div>
+    <div class="dlg-pie">
+      <span class="text-xs text-gris">Casa central → Proarmet</span>
+      <button type="button" class="btn ml-auto" data-cerrar>Cancelar</button>
+      <button type="submit" id="iOk" class="btn btn-primario">Confirmar movimiento</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Vuelta: Proarmet -> Casa central -->
+<dialog id="dlgVuelta" class="dlg" aria-labelledby="vTitulo">
+  <form id="formVuelta" novalidate>
+    <div class="dlg-cab">
+      <div>
+        <h2 id="vTitulo" class="text-lg font-bold">Devolver a Casa central</h2>
+        <p id="vRuta" class="text-xs text-gris mt-0.5"></p>
+      </div>
+      <button type="button" class="btn-ico ml-auto" data-cerrar aria-label="Cerrar">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="dlg-cuerpo">
+      <div class="scroll-tabla">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th scope="col" class="num" style="width:90px">Código</th>
+              <th scope="col">Descripción</th>
+              <th scope="col" class="num" style="width:110px">Stock</th>
+              <th scope="col" class="num" style="width:120px">Cantidad</th>
+            </tr>
+          </thead>
+          <tbody id="vCuerpo"></tbody>
+        </table>
+      </div>
+      <div>
+        <label class="lbl" for="vDesc">Descripción del movimiento (obligatoria)</label>
+        <input id="vDesc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required>
+      </div>
+      <div id="vError" class="error hidden" role="alert"></div>
+    </div>
+    <div class="dlg-pie">
+      <span class="text-xs text-gris">Proarmet → Casa central</span>
+      <button type="button" class="btn ml-auto" data-cerrar>Cancelar</button>
+      <button type="submit" id="vOk" class="btn btn-primario">Confirmar movimiento</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<script src="/js/deposito_proarmet.js"></script>
+</body>
+</html>
