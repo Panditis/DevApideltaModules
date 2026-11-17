@@ -17,20 +17,24 @@ test('buscarDeposito por id y por nombre', () => {
 });
 
 test('validarMovimiento', () => {
-  assert.ok(validarMovimiento({ sentido: 'x' }).error);
-  assert.ok(validarMovimiento({ sentido: 'ida', descripcion: '  ', lineas: [] }).error);
-  assert.ok(validarMovimiento({ sentido: 'ida', descripcion: 'a'.repeat(201), lineas: [{}] }).error);
-  assert.ok(validarMovimiento({ sentido: 'ida', descripcion: 'd', lineas: [] }).error);
-  assert.ok(validarMovimiento({ sentido: 'ida', descripcion: 'd', lineas: [{ idProducto: '1', cantidad: 0 }] }).error);
+  const ok = [1, 7];
+  const base = { depOrigen: 1, depDestino: 7, descripcion: 'd' };
+  assert.ok(validarMovimiento({ ...base, depOrigen: 'x' }, ok).error);
+  assert.match(validarMovimiento({ ...base, depDestino: 1 }, ok).error, /mismo/);
+  assert.match(validarMovimiento({ ...base, depDestino: 9 }, ok).error, /destino 9/);
+  assert.ok(validarMovimiento({ ...base, descripcion: '  ', lineas: [{}] }, ok).error);
+  assert.ok(validarMovimiento({ ...base, descripcion: 'a'.repeat(201), lineas: [{}] }, ok).error);
+  assert.ok(validarMovimiento({ ...base, lineas: [] }, ok).error);
+  assert.ok(validarMovimiento({ ...base, lineas: [{ idProducto: '1', cantidad: 0 }] }, ok).error);
   assert.deepStrictEqual(
-    validarMovimiento({ sentido: 'vuelta', descripcion: ' d ', lineas: [{ idProducto: 1, cantidad: 2 }, { idProducto: '1', cantidad: '3' }] }),
-    { sentido: 'vuelta', descripcion: 'd', lineas: [{ idProducto: '1', cantidad: 5 }] });
+    validarMovimiento({ depOrigen: '7', depDestino: 1, descripcion: ' d ', lineas: [{ idProducto: 1, cantidad: 2 }, { idProducto: '1', cantidad: '3' }] }, ok),
+    { depOrigen: 7, depDestino: 1, descripcion: 'd', lineas: [{ idProducto: '1', cantidad: 5 }] });
 });
 
 test('chequearLineas', () => {
-  const p = new Map([['1', { activo: true, stockDeposito: 4 }], ['2', { activo: false, stockDeposito: 10 }]]);
-  assert.match(chequearLineas('ida', [{ idProducto: '9', cantidad: 1 }], p), /no existe/);
-  assert.match(chequearLineas('ida', [{ idProducto: '2', cantidad: 1 }], p), /inactivo/);
-  assert.match(chequearLineas('vuelta', [{ idProducto: '1', cantidad: 5 }], p), /hay 4/);
-  assert.strictEqual(chequearLineas('vuelta', [{ idProducto: '1', cantidad: 4 }, { idProducto: '2', cantidad: 1 }], p), null);
+  const p = new Map([['1', { activo: true, stockOrigen: 4 }], ['2', { activo: false, stockOrigen: 10 }]]);
+  assert.match(chequearLineas([{ idProducto: '9', cantidad: 1 }], p), /no existe/);
+  assert.match(chequearLineas([{ idProducto: '2', cantidad: 1 }], p), /inactivo/);
+  assert.match(chequearLineas([{ idProducto: '1', cantidad: 5 }], p), /hay 4/);
+  assert.strictEqual(chequearLineas([{ idProducto: '1', cantidad: 4 }], p), null);
 });
