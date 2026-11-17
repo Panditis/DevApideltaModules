@@ -308,3 +308,5 @@ module.exports = function crearRutasTickets(deps) {
 
   return router;
 };
+// Reusado por rutas_proarmet (select de usuario responsable).
+module.exports.SQL_USUARIOS = SQL_USUARIOS;

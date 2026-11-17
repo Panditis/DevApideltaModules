@@ -2,7 +2,10 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos } = require('../lib/proarmet');
+const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos, nombreUsuario } = require('../lib/proarmet');
+const { SQL_USUARIOS } = require('./rutas_tickets');
+
+const USUARIOS_TTL_MS = 5 * 60 * 1000;
 
 // ── Depósito Proarmet ─────────────────────────────────────────────────────────
 // Stock del depósito Proarmet y traslados entre depósitos elegidos de la misma sucursal.
@@ -11,7 +14,7 @@ const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historia
 module.exports = function crearRutasProarmet(deps) {
   const {
     apiRoute, query, depositosActivos, cfgReserva, getPoolStock,
-    trasladarStock, ejecutarYRegistrar, conLogError, TIPOS_MOVIMIENTO_STOCK_PERMITIDOS, leerMovLog,
+    trasladarStock, ejecutarYRegistrar, conLogError, TIPOS_MOVIMIENTO_STOCK_PERMITIDOS, leerMovLog, USUARIO_MOV_MAX = 10,
   } = deps;
   const router = express.Router();
 
@@ -40,12 +43,32 @@ module.exports = function crearRutasProarmet(deps) {
     return Number.isInteger(n) && ctx.depositos.some(d => d.idDeposito === n) ? n : null;
   };
 
+  // ponytail: caché 5 min como tickets (misma query); si SIGA falla se sirve la vieja; sin caché, error (500 vía apiRoute).
+  let cacheUsuarios = null; // { lista, ts }
+  async function usuariosActivos() {
+    if (cacheUsuarios && Date.now() - cacheUsuarios.ts < USUARIOS_TTL_MS) return cacheUsuarios.lista;
+    try {
+      const lista = (await query(SQL_USUARIOS) || [])
+        .map(f => ({ id: String(f.Id ?? '').trim(), nombre: String(f.Nombre || '').trim() }))
+        .filter(u => u.id)
+        .map(u => ({ id: u.id, nombre: u.nombre || u.id }));
+      cacheUsuarios = { lista, ts: Date.now() };
+      return lista;
+    } catch (e) {
+      console.error('[proarmet] usuarios SIGA:', e);
+      if (cacheUsuarios) return cacheUsuarios.lista;
+      throw new Error('No se pudieron leer los usuarios de SIGA.');
+    }
+  }
+
   router.get('/deposito-proarmet', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'deposito_proarmet.html')));
 
   router.get('/api/proarmet/depositos', apiRoute(async () => {
     const ctx = await contexto();
     return { idSucursal: ctx.c.idSucursal, tipoMovimiento: ctx.c.idTipoMovimiento, depositos: ctx.depositos, defaultControlado: ctx.defaultControlado, defaultCentral: ctx.defaultCentral };
   }));
+
+  router.get('/api/proarmet/usuarios', apiRoute(async () => ({ usuarios: await usuariosActivos() })));
 
   router.get('/api/proarmet/stock', apiRoute(async req => {
     const ctx = await contexto();
@@ -99,6 +122,8 @@ module.exports = function crearRutasProarmet(deps) {
     const ctx = await contexto();
     const v = validarMovimiento(req.body, ctx.depositos.map(d => d.idDeposito));
     if (v.error) return v;
+    const usuario = nombreUsuario(await usuariosActivos(), req.body && req.body.idUsuario, USUARIO_MOV_MAX);
+    if (!usuario) return { error: 'Elegí el usuario responsable' };
     const idTipoMovimiento = ctx.c.idTipoMovimiento;
     if (!TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.includes(idTipoMovimiento)) {
       return { error: `proarmet.idTipoMovimiento inválido. Permitidos: ${TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.join(', ')}` };
@@ -114,7 +139,7 @@ module.exports = function crearRutasProarmet(deps) {
     const cr = cfgReserva();
     const mov = {
       idSucursal: ctx.c.idSucursal, depOrigen: v.depOrigen, depDestino: v.depDestino, idTipoMovimiento,
-      usuario: cr.usuario, observacion: v.descripcion, idEmpleado: cr.idEmpleado,
+      usuario, observacion: v.descripcion, idEmpleado: cr.idEmpleado,
     };
     const poolW = await getPoolStock();
     const res = await ejecutarYRegistrar({
