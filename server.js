@@ -2705,6 +2705,11 @@ app.use(require('./routes/rutas_cuentas_corrientes')({ apiRoute, query }));
 // por módulo sigue registrado antes, así que el permiso de ventas-hora no cambia.
 app.use(require('./routes/rutas_ventas_hora')({ apiRoute, query, safeDate }));
 app.use(require('./routes/rutas_cruce_bancario')({ query }));
+// Depósito Proarmet: stock y traslados internos casa central <-> Proarmet (config.json "proarmet").
+app.use(require('./routes/rutas_proarmet')({
+  apiRoute, query, depositosActivos, cfgReserva, getPoolStock,
+  trasladarStock, ejecutarYRegistrar, conLogError, TIPOS_MOVIMIENTO_STOCK_PERMITIDOS,
+}));
 // Tickets de Desarrollo: persiste en data/tickets.json; los destinatarios válidos son los usuarios activos de SIGA.
 app.use(require('./routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso }));
 // Sucursales: sub-hub /sucursales y Mantenimiento = otra instancia del router de tickets con datos en data/mantenimiento.json.
