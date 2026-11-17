@@ -64,7 +64,9 @@ router.post('/api/password', (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 router.get('/api/session', (req, res) => {
-  res.json({ user: (req.session && req.session.user) || null });
+  const user = (req.session && req.session.user) || null;
+  // idSucursal releído: las sesiones abiertas antes del cambio en /admin no lo traen.
+  res.json({ user: user ? { ...user, idSucursal: auth.idSucursalDe(user) } : null });
 });
 // Módulos del hub: todos los activos no-admin. Cada uno trae `permitido` (si el
 // usuario actual puede entrar) para que el front muestre los bloqueados igual.

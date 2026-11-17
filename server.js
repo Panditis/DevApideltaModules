@@ -2726,6 +2726,11 @@ app.use(require('./routes/rutas_tickets')({
 }));
 // Carteles Pesables: precio de la bolsa de los pesables fraccionados por sucursal (SIGA sólo lectura).
 app.use(require('./routes/rutas_carteles_pesables')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
+// Control de vencimientos (Sucursales): lotes en data/vencimientos*.json; SIGA solo lectura (búsqueda de productos).
+app.use(require('./routes/rutas_vencimientos')({
+  store: require('./lib/vencimientos').crearStore({ rutaDatos: path.join(DATA_DIR, 'vencimientos.json'), rutaConfig: path.join(DATA_DIR, 'vencimientos_config.json') }),
+  idSucursalDe: auth.idSucursalDe, getPool,
+}));
 
 
 // Precios históricos: LISTA_PRECIOS_VENTA es un const declarado miles de líneas después del

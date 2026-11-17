@@ -204,3 +204,38 @@ test('Redistribución: /api/distribucion/redistribucion exige el módulo distrib
   assert.strictEqual(moduloDeRuta('/api/distribucion/rotacion'), null);
   assert.strictEqual(moduloDeRuta('/api/distribucion/redistribucionX'), null);
 });
+
+test('moduloDeRuta resuelve Control de Vencimientos (/vencimientos y /api/vencimientos) bajo sucursales', () => {
+  assert.strictEqual(moduloDeRuta('/vencimientos'), 'sucursales');
+  assert.strictEqual(moduloDeRuta('/api/vencimientos'), 'sucursales');
+  assert.strictEqual(moduloDeRuta('/api/vencimientos/lotes'), 'sucursales');
+});
+
+// Usa el data/usuarios.json real: crea usuarios descartables y los borra al final.
+test('idSucursal: alta válida, ausente e inválida; edición y lectura vía idSucursalDe', () => {
+  const auth = require('../lib/auth');
+  const borrar = (u) => { const x = auth.buscarPorUsuario(u); if (x) auth.eliminarUsuario(x.id); };
+  try {
+    const conSuc = auth.crearUsuario({ usuario: 'tmp_test_suc1', password: 'clave12345', idSucursal: '3' });
+    assert.strictEqual(conSuc.idSucursal, 3);
+    assert.ok(auth.listarUsuarios().find(u => u.id === conSuc.id).idSucursal === 3, 'el listado del ABM lo trae');
+    assert.strictEqual(auth.idSucursalDe({ id: conSuc.id }), 3, 'la sesión lo resuelve releyendo usuarios.json');
+
+    const sinSuc = auth.crearUsuario({ usuario: 'tmp_test_suc2', password: 'clave12345' });
+    assert.strictEqual(sinSuc.idSucursal, null);
+    assert.strictEqual(auth.idSucursalDe({ id: sinSuc.id }), null);
+
+    for (const malo of [0, -2, 1.5, 'abc']) {
+      assert.throws(() => auth.crearUsuario({ usuario: 'tmp_test_suc3', password: 'clave12345', idSucursal: malo }), /entero mayor a 0/);
+    }
+    assert.strictEqual(auth.buscarPorUsuario('tmp_test_suc3'), null, 'el alta inválida no persiste');
+
+    assert.strictEqual(auth.actualizarUsuario(sinSuc.id, { idSucursal: 7 }).idSucursal, 7);
+    assert.strictEqual(auth.actualizarUsuario(sinSuc.id, { nombre: 'x' }).idSucursal, 7, 'no mandarlo no lo borra');
+    assert.strictEqual(auth.actualizarUsuario(sinSuc.id, { idSucursal: '' }).idSucursal, null, 'vacío lo quita');
+    assert.throws(() => auth.actualizarUsuario(sinSuc.id, { idSucursal: 'x' }), /entero mayor a 0/);
+    assert.strictEqual(auth.idSucursalDe(null), null);
+  } finally {
+    ['tmp_test_suc1', 'tmp_test_suc2', 'tmp_test_suc3'].forEach(borrar);
+  }
+});

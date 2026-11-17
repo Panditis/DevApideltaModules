@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Vencimientos · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid rgba(26,28,24,.16); }
+th { color: #5c5f52; font-weight: 600; font-size: 11.5px; text-transform: uppercase; white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: #f5f8f1; }
+tr.cerrado td { color: #8a8c78; }
+td.propia, th.propia { background: rgba(64,89,54,.07); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; font-size: .72rem; font-weight: 600; white-space: nowrap; }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill--rojo { background: #fde7e9; color: #a4262c; }
+.pill--amarillo { background: #fff4ce; color: #8a5d00; }
+.pill--verde { background: #dff6dd; color: #0e700e; }
+.pill--gris { background: #eeeee7; color: #5c5f52; }
+.error-box { background: #fde7e9; color: #a4262c; border: 1px solid #f6c6c2; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+.msg-vacio { color: #5c5f52; padding: 18px; text-align: center; font-size: 14px; }
+.btn { padding: 5px 12px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(26,28,24,.16); background: transparent; color: #242423; cursor: pointer; }
+.btn:hover:not(:disabled) { background: #f5f8f1; }
+.btn-prim { background: #405936; color: #fff; border-color: #405936; }
+.btn-prim:hover:not(:disabled) { background: #4f6e42; }
+.btn-peligro { background: #a4262c; color: #fff; border-color: #a4262c; }
+.btn-peligro:hover:not(:disabled) { background: #8a1f24; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-mini { padding: 2px 8px; font-size: 12px; }
+.btn:focus-visible, .campo:focus-visible, .navtab:focus-visible, .opcion:focus-visible { outline: 2px solid #405936; outline-offset: 1px; }
+.campo { border: 1px solid rgba(26,28,24,.16); border-radius: 8px; padding: 5px 9px; font-size: 13px; background: #fff; width: 100%; }
+.lbl { display: block; font-size: 12px; font-weight: 600; color: #5c5f52; margin-bottom: 3px; }
+.velo { position: fixed; inset: 0; background: rgba(26,28,24,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.velo[hidden] { display: none; }
+.modal { background: #fff; border-radius: 12px; border: 1px solid rgba(26,28,24,.16); padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 8px 24px rgba(26,28,24,.25); }
+.opciones { max-height: 190px; overflow-y: auto; border: 1px solid rgba(26,28,24,.16); border-radius: 8px; margin-top: 6px; }
+.opcion { display: block; width: 100%; text-align: left; padding: 5px 10px; font-size: 13px; background: #fff; border: 0; border-bottom: 1px solid #eee; cursor: pointer; }
+.opcion:hover { background: #f5f8f1; }
+.opcion small { color: #5c5f52; margin-left: 6px; }
+.scroll-x { overflow-x: auto; }
+</style>
+</head>
+<body class="font-body text-ink">
+
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3">
+    <h1 class="font-disp text-2xl font-bold">CONTROL DE VENCIMIENTOS</h1>
+    <span class="text-sm">Lotes por sucursal</span>
+    <div class="ml-auto flex items-center gap-2">
+      <button id="btnAlta" type="button" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm">Cargar vencimiento</button>
+      <a href="/sucursales" class="text-sm">← Sucursales</a>
+      <button id="btnLogout" type="button" class="px-3 py-1.5 rounded-lg text-sm" title="Cerrar sesión">Salir</button>
+    </div>
+  </div>
+  <div class="max-w-[1500px] mx-auto px-4 flex" role="tablist" aria-label="Secciones">
+    <button class="navtab on" id="tabListado" role="tab" aria-selected="true" aria-controls="panelListado" data-tab="listado" type="button">Listado</button>
+    <button class="navtab" id="tabMia" role="tab" aria-selected="false" aria-controls="panelMia" data-tab="mia" type="button">Mi sucursal</button>
+  </div>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+
+  <!-- Tab Listado -->
+  <section id="panelListado" role="tabpanel" aria-labelledby="tabListado" class="tab-panel">
+    <div class="bg-card rounded-xl border border-borde p-3 mb-3 flex flex-wrap items-end gap-3">
+      <div class="w-64"><label class="lbl" for="fTexto">Producto</label><input id="fTexto" class="campo" type="search" placeholder="Nombre o código"></div>
+      <div class="w-44"><label class="lbl" for="fSemaforo">Semáforo</label>
+        <select id="fSemaforo" class="campo"><option value="">Todos</option><option value="rojo">Rojo</option><option value="amarillo">Amarillo</option><option value="verde">Verde</option></select></div>
+      <label class="text-sm flex items-center gap-2 pb-1.5"><input id="fCerrados" type="checkbox"> Mostrar cerrados</label>
+      <div class="ml-auto flex items-center gap-3 pb-1">
+        <span id="umbralesTxt" class="text-xs text-gris"></span>
+        <button id="btnUmbrales" type="button" class="btn btn-mini" hidden>Editar umbrales</button>
+      </div>
+    </div>
+    <div id="listadoMsg"></div>
+    <div class="bg-card rounded-xl border border-borde shadow-fluent scroll-x"><table id="tablaListado"></table></div>
+  </section>
+
+  <!-- Tab Mi sucursal -->
+  <section id="panelMia" role="tabpanel" aria-labelledby="tabMia" class="tab-panel" hidden>
+    <div id="miaAviso"></div>
+    <div id="miaContenido">
+      <div class="bg-card rounded-xl border border-borde p-3 mb-3 flex flex-wrap items-end gap-3">
+        <div id="miaSelWrap" class="w-60" hidden><label class="lbl" for="miaSucursal">Sucursal</label><select id="miaSucursal" class="campo"></select></div>
+        <h2 id="miaTitulo" class="font-bold text-verde pb-1"></h2>
+      </div>
+      <div id="miaMsg"></div>
+      <div class="bg-card rounded-xl border border-borde shadow-fluent scroll-x"><table id="tablaMia"></table></div>
+
+      <h2 class="font-bold text-verde mt-6 mb-2">Historial de movimientos</h2>
+      <div id="histMsg"></div>
+      <div class="bg-card rounded-xl border border-borde scroll-x"><table id="tablaHist"></table></div>
+    </div>
+  </section>
+</main>
+
+<!-- Modal: cargar vencimiento -->
+<div id="mAlta" class="velo" hidden>
+  <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mAltaT" novalidate>
+    <h2 id="mAltaT" class="font-bold text-lg mb-3">Cargar vencimiento</h2>
+    <div id="altaSucWrap" class="mb-3" hidden><label class="lbl" for="altaSuc">Sucursal</label><select id="altaSuc" class="campo"></select></div>
+    <div class="mb-3">
+      <label class="lbl" for="altaBuscar">Producto</label>
+      <input id="altaBuscar" class="campo" type="search" autocomplete="off" placeholder="Escribí al menos 2 letras o el código">
+      <div id="altaOpciones" class="opciones" hidden></div>
+      <div id="altaElegido" class="text-sm mt-2 text-verde font-semibold" aria-live="polite"></div>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label class="lbl" for="altaFecha">Vencimiento</label><input id="altaFecha" class="campo" type="date"></div>
+      <div><label class="lbl" for="altaUnid">Unidades</label><input id="altaUnid" class="campo" type="number" min="1" step="1"></div>
+    </div>
+    <div id="altaError" class="error-box mb-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn" data-cerrar>Cancelar</button>
+      <button type="submit" id="altaOk" class="btn btn-prim">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal: acción sobre un lote (corregir / oferta / vendido) -->
+<div id="mAcc" class="velo" hidden>
+  <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mAccT" novalidate>
+    <h2 id="mAccT" class="font-bold text-lg mb-1"></h2>
+    <p id="mAccSub" class="text-sm text-gris mb-3"></p>
+    <label class="lbl" for="accCant" id="accLbl">Cantidad</label>
+    <input id="accCant" class="campo mb-3" type="number" step="1" inputmode="numeric">
+    <div id="accError" class="error-box mb-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn" data-cerrar>Cancelar</button>
+      <button type="submit" id="accOk" class="btn btn-prim">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal: umbrales (admin) -->
+<div id="mUmb" class="velo" hidden>
+  <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mUmbT" novalidate>
+    <h2 id="mUmbT" class="font-bold text-lg mb-1">Umbrales del semáforo</h2>
+    <p class="text-sm text-gris mb-3">Rojo: hasta N días o vencido. Amarillo: hasta M días. Verde: más allá.</p>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label class="lbl" for="umbRojo">Rojo (días)</label><input id="umbRojo" class="campo" type="number" min="0" step="1"></div>
+      <div><label class="lbl" for="umbAmarillo">Amarillo (días)</label><input id="umbAmarillo" class="campo" type="number" min="0" step="1"></div>
+    </div>
+    <div id="umbError" class="error-box mb-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn" data-cerrar>Cancelar</button>
+      <button type="submit" id="umbOk" class="btn btn-prim">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal: confirmar borrado (admin) -->
+<div id="mDel" class="velo" hidden>
+  <form class="modal fade-in" role="alertdialog" aria-modal="true" aria-labelledby="mDelT" aria-describedby="mDelTxt" novalidate>
+    <h2 id="mDelT" class="font-bold text-lg mb-2">Borrar lote</h2>
+    <p id="mDelTxt" class="text-sm mb-3"></p>
+    <div id="delError" class="error-box mb-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn" data-cerrar>Cancelar</button>
+      <button type="submit" id="delOk" class="btn btn-peligro">Borrar</button>
+    </div>
+  </form>
+</div>
+
+<script src="/js/vencimientos.js"></script>
+</body>
+</html>

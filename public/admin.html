@@ -261,6 +261,11 @@ body{color:var(--on-surf);font-size:14px;line-height:1.55}
           <input type="text" id="f-nombre" autocomplete="off">
         </div>
         <div class="field">
+          <label for="f-sucursal">Sucursal (Id)</label>
+          <input type="number" id="f-sucursal" min="1" step="1" autocomplete="off">
+          <span class="hint">IdSucursal de SIGA. Vacío si no es una sucursal.</span>
+        </div>
+        <div class="field">
           <label for="f-password">Contraseña</label>
           <input type="password" id="f-password" autocomplete="new-password">
           <span class="hint" id="pw-hint">Dejá vacío para no cambiarla.</span>
@@ -438,6 +443,7 @@ const overlay = document.getElementById('overlay');
 const form = document.getElementById('form-usuario');
 const fUsuario = document.getElementById('f-usuario');
 const fNombre = document.getElementById('f-nombre');
+const fSucursal = document.getElementById('f-sucursal');
 const fPassword = document.getElementById('f-password');
 const fAdmin = document.getElementById('f-admin');
 const fActivo = document.getElementById('f-activo');
@@ -470,6 +476,7 @@ function abrirModal(u) {
   modalTitle.textContent = esNuevo ? 'Nuevo usuario' : 'Editar usuario';
   fUsuario.value = u ? (u.usuario || '') : '';
   fNombre.value = u ? (u.nombre || '') : '';
+  fSucursal.value = u && u.idSucursal ? u.idSucursal : '';
   fPassword.value = '';
   fAdmin.checked = u ? !!u.esAdmin : false;
   fActivo.checked = u ? (u.activo !== false) : true;
@@ -503,6 +510,7 @@ form.addEventListener('submit', async (ev) => {
   const esAdmin = fAdmin.checked;
   const activo = fActivo.checked;
   const modulos = esAdmin ? [] : modulosMarcados();
+  const idSucursal = fSucursal.value.trim() || null;
 
   if (!usuario) { mostrarModalError('El usuario es obligatorio.'); fUsuario.focus(); return; }
   if (state.editId === null && !password) { mostrarModalError('La contraseña es obligatoria para un usuario nuevo.'); fPassword.focus(); return; }
@@ -513,11 +521,11 @@ form.addEventListener('submit', async (ev) => {
     if (state.editId === null) {
       await api('/api/admin/usuarios', {
         method: 'POST',
-        body: JSON.stringify({ usuario, nombre, password, esAdmin, modulos, activo })
+        body: JSON.stringify({ usuario, nombre, password, esAdmin, modulos, activo, idSucursal })
       });
       mostrarBanner('Usuario creado correctamente.', 'ok');
     } else {
-      const cambios = { usuario, nombre, esAdmin, modulos, activo };
+      const cambios = { usuario, nombre, esAdmin, modulos, activo, idSucursal };
       if (password) cambios.password = password; // No enviar password vacía.
       await api('/api/admin/usuarios/' + state.editId, {
         method: 'PUT',
