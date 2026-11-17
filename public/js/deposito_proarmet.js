@@ -82,13 +82,14 @@
   function renderHist() {
     const cuerpo = $('histCuerpo');
     $('histConteo').textContent = hist ? `${hist.length} movimientos` : '';
-    if (!hist || !hist.length) { cuerpo.innerHTML = '<tr><td colspan="7"><div class="vacio"><b>Sin movimientos</b>Todavía no hay movimientos de este depósito.</div></td></tr>'; return; }
+    if (!hist || !hist.length) { cuerpo.innerHTML = '<tr><td colspan="8"><div class="vacio"><b>Sin movimientos</b>Todavía no hay movimientos de este depósito.</div></td></tr>'; return; }
     cuerpo.innerHTML = hist.map((m, i) => `<tr class="hist" data-i="${i}" tabindex="0" aria-expanded="false">
         <td>${fechaHora(m.fecha)}</td>
         <td><span class="badge ${m.tipo === 'ingreso' ? 'b-ing' : 'b-sal'}">${m.tipo === 'ingreso' ? 'Ingreso' : 'Salida'}</span></td>
         <td class="num">${esc(m.numeroMovimiento)}</td>
         <td>${depTxt(m.depOrigen, m.depOrigenNombre)} → ${depTxt(m.depDestino, m.depDestinoNombre)}</td>
-        <td>${esc(m.usuario)}</td><td>${esc(m.descripcion)}</td><td>${badgeEstado(m)}</td></tr>`).join('');
+        <td>${esc(m.usuario)}</td><td>${esc(m.descripcion)}</td><td>${badgeEstado(m)}</td>
+        <td><button type="button" class="btn btn-rem" data-remito="${i}" aria-label="Imprimir remito del movimiento ${esc(m.numeroMovimiento)}">Remito</button></td></tr>`).join('');
   }
   function alternarDetalle(tr) {
     const sig = tr.nextElementSibling;
@@ -97,15 +98,15 @@
     const ls = (m && m.lineas) || [];
     const det = document.createElement('tr');
     det.className = 'det';
-    det.innerHTML = `<td colspan="7">${ls.length ? `<table class="tabla"><tbody>${ls.map(l => `<tr><td class="num" style="width:90px">${esc(l.idProducto)}</td><td>${esc(l.descripcion || '')}</td><td class="num" style="width:110px">${fmt(l.cantidad)}</td></tr>`).join('')}</tbody></table>` : 'Sin líneas.'}</td>`;
+    det.innerHTML = `<td colspan="8">${ls.length ? `<table class="tabla"><tbody>${ls.map(l => `<tr><td class="num" style="width:90px">${esc(l.idProducto)}</td><td>${esc(l.descripcion || '')}</td><td class="num" style="width:110px">${fmt(l.cantidad)}</td></tr>`).join('')}</tbody></table>` : 'Sin líneas.'}</td>`;
     tr.after(det);
     tr.setAttribute('aria-expanded', 'true');
   }
   async function cargarHist() {
     const id = idControlado();
-    if (!id) { hist = null; $('histCuerpo').innerHTML = '<tr><td colspan="7"><div class="vacio"><b>Elegí un depósito</b></div></td></tr>'; $('histConteo').textContent = ''; return; }
+    if (!id) { hist = null; $('histCuerpo').innerHTML = '<tr><td colspan="8"><div class="vacio"><b>Elegí un depósito</b></div></td></tr>'; $('histConteo').textContent = ''; return; }
     const mio = ++pedHist;
-    $('histCuerpo').innerHTML = sk(7);
+    $('histCuerpo').innerHTML = sk(8);
     $('btnHist').disabled = true;
     try {
       const r = await api(`/api/proarmet/movimientos?idDeposito=${id}&limit=${HIST_LIMIT}`);
@@ -116,6 +117,36 @@
       if (mio !== pedHist) return;
       hist = null; $('histCuerpo').innerHTML = ''; $('histConteo').textContent = ''; aviso(e.message);
     } finally { if (mio === pedHist) $('btnHist').disabled = false; }
+  }
+
+  // ── Remito (window.print + @media print sobre #remito; el usuario elige "Guardar como PDF") ──
+  // datos: { numeroMovimiento, fecha, tipo, depOrigenNombre, depDestinoNombre, usuario, descripcion, lineas:[{idProducto, descripcion, cantidad}] }
+  function renderRemito(d) {
+    const ls = d.lineas || [];
+    const f = new Date(d.fecha);
+    const fh = isNaN(f) ? esc(d.fecha) : f.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+    const firma = (tit, nombre) => `<div class="rm-firma"><h3>${tit}</h3><div class="rm-caja"><span>Firma</span></div>
+      <div class="rm-linea"><span>Aclaración:</span>${esc(nombre)}</div><div class="rm-linea"><span>Fecha:</span></div></div>`;
+    $('remito').innerHTML = `<h1>REMITO DE MOVIMIENTO INTERNO</h1>
+      <table class="rm-datos"><tr><th>Movimiento Nº</th><td>${esc(d.numeroMovimiento)}</td><th>Fecha y hora</th><td>${fh}</td></tr>
+        <tr><th>Tipo</th><td>${esc(d.tipo || '-')}</td><th>Responsable</th><td>${esc(d.usuario || '-')}</td></tr>
+        <tr><th>Origen</th><td>${esc(d.depOrigenNombre)}</td><th>Destino</th><td>${esc(d.depDestinoNombre)}</td></tr>
+        <tr><th>Descripción</th><td colspan="3">${esc(d.descripcion)}</td></tr></table>
+      <table class="rm-items"><thead><tr><th style="width:90px">Código</th><th>Producto</th><th class="num" style="width:90px">Cantidad</th></tr></thead>
+        <tbody>${ls.map(l => `<tr><td>${esc(l.idProducto)}</td><td>${esc(l.descripcion || '')}</td><td class="num">${fmt(l.cantidad)}</td></tr>`).join('')}</tbody></table>
+      <div class="rm-cierre"><p class="rm-total">Movimiento Nº ${esc(d.numeroMovimiento)} · Total: ${ls.length} línea${ls.length === 1 ? '' : 's'}</p>
+      <div class="rm-firmas">${firma('Entrega', d.usuario)}${firma('Recibe', '')}</div></div>`;
+  }
+  // Imprime después de pintar el DOM; un fallo de impresión no afecta al movimiento ya registrado.
+  function imprimirRemito(d) {
+    try {
+      renderRemito(d);
+      document.body.classList.add('imprimiendo');
+      window.addEventListener('afterprint', () => document.body.classList.remove('imprimiendo'), { once: true });
+      requestAnimationFrame(() => setTimeout(() => {
+        try { window.print(); } catch (_) { document.body.classList.remove('imprimiendo'); }
+      }, 50));
+    } catch (e) { document.body.classList.remove('imprimiendo'); toast('No se pudo generar el remito: ' + e.message, true); }
   }
 
   // ── Tabs (carga lazy) ─────────────────────────────────────────────────
@@ -135,10 +166,10 @@
     });
     if (!cargada[nombre]) cargarTab(nombre);
   }
-  // Un movimiento confirmado deja viejos el stock y el historial: la tab activa se refresca ya, la otra al entrar.
+  // Un movimiento confirmado deja viejos el stock y el historial: se pasa al Historial (recargado); el stock se recarga al entrar.
   function movimientoHecho() {
     cargada.stock = false; cargada.historial = false;
-    if (tab === 'stock' || tab === 'historial') cargarTab(tab);
+    activarTab('historial');
   }
   function cambioDeposito() {
     for (const k of ['stock', 'historial']) cargada[k] = false;
@@ -167,7 +198,7 @@
   }
 
   window.Proarmet = {
-    $, esc, fmt, norm, sk, api, toast, idControlado, movimientoHecho,
+    $, esc, fmt, norm, sk, api, toast, idControlado, movimientoHecho, imprimirRemito, nombreDep,
     getDeps: () => deps, movs: {},
   };
 
@@ -182,8 +213,18 @@
   $('btnRecargar').addEventListener('click', cargarDepositos);
   $('btnHist').addEventListener('click', cargarHist);
   $('selControlado').addEventListener('change', cambioDeposito);
-  $('histCuerpo').addEventListener('click', e => { const tr = e.target.closest('tr.hist'); if (tr) alternarDetalle(tr); });
+  function remitoDeHist(i) {
+    const m = hist && hist[i];
+    if (!m) return;
+    imprimirRemito({ ...m, tipo: m.tipoMovimiento || (deps && deps.tipoMovimiento) || '', depOrigenNombre: m.depOrigenNombre || nombreDep(m.depOrigen), depDestinoNombre: m.depDestinoNombre || nombreDep(m.depDestino) });
+  }
+  $('histCuerpo').addEventListener('click', e => {
+    const b = e.target.closest('[data-remito]');
+    if (b) { remitoDeHist(Number(b.dataset.remito)); return; }
+    const tr = e.target.closest('tr.hist'); if (tr) alternarDetalle(tr);
+  });
   $('histCuerpo').addEventListener('keydown', e => {
+    if (e.target.closest('[data-remito]')) return; // Enter/Espacio sobre el botón lo activa el navegador
     const tr = e.target.closest('tr.hist');
     if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); alternarDetalle(tr); }
   });

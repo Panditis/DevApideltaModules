@@ -56,6 +56,34 @@
 .tst-ok{box-shadow:0 24px 48px -12px rgba(26,28,24,.28),inset 4px 0 0 #FFCC00}
 .tst-err{background:#7a1d22}
 @keyframes toast{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.btn-rem{padding:3px 10px;font-size:13px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#remito{display:none}
+@page{size:A4 portrait;margin:14mm}
+@media print{
+body.imprimiendo{background:#fff!important}
+body.imprimiendo>*:not(#remito){display:none!important}
+body.imprimiendo #remito{display:block;color:#000;font-family:Arial,Helvetica,sans-serif;font-size:11pt}
+#remito h1{font-size:16pt;text-align:center;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid #000;letter-spacing:.5px}
+#remito table{width:100%;border-collapse:collapse}
+.rm-datos{margin-bottom:14px}
+.rm-datos th{text-align:left;width:19%;font-size:9pt;text-transform:uppercase;color:#333;padding:4px 6px;border:1px solid #888;background:#f0f0f0}
+.rm-datos td{padding:4px 6px;border:1px solid #888}
+.rm-items thead{display:table-header-group}
+.rm-items th{text-align:left;font-size:9pt;text-transform:uppercase;padding:5px 6px;border:1px solid #000;background:#e8e8e8}
+.rm-items td{padding:5px 6px;border:1px solid #888}
+.rm-items tr{break-inside:avoid;page-break-inside:avoid}
+#remito .num{text-align:right}
+.rm-total{text-align:right;font-weight:700;margin:8px 0 0}
+.rm-cierre{break-inside:avoid;page-break-inside:avoid}
+.rm-firmas{display:grid;grid-template-columns:1fr 1fr;gap:16mm;margin-top:14mm}
+.rm-firma{flex:1}
+.rm-firma h3{margin:0 0 4px;font-size:11pt;text-transform:uppercase}
+.rm-caja{height:38mm;border:1.5px solid #000;position:relative}
+.rm-caja span{position:absolute;left:6px;top:4px;font-size:8pt;color:#555}
+.rm-linea{border-bottom:1px solid #000;height:9mm;margin-top:3mm;font-size:10pt;display:flex;align-items:flex-end;gap:6px}
+.rm-linea span{font-size:8pt;color:#555;text-transform:uppercase}
+}
 @media (prefers-reduced-motion:reduce){.tst,.sk{animation:none}}
 </style>
 </head>
@@ -122,13 +150,15 @@
         <thead><tr>
           <th scope="col" style="width:150px">Fecha</th><th scope="col" style="width:90px">Tipo</th>
           <th scope="col" class="num" style="width:90px">Nº mov.</th><th scope="col">Origen → Destino</th>
-          <th scope="col" style="width:110px">Usuario</th><th scope="col">Descripción</th><th scope="col" style="width:110px">Estado</th>
+          <th scope="col" style="width:110px">Usuario</th><th scope="col">Descripción</th><th scope="col" style="width:110px">Estado</th><th scope="col" style="width:90px"><span class="sr-only">Remito</span></th>
         </tr></thead>
         <tbody id="histCuerpo"></tbody>
       </table>
     </div>
   </section>
 </main>
+
+<div id="remito" aria-hidden="true"></div>
 
 <div id="toasts" role="status" aria-live="polite"></div>
 
