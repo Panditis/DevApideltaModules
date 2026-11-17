@@ -40,23 +40,23 @@
 .error{display:flex;gap:10px;align-items:flex-start;background:#fdf3f4;color:#a4262c;border:1px solid #f3cdd0;padding:10px 14px;border-radius:10px;font-size:14px}
 .sk{height:36px;margin:8px 12px;border-radius:8px;background:linear-gradient(90deg,#fff 0%,#f3f5ef 50%,#fff 100%);background-size:200% 100%;animation:sk 1.3s ease-in-out infinite}
 @keyframes sk{from{background-position:100% 0}to{background-position:-100% 0}}
-dialog{padding:0;border:0;color:#242423;background:#fff;border-radius:16px;box-shadow:0 24px 48px -12px rgba(26,28,24,.28),0 4px 12px rgba(26,28,24,.08)}
-dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
-dialog[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
-@keyframes pop{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
-.dlg{width:820px;max-width:calc(100vw - 48px);max-height:calc(100vh - 64px)}
-.dlg form{display:flex;flex-direction:column;max-height:calc(100vh - 64px)}
-.dlg-cab{display:flex;align-items:flex-start;gap:12px;padding:20px 24px 16px;border-bottom:1px solid rgba(26,28,24,.09)}
-.dlg-cuerpo{padding:16px 24px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:0}
-.dlg-pie{display:flex;align-items:center;gap:10px;padding:14px 24px;border-top:1px solid rgba(26,28,24,.09);background:#fafbf8}
-.scroll-tabla{overflow-y:auto;max-height:42vh;border:1px solid rgba(26,28,24,.09);border-radius:10px}
+.tabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid rgba(26,28,24,.09)}
+.tab{font-family:inherit;font-size:14px;font-weight:700;color:#5c5f52;background:none;border:none;border-bottom:3px solid transparent;padding:9px 16px;cursor:pointer;margin-bottom:-1px}
+.tab:hover{color:#242423}
+.tab[aria-selected=true]{color:#242423;border-bottom-color:#405936}
+.scroll-tabla{overflow-y:auto;max-height:52vh;border:1px solid rgba(26,28,24,.09);border-radius:10px}
 .scroll-tabla thead th{position:sticky;top:0;z-index:1}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#eef1ea;color:#5c5f52}
+.b-ing{background:#e4efdc;color:#2f4a26}.b-sal{background:#fff3c4;color:#6b5400}
+.b-rev{background:#fdf3f4;color:#a4262c;border:1px solid #f3cdd0}.b-fail{background:#a4262c;color:#fff}
+.tabla tr.hist{cursor:pointer}
+.tabla tr.det td{background:#fafbf8;padding:6px 12px 12px 44px}
 #toasts{position:fixed;right:24px;bottom:24px;z-index:80;display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:440px}
 .tst{display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:10px;background:#242423;color:#fff;font-size:14px;line-height:1.35;box-shadow:0 24px 48px -12px rgba(26,28,24,.28);animation:toast 220ms ease}
 .tst-ok{box-shadow:0 24px 48px -12px rgba(26,28,24,.28),inset 4px 0 0 #FFCC00}
 .tst-err{background:#7a1d22}
 @keyframes toast{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){dialog[open],.tst,.sk{animation:none}}
+@media (prefers-reduced-motion:reduce){.tst,.sk{animation:none}}
 </style>
 </head>
 <body class="font-body text-ink">
@@ -80,81 +80,59 @@ dialog[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
       <label class="text-sm font-semibold text-gris" for="selControlado">Depósito a controlar</label>
       <select id="selControlado" class="ctl" disabled><option value="">Cargando…</option></select>
     </div>
-    <div class="buscar">
-      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input id="flBuscar" type="search" class="ctl" placeholder="Buscar por código o descripción" aria-label="Buscar en el stock del depósito">
-    </div>
-    <span id="conteo" class="text-sm text-gris tabular-nums"></span>
-    <div class="ml-auto flex items-center gap-2">
-      <button id="btnVuelta" type="button" class="btn" disabled>Devolver</button>
-      <button id="btnIda" type="button" class="btn btn-primario" disabled>Ingresar mercadería</button>
-    </div>
   </div>
 
-  <section class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden" aria-label="Stock del depósito">
-    <table class="tabla">
-      <thead>
-        <tr>
-          <th scope="col" style="width:44px"><input type="checkbox" id="selTodos" aria-label="Seleccionar todos los visibles"></th>
+  <div class="tabs" role="tablist" aria-label="Funciones del depósito">
+    <button class="tab" type="button" role="tab" id="tab-stock" data-tab="stock" aria-controls="panel-stock" aria-selected="true">Stock</button>
+    <button class="tab" type="button" role="tab" id="tab-ingreso" data-tab="ingreso" aria-controls="panel-ingreso" aria-selected="false" tabindex="-1">Ingresar mercadería</button>
+    <button class="tab" type="button" role="tab" id="tab-devolver" data-tab="devolver" aria-controls="panel-devolver" aria-selected="false" tabindex="-1">Devolver a central</button>
+    <button class="tab" type="button" role="tab" id="tab-historial" data-tab="historial" aria-controls="panel-historial" aria-selected="false" tabindex="-1">Historial</button>
+  </div>
+
+  <section id="panel-stock" role="tabpanel" aria-labelledby="tab-stock">
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+      <div class="buscar">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="flBuscar" type="search" class="ctl" placeholder="Buscar por código o descripción" aria-label="Buscar en el stock del depósito">
+      </div>
+      <span id="conteo" class="text-sm text-gris tabular-nums"></span>
+    </div>
+    <div class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden">
+      <table class="tabla">
+        <thead><tr>
           <th scope="col" class="num" style="width:110px">Código</th>
           <th scope="col">Descripción</th>
           <th scope="col" class="num" style="width:130px">Stock</th>
-          <th scope="col" class="num" style="width:140px">A devolver</th>
-        </tr>
-      </thead>
-      <tbody id="cuerpo"></tbody>
-    </table>
+        </tr></thead>
+        <tbody id="cuerpo"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="panel-ingreso" class="hidden" role="tabpanel" aria-labelledby="tab-ingreso"></section>
+  <section id="panel-devolver" class="hidden" role="tabpanel" aria-labelledby="tab-devolver"></section>
+
+  <section id="panel-historial" class="hidden" role="tabpanel" aria-labelledby="tab-historial">
+    <div class="flex items-center gap-3 mb-3">
+      <button id="btnHist" type="button" class="btn">Recargar historial</button>
+      <span id="histConteo" class="text-sm text-gris tabular-nums"></span>
+    </div>
+    <div class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden">
+      <table class="tabla">
+        <thead><tr>
+          <th scope="col" style="width:150px">Fecha</th><th scope="col" style="width:90px">Tipo</th>
+          <th scope="col" class="num" style="width:90px">Nº mov.</th><th scope="col">Origen → Destino</th>
+          <th scope="col" style="width:110px">Usuario</th><th scope="col">Descripción</th><th scope="col" style="width:110px">Estado</th>
+        </tr></thead>
+        <tbody id="histCuerpo"></tbody>
+      </table>
+    </div>
   </section>
 </main>
-
-<!-- Movimiento entre depósitos (ingreso / devolución) -->
-<dialog id="dlgMov" class="dlg" aria-labelledby="mTitulo">
-  <form id="formMov" novalidate>
-    <div class="dlg-cab">
-      <h2 id="mTitulo" class="text-lg font-bold">Ingresar mercadería</h2>
-      <button type="button" class="btn-ico ml-auto" data-cerrar aria-label="Cerrar">
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-    </div>
-    <div class="dlg-cuerpo">
-      <div class="flex flex-wrap items-end gap-3">
-        <div><label class="lbl" for="mOrigen">Origen</label><select id="mOrigen" class="ctl"></select></div>
-        <div><label class="lbl" for="mDestino">Destino</label><select id="mDestino" class="ctl"></select></div>
-        <div class="buscar">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          <input id="mBuscar" type="search" class="ctl" placeholder="Buscar producto de SIGA" aria-label="Buscar producto de SIGA">
-        </div>
-        <span id="mConteo" class="text-sm text-gris tabular-nums"></span>
-        <span id="mCargados" class="text-sm font-semibold text-verde tabular-nums ml-auto"></span>
-      </div>
-      <div class="scroll-tabla">
-        <table class="tabla">
-          <thead>
-            <tr>
-              <th scope="col" class="num" style="width:90px">Código</th>
-              <th scope="col">Descripción</th>
-              <th scope="col" class="num" style="width:120px">Stock origen</th>
-              <th scope="col" class="num" style="width:120px">Stock destino</th>
-              <th scope="col" class="num" style="width:120px">Cantidad</th>
-            </tr>
-          </thead>
-          <tbody id="mCuerpo"></tbody>
-        </table>
-      </div>
-      <div>
-        <label class="lbl" for="mDesc">Descripción del movimiento (obligatoria)</label>
-        <input id="mDesc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required>
-      </div>
-      <div id="mError" class="error hidden" role="alert"></div>
-    </div>
-    <div class="dlg-pie">
-      <button type="button" class="btn ml-auto" data-cerrar>Cancelar</button>
-      <button type="submit" id="mOk" class="btn btn-primario">Confirmar movimiento</button>
-    </div>
-  </form>
-</dialog>
 
 <div id="toasts" role="status" aria-live="polite"></div>
 
 <script src="/js/deposito_proarmet.js"></script>
+<script src="/js/deposito_proarmet_mov.js"></script>
 </body>
 </html>
