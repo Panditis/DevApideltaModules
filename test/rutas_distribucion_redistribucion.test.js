@@ -35,10 +35,11 @@ function montar({ alm = [], pes = [], ventas = [], falla = null, distCfg = {} } 
   } };
 }
 
-// Almacén: riv(5) vende y necesita 10, sucursal9 tiene 8 sin necesidad. Central 0.
-const filaAlm = (plu, central, idealRiv = 10) => ({ plu, nombre: 'Prod ' + plu, rubro: 'Almacen', central,
-  presentacion: { unidadesPorBulto: 1 }, sSuc: { riv: 10, sucursal9: 10 }, minSuc: { riv: 2, sucursal9: 2 },
-  stkSuc: { riv: 0, sucursal9: 8 }, ideal: { riv: idealRiv }, enviar: {}, enviarTexto: {} });
+// Almacén: riv(5) vende y necesita S − stock = 10; sucursal9 tiene 8 = S → sin necesidad. Central 0.
+// `ideal` queda en 0 a propósito: la necesidad ya no sale del pedido del motor sino de S − stock.
+const filaAlm = (plu, central) => ({ plu, nombre: 'Prod ' + plu, rubro: 'Almacen', central,
+  presentacion: { unidadesPorBulto: 1 }, sSuc: { riv: 10, sucursal9: 8 }, minSuc: { riv: 2, sucursal9: 2 },
+  stkSuc: { riv: 0, sucursal9: 8 }, ideal: {}, enviar: {}, enviarTexto: {} });
 
 test('forma de respuesta con un producto a redistribuir', async () => {
   const { llamar } = montar({ alm: [filaAlm('100', 0)], ventas: [{ IdProducto: '100', IdSucursal: 5, Unidades: 200 }] });
@@ -86,4 +87,57 @@ test('consulta ventas solo de productos con necesidad total > stock central', as
   assert.strictEqual(m.sqls.length, 1);
   assert.match(m.sqls[0], /'100'/);
   assert.doesNotMatch(m.sqls[0], /'200'|'300'/);
+});
+
+// ── Necesidad = max(0, S − stock), 0 si Fact/Restringido (nota 2026-11-16 del spec) ──
+// Donante fijo: sucursal9 con 50 de stock, S 0 y sin ventas → sobra todo. Central 0.
+const filaUrq = (extra = {}) => ({ plu: '500', nombre: 'Prod 500', rubro: 'Almacen', central: 0,
+  presentacion: { unidadesPorBulto: 1 },
+  sSuc: { urq: 15, riv: 10, sucursal9: 0 }, minSuc: { urq: 5, riv: 2, sucursal9: 0 },
+  stkSuc: { urq: 11, riv: 0, sucursal9: 50 }, ideal: {}, enviar: {}, enviarTexto: {}, ...extra });
+const ventasUrq = [{ IdProducto: '500', IdSucursal: 2, Unidades: 300 }, { IdProducto: '500', IdSucursal: 5, Unidades: 300 }];
+
+test('stock < S y stock >= min → necesidad = S − stock (Urquiza 11/15 → 4)', async () => {
+  const res = await montar({ alm: [filaUrq()], ventas: ventasUrq }).llamar({ dias: '30' });
+  const [p] = res.body.productos;
+  assert.strictEqual(p.sucursales['2'].necesidad, 4);
+  assert.strictEqual(p.sucursales['5'].necesidad, 10);
+  assert.strictEqual(p.demanda, 14);
+});
+
+test('stock >= S → necesidad 0', async () => {
+  const res = await montar({ alm: [filaUrq({ stkSuc: { urq: 15, riv: 0, sucursal9: 50 } })], ventas: ventasUrq }).llamar({ dias: '30' });
+  const [p] = res.body.productos;
+  assert.strictEqual(p.sucursales['2'].necesidad, 0);
+  assert.strictEqual(p.demanda, 10);
+  const res2 = await montar({ alm: [filaUrq({ stkSuc: { urq: 40, riv: 0, sucursal9: 50 } })], ventas: ventasUrq }).llamar({ dias: '30' });
+  assert.strictEqual(res2.body.productos[0].sucursales['2'].necesidad, 0);
+});
+
+test('enviar o enviarTexto Fact/Restringido → necesidad 0', async () => {
+  for (const extra of [{ enviar: { urq: 'Fact' } }, { enviar: { urq: 'Restringido' } },
+    { enviarTexto: { urq: 'Fact' } }, { enviarTexto: { urq: 'Restringido' } }]) {
+    const res = await montar({ alm: [filaUrq(extra)], ventas: ventasUrq }).llamar({ dias: '30' });
+    const [p] = res.body.productos;
+    assert.strictEqual(p.sucursales['2'].necesidad, 0, JSON.stringify(extra));
+    assert.strictEqual(p.sucursales['5'].necesidad, 10, JSON.stringify(extra));
+    assert.ok(p.movimientos.every(m => m.destino !== 2), JSON.stringify(extra));
+  }
+  // 'No' / numérico no anulan la necesidad
+  const res = await montar({ alm: [filaUrq({ enviarTexto: { urq: 'No' }, enviar: { urq: 0 } })], ventas: ventasUrq }).llamar({ dias: '30' });
+  assert.strictEqual(res.body.productos[0].sucursales['2'].necesidad, 4);
+});
+
+const filaPes = (extra = {}) => ({ plu: '700', nombre: 'Pes 700', rubro: 'Pesables Fraccionado', H: 0, presKg: 0.5,
+  sLev: { urq: 3, ramallo: 0 }, mins: { urq: 1, ramallo: 0 }, stkSuc: { urq: -2, ramallo: 20 }, ideal: {}, enviar: {}, ...extra });
+
+test('pesables: stock negativo se trata como 0 → necesidad = S', async () => {
+  const res = await montar({ pes: [filaPes()], ventas: [{ IdProducto: '700', IdSucursal: 2, Unidades: 100 }] }).llamar({ dias: '30' });
+  const [p] = res.body.productos;
+  assert.strictEqual(p.unidad, 'kg');
+  assert.strictEqual(p.sucursales['2'].stock, 0);
+  assert.strictEqual(p.sucursales['2'].necesidad, 3);
+  assert.ok(p.movimientos.some(m => m.origen === 9 && m.destino === 2));
+  const r2 = await montar({ pes: [filaPes({ enviar: { urq: 'Restringido' } })] }).llamar({ dias: '30' });
+  assert.deepStrictEqual(r2.body.productos, []);
 });

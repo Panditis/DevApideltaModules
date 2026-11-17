@@ -377,7 +377,8 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
 router.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
 
 // ── Redistribución sucursal → sucursal (docs/specs/redistribucion_sucursales.md) ──
-// Toma el pedido del motor (ideal = S − stock, sin racionar) y, donde la central no alcanza,
+// Demanda = max(0, S A8020 − stock) por sucursal, sin el disparador min>stock del motor (pedido
+// del usuario 2026-11-16) y, donde la central no alcanza,
 // sugiere traslados desde sucursales de pocas ventas. Solo lectura.
 // Clave motor → IdSucursal (sin 6/8/11). Almacén y pesables nombran distinto a Ramallo/San Pedro.
 const REDIST_ALM = { riv: 5, urq: 2, nacion: 3, chaca: 4, pergamino: 10, sanPedro: 7, sucursal9: 9 };
@@ -412,7 +413,7 @@ async function calcularRedistribucion(dias) {
     for (const [k, id] of Object.entries(REDIST_ALM)) {
       const S = (f.sSuc || {})[k] || 0;
       sucursales[id] = { stock: (f.stkSuc || {})[k] || 0, min: (f.minSuc || {})[k] || 0, S, presencia,
-        necesidad: sinEnvio((f.enviar || {})[k]) || sinEnvio((f.enviarTexto || {})[k]) ? 0 : ((f.ideal || {})[k] || 0),
+        necesidad: sinEnvio((f.enviar || {})[k]) || sinEnvio((f.enviarTexto || {})[k]) ? 0 : Math.max(0, S - ((f.stkSuc || {})[k] || 0)),
         piso: pisoMinimo(S, tramosMicro, pisoAbsMicro) };
     }
     filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: false, central: f.central,
@@ -423,8 +424,9 @@ async function calcularRedistribucion(dias) {
     const presencia = presenciaDe((distCfg.empujeDepositoPesables || {}), abc[String(f.plu)], bolsa);
     const sucursales = {};
     for (const [k, id] of Object.entries(REDIST_PES)) {
-      sucursales[id] = { stock: Math.max(0, (f.stkSuc || {})[k] || 0), min: (f.mins || {})[k] || 0, S: (f.sLev || {})[k] || 0,
-        presencia, necesidad: sinEnvio((f.enviar || {})[k]) ? 0 : ((f.ideal || {})[k] || 0), piso: 0 };
+      const S = (f.sLev || {})[k] || 0, stock = Math.max(0, (f.stkSuc || {})[k] || 0);
+      sucursales[id] = { stock, min: (f.mins || {})[k] || 0, S,
+        presencia, necesidad: sinEnvio((f.enviar || {})[k]) ? 0 : Math.max(0, S - stock), piso: 0 };
     }
     filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: true, central: f.H,
       unidad: bolsa, minimo: Math.max(bolsa, 1), sucursales });
@@ -442,12 +444,12 @@ async function calcularRedistribucion(dias) {
     const k = String(r.IdProducto).trim();
     ventas.set(k, { ...(ventas.get(k) || {}), [r.IdSucursal]: Number(r.Unidades) || 0 });
   }
-  // ponytail: pesables en kg = Cantidad × bolsa (supuesto: Cantidad son bolsas; en "por kilo" bolsa=1). Sin verificar contra Siga.
-  const productos = candidatas.map(f => {
-    const v = ventas.get(String(f.plu)) || {};
-    const vs = f.pesable ? Object.fromEntries(Object.entries(v).map(([s, q]) => [s, q * f.unidad])) : v;
-    return redistribuirProducto(f, vs, cfg);
-  }).filter(Boolean).sort((a, b) => b.mover - a.mover);
+  // Ventas crudas (VentasProductos.Cantidad), sin convertir: es la misma unidad que el stock de
+  // Siga (la venta descuenta Cantidad) y que min/S/ideal (A8020 sale de SUM(vp.Cantidad)).
+  // Multiplicar por la bolsa achicaba las ventas de bolsas chicas (jalea 10 g: ×0.01) y las
+  // volvía "pocas ventas" → donantes con todo su stock.
+  const productos = candidatas.map(f => redistribuirProducto(f, ventas.get(String(f.plu)) || {}, cfg))
+    .filter(Boolean).sort((a, b) => b.mover - a.mover);
 
   const resumenSucursales = {};
   for (const p of productos) for (const [s, x] of Object.entries(p.sucursales)) {

@@ -2,9 +2,10 @@
 // que piden las sucursales, sugiere traslados sucursal -> sucursal (solo informa). Datos de
 // GET /api/distribucion/redistribucion?dias=N. Se carga al final de distribucion.html; usa
 // escHtml de ese archivo.
-let rot = { rows: [], resumen: {}, totales: null, umbrales: null, rango: null, filtro: '', key: 'mover', desc: true };
+let rot = { rows: [], resumen: {}, totales: null, umbrales: null, rango: null, filtro: '', key: 'central', desc: true };
 let rotNombres = {};          // idSucursal -> nombre
-let rotAbiertos = new Set();  // PLU con el detalle expandido
+let rotAbiertos = new Set();  // PLU (String) con el detalle expandido
+const ROT_SUC_FICTICIAS = new Set(['6', '8', '11']);  // no son sucursales reales: nunca se muestran
 let rotInicializado = false;
 const ROT_DIAS_DEFAULT = 30, ROT_DIAS_MIN = 7, ROT_DIAS_MAX = 365;
 
@@ -53,8 +54,12 @@ function rotIniciar(){
   rotEl('rotTabla').onclick = e => {
     const th = e.target.closest('th[data-orden]');
     if (th) { rotOrdenar(th.dataset.orden); return; }
-    const b = e.target.closest('button[data-plu]');
-    if (b) rotAlternar(b.dataset.plu);
+    const tr = e.target.closest('tr.rot-fila');
+    if (tr) rotAlternar(tr.dataset.plu);
+  };
+  rotEl('rotTabla').onkeydown = e => {
+    const tr = e.target.closest('tr.rot-fila');
+    if (tr && e.target === tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); rotAlternar(tr.dataset.plu); }
   };
 }
 
@@ -139,19 +144,29 @@ function rotResumen(){
     <tbody>${ids.map(fila).join('')}</tbody></table></div>`;
 }
 
+// Sucursales reales presentes en los datos, en orden de id.
+function rotSucIds(){
+  const ids = new Set(Object.keys(rot.resumen));
+  rot.rows.forEach(r => Object.keys(r.sucursales || {}).forEach(id => ids.add(id)));
+  return [...ids].filter(id => !ROT_SUC_FICTICIAS.has(String(id))).sort((a, b) => a - b);
+}
+
 function rotValor(r, key){
-  return key === 'nombre' ? r.nombre : (r[key] || 0);
+  if (key.startsWith('s:')) return r.sucursales?.[key.slice(2)]?.stock || 0;
+  return key === 'nombre' || key === 'plu' ? r[key] : (r[key] || 0);
 }
 
 // Primer clic en una columna numérica ordena de más a menos; de nuevo sobre la misma, invierte.
 function rotOrdenar(key){
-  rot = { ...rot, desc: rot.key === key ? !rot.desc : key !== 'nombre', key };
+  rot = { ...rot, desc: rot.key === key ? !rot.desc : key !== 'nombre' && key !== 'plu', key };
   rotTabla();
 }
 
 function rotAlternar(plu){
+  plu = String(plu);  // dataset siempre es string; r.plu puede venir numérico
   rotAbiertos.has(plu) ? rotAbiertos.delete(plu) : rotAbiertos.add(plu);
   rotTabla();
+  [...rotEl('rotTabla').querySelectorAll('tr.rot-fila')].find(tr => tr.dataset.plu === plu)?.focus();
 }
 
 // Búsqueda (nombre o PLU) y orden vigentes.
@@ -163,15 +178,10 @@ function rotFilas(){
     .sort((a, b) => signo * rotCmp(rotValor(a, rot.key), rotValor(b, rot.key)));
 }
 
-function rotTh(key, etiqueta, clase){
+function rotTh(key, etiqueta, clase, titulo){
   const activa = rot.key === key;
   const flecha = activa ? (rot.desc ? ' ▼' : ' ▲') : '';
-  return `<th class="${clase}" data-orden="${key}" title="Ordenar por ${escHtml(etiqueta)}"${activa ? ` aria-sort="${rot.desc ? 'descending' : 'ascending'}"` : ''}>${escHtml(etiqueta)}${flecha}</th>`;
-}
-
-function rotCubierto(v){
-  const p = Math.round((v || 0) * 100);
-  return `<span class="rot-cub${p >= 100 ? ' ok' : ''}" style="--p:${Math.min(p, 100)}%">${p}%</span>`;
+  return `<th class="${clase}" data-orden="${key}" title="${escHtml(titulo || `Ordenar por ${etiqueta}`)}"${activa ? ` aria-sort="${rot.desc ? 'descending' : 'ascending'}"` : ''}>${escHtml(etiqueta)}${flecha}</th>`;
 }
 
 // Detalle expandido: movimientos origen -> destino y situación de cada sucursal.
@@ -194,16 +204,27 @@ function rotDetalle(r){
       <tbody>${sucs}</tbody></table></div></div>`;
 }
 
-function rotFila(r){
-  const abierto = rotAbiertos.has(r.plu), q = n => rotCant(n, r.pesable), u = rotUni(r);
-  const fila = `<tr class="rot-fila${abierto ? ' abierta' : ''}">
-    <td class="rot-n"><button type="button" class="rot-exp" data-plu="${escHtml(r.plu)}" aria-expanded="${abierto}" aria-label="Ver movimientos de ${escHtml(r.nombre)}">${abierto ? '▾' : '▸'}</button></td>
-    <td class="l nombre" title="${escHtml(`${r.nombre}${r.rubro ? `\nRubro: ${r.rubro}` : ''}\nPLU ${r.plu}`)}">${escHtml(r.nombre)}</td>
-    <td>${q(r.central)}</td><td>${q(r.demanda)}</td><td><b>${q(r.faltante)}</b></td>
-    <td><b class="rot-rep">${q(r.mover)}</b> <span class="rot-sin-dato">${u}</span></td>
-    <td>${rotCubierto(r.cubierto)}</td>
-    <td>${rotNum(r.movimientos.length)}</td></tr>`;
-  return abierto ? `${fila}<tr class="rot-detalle"><td></td><td colspan="7">${rotDetalle(r)}</td></tr>` : fila;
+// Celda de sucursal: stock + lo que sale (rojo) o entra (azul) según los movimientos sugeridos.
+function rotCelda(r, id){
+  const s = r.sucursales?.[id], q = n => rotCant(n, r.pesable);
+  if (!s) return '<td class="rot-suc"><span class="rot-sin-dato">—</span></td>';
+  const suma = campo => (r.movimientos || []).filter(m => String(m[campo]) === String(id)).reduce((t, m) => t + m.cantidad, 0);
+  const sale = suma('origen'), entra = suma('destino'), u = rotUni(r);
+  const marca = sale ? `<span class="rot-mover" role="img" aria-label="Sale ${q(sale)} ${u}">−${q(sale)}</span>`
+    : entra ? `<span class="rot-recibe" role="img" aria-label="Entra ${q(entra)} ${u}">+${q(entra)}</span>` : '';
+  const tip = [`Stock: ${q(s.stock)} ${u}`, `Ventas/día: ${rotDia(s.ventaDia)}`, s.pocasVentas ? 'Pocas ventas' : '',
+    `Objetivo: ${q(s.objetivo)} ${u}`, sale ? `Sale: ${q(sale)} ${u}` : '', entra ? `Entra: ${q(entra)} ${u}` : ''].filter(Boolean).join('\n');
+  return `<td class="rot-suc" title="${escHtml(tip)}"><b>${q(s.stock)}</b>${marca}</td>`;
+}
+
+function rotFila(r, ids){
+  const plu = String(r.plu), abierto = rotAbiertos.has(plu);
+  const tip = `${r.nombre}${r.rubro ? `\nRubro: ${r.rubro}` : ''}${r.pesable ? '\nPesable (kg)' : ''}`;
+  const fila = `<tr class="rot-fila${abierto ? ' abierta' : ''}" data-plu="${escHtml(plu)}" tabindex="0" aria-expanded="${abierto}" aria-label="${escHtml(r.nombre)}: ver movimientos">
+    <td class="l">${escHtml(plu)}</td>
+    <td class="l nombre" title="${escHtml(tip)}">${escHtml(r.nombre)}</td>
+    <td><b>${rotCant(r.central, r.pesable)}</b></td>${ids.map(id => rotCelda(r, id)).join('')}</tr>`;
+  return abierto ? `${fila}<tr class="rot-detalle"><td colspan="${ids.length + 3}">${rotDetalle(r)}</td></tr>` : fila;
 }
 
 function rotTabla(){
@@ -213,8 +234,9 @@ function rotTabla(){
     el.innerHTML = `<div class="rot-vacio">${rot.filtro ? 'Ningún producto coincide con la búsqueda.' : 'No hay faltantes en central que se puedan cubrir con mercadería parada en sucursales.'}</div>`;
     return;
   }
-  el.innerHTML = `<table class="rot-table"><colgroup><col class="c-n"><col><col class="c-u"><col class="c-u"><col class="c-u"><col class="c-u"><col class="c-p"><col class="c-m"></colgroup>
-    <thead><tr><th></th>${rotTh('nombre', 'Producto', 'l')}${rotTh('central', 'Central', '')}${rotTh('demanda', 'Demanda', '')}
-      ${rotTh('faltante', 'Faltante', '')}${rotTh('mover', 'A mover', '')}${rotTh('cubierto', 'Cubierto', '')}<th title="Cantidad de traslados">Mov.</th>
-    </tr></thead><tbody>${filas.map(rotFila).join('')}</tbody></table>`;
+  const ids = rotSucIds();
+  const ths = ids.map(id => rotTh(`s:${id}`, rotAbrev(rotNombreSuc(id)), 'rot-suc', `${rotNombreSuc(id)}: ordenar por stock`)).join('');
+  el.innerHTML = `<table class="rot-table"><colgroup><col class="c-c"><col><col class="c-u">${ids.map(() => '<col class="c-s">').join('')}</colgroup>
+    <thead><tr>${rotTh('plu', 'Código', 'l')}${rotTh('nombre', 'Producto', 'l')}${rotTh('central', 'Central', '')}${ths}</tr></thead>
+    <tbody>${filas.map(r => rotFila(r, ids)).join('')}</tbody></table>`;
 }

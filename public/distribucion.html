@@ -228,35 +228,33 @@
   .rot-ctrl input[type=number]{width:70px;font-family:var(--body);padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px}
   .rot-kpis{display:flex;gap:12px;flex-wrap:wrap}
   .rot-kpis .kpi{cursor:default}
-  .rot-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
-  @media (max-width:1100px){.rot-grid{grid-template-columns:minmax(0,1fr)}}
+  .rot-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
   .rot-card{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:clip}
   .rot-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px 0}
   .rot-head h3{margin:0;margin-right:auto;font-family:var(--disp);font-size:16px;color:var(--verde-dark)}
   .rot-desc{margin:8px 14px 12px;font-size:12.5px;color:var(--muted)}
   .rot-table{table-layout:fixed;width:100%}
-  .rot-table col.c-n{width:40px}.rot-table col.c-u{width:84px}.rot-table col.c-p{width:92px}.rot-table col.c-m{width:56px}
-  .rot-table thead th{padding:9px 4px;font-size:11px;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis}
+  .rot-table col.c-c{width:76px}.rot-table col.c-u{width:80px}.rot-table col.c-s{width:112px}
+  .rot-table thead th{position:sticky;top:0;z-index:2;padding:9px 4px;font-size:11px;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rot-table tbody td{height:40px;padding:2px 6px;overflow:hidden;text-overflow:ellipsis}
+  .rot-table tbody tr.rot-fila{cursor:pointer}
+  .rot-table tbody tr.rot-fila:focus-visible{outline:2px solid var(--verde);outline-offset:-2px}
   .rot-table tbody tr.rot-fila:hover td{box-shadow:inset 0 0 0 999px rgba(64,89,54,.07)}
   .rot-table tbody tr.abierta td{background:var(--verde-cont)}
   .rot-res td,.rot-res th{padding-left:6px;padding-right:6px}
-  .rot-n{text-align:center}
-  .rot-exp{background:none;border:0;cursor:pointer;color:var(--verde-dark);font-size:14px;padding:4px 8px;border-radius:6px}
-  .rot-exp:focus-visible{outline:2px solid var(--verde);outline-offset:1px}
-  .rot-cub{display:inline-block;min-width:48px;padding:1px 8px;border-radius:9px;font-weight:700;text-align:center;color:var(--amarillo-on);background:linear-gradient(90deg,rgba(242,200,60,.6) var(--p),var(--amarillo-cont) var(--p))}
-  .rot-cub.ok{color:#fff;background:var(--verde)}
+  .rot-suc{white-space:nowrap}
+  .rot-suc b{margin-right:5px}
   .rot-sin-dato{color:var(--faint)}
   .rot-mover,.rot-recibe,.rot-falta{font-size:10.5px;font-weight:700;padding:0 6px;border-radius:8px;white-space:nowrap}
   .rot-mover{background:var(--error);color:#fff}
   .rot-recibe{background:var(--info);color:#fff}
   .rot-falta{background:var(--amarillo-cont);color:var(--amarillo-on);border:1px solid var(--amarillo)}
-  .rot-rep{font-size:14px;color:var(--verde-dark)}
   .rot-detalle td{padding:0;height:auto;overflow:visible;white-space:normal}
   .rot-det{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:18px;padding:12px 14px;background:var(--surface1)}
   .rot-det h4{margin:0 0 6px;font-size:12px;color:var(--verde-dark)}
   .rot-sub{width:100%;border-collapse:collapse;font-size:12px}
   .rot-sub th{position:static;background:transparent;font-size:10.5px;color:var(--muted);text-align:right;text-transform:none;padding:3px 4px;border-bottom:1px solid var(--border)}
+  .rot-table .rot-sub tbody td{height:auto;padding:4px}
   .rot-sub td{padding:4px;text-align:right;border-bottom:1px solid var(--line)}
   .rot-sub th.l,.rot-sub td.l{text-align:left}
   .rot-flecha{width:24px;text-align:center!important;color:var(--faint)}
@@ -784,7 +782,7 @@
             </div>
             <p class="rot-desc">Cuando la central no cubre lo que piden las sucursales, se sugiere sacar mercadería de las que venden poco
               (quedan en presencia mínima de góndola) y llevarla a las que la necesitan. Solo informa: no registra traslados.
-              Abrí un producto con la flecha para ver de dónde sale y adónde va.</p>
+              Cada celda muestra el stock de la sucursal y cuánto se puede sacar (rojo) o recibe (azul). Hacé clic en una fila para ver de dónde sale y adónde va.</p>
             <div id="rotTabla"></div>
           </div>
           <div id="rotResumen"></div>
