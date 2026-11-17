@@ -123,7 +123,7 @@
       const descripcion = q('desc').value.trim();
       if (!descripcion) { error('La descripción es obligatoria.'); q('desc').setAttribute('aria-invalid', 'true'); q('desc').focus(); return null; }
       q('desc').removeAttribute('aria-invalid');
-      const idUsuario = Number(q('usuario').value);
+      const idUsuario = String(q('usuario').value || '').trim(); // Usuarios.Id puede no ser numérico
       if (!idUsuario) { error('Elegí el usuario responsable del movimiento.'); q('usuario').setAttribute('aria-invalid', 'true'); q('usuario').focus(); return null; }
       q('usuario').removeAttribute('aria-invalid');
       return { depOrigen: origen, depDestino: destino, descripcion, lineas, idUsuario };
