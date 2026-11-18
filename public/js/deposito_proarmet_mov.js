@@ -4,8 +4,7 @@
 (() => {
   const P = window.Proarmet;
   const { esc, fmt, norm, sk, api, toast } = P;
-  const MAX_RES = 15;     // resultados del buscador: el catálogo de SIGA es largo, se afina escribiendo
-  const MIN_CHARS = 2, DEBOUNCE_MS = 150;
+  const MAX_FILAS = 300;  // filas que pinta el modal: el catálogo de SIGA es largo, se afina con el filtro
 
   // def(ctl, central) -> [origen, destino] por defecto (ctl = depósito controlado).
   const PRESETS = [
@@ -25,7 +24,7 @@
     const root = P.$('panel-' + k);
     const q = id => root.querySelector('#' + k + '-' + id);
     const lista = new Map();    // idProducto -> cantidad (string); "Productos a mover", se conserva al cambiar origen/destino
-    let resultados = [], activo = 0, timer = null;
+    let ultimo = null;          // último producto agregado: a él vuelve el foco al cerrar el listado
     let catalogo = null, pedido = 0, enviando = false, iniciado = false, usuariosOk = false;
 
     root.innerHTML = `<form novalidate>
@@ -34,12 +33,8 @@
         <div><label class="lbl" for="${k}-destino">Destino</label><select id="${k}-destino" class="ctl"></select></div>
       </div>
       <div class="mb-4">
-        <label class="lbl" for="${k}-buscar">Buscar producto (código o descripción)</label>
-        <div class="buscar"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          <input id="${k}-buscar" type="text" class="ctl" role="combobox" aria-expanded="false" aria-controls="${k}-res" aria-autocomplete="list" autocomplete="off"
-            placeholder="Escribí al menos ${MIN_CHARS} caracteres"></div>
+        <button type="button" id="${k}-ver" class="btn" aria-haspopup="dialog" disabled>Ver lista de productos</button>
         <div id="${k}-estado" class="text-sm text-gris mt-1" aria-live="polite"></div>
-        <ul id="${k}-res" class="res hidden" role="listbox" aria-label="Resultados de la búsqueda"></ul>
       </div>
       <div class="flex items-center gap-3 mb-2">
         <h3 class="text-sm font-semibold">Productos a mover</h3>
@@ -57,7 +52,19 @@
       <div id="${k}-error" class="error hidden mt-3" role="alert"></div>
       <div class="mt-3 flex items-center gap-3"><span id="${k}-faltan" class="text-sm text-gris" aria-live="polite"></span>
         <button type="submit" id="${k}-ok" class="btn btn-primario ml-auto" aria-describedby="${k}-faltan" disabled>${preset.ok}</button></div>
-    </form>`;
+    </form>
+    <dialog id="${k}-modal" class="modal-prod" aria-labelledby="${k}-mtit">
+      <div class="mp-cab"><h3 id="${k}-mtit">Lista de productos</h3>
+        <button type="button" class="btn-ico" data-cerrar aria-label="Cerrar lista de productos"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="mp-fil"><label class="lbl" for="${k}-filtro">Filtrar por código o descripción</label>
+        <input id="${k}-filtro" type="text" class="ctl w-full" autocomplete="off">
+        <div id="${k}-mtotal" class="text-sm text-gris mt-1" aria-live="polite"></div></div>
+      <div class="mp-cuerpo"><table class="tabla"><thead><tr>
+        <th scope="col" class="num" style="width:90px">Código</th><th scope="col">Producto</th>
+        <th scope="col" class="num" style="width:110px">Stock origen</th><th scope="col" class="num" style="width:110px">Stock destino</th>
+        <th scope="col" style="width:160px">Ubicación</th><th scope="col" style="width:180px"><span class="sr-only">Agregar</span></th></tr></thead>
+        <tbody id="${k}-mcuerpo"></tbody></table></div>
+    </dialog>`;
 
     let avisoUsuarios = ''; // aviso persistente si no hay usuarios: error('') no lo borra
     const error = t => { const m = t || avisoUsuarios; q('error').textContent = m; q('error').classList.toggle('hidden', !m); };
@@ -80,47 +87,44 @@
             aria-label="Cantidad a ${preset.verbo} de ${esc(p.descripcion || id)}" value="${esc(c)}"${Number(c) > tope ? ' aria-invalid="true"' : ''}></td>
           <td class="num"><button type="button" class="btn btn-rem" data-quitar aria-label="Quitar ${esc(p.descripcion || id)} del listado">Quitar</button></td></tr>`;
       }).join('')
-        : '<tr><td colspan="7"><div class="vacio">Todavía no agregaste productos. Buscá arriba y agregalos.</div></td></tr>';
+        : '<tr><td colspan="7"><div class="vacio">Todavía no agregaste productos. Abrí la lista de productos y agregalos.</div></td></tr>';
       contar(); habilitar();
       if (foco != null) { const i = q('cuerpo').querySelector(`tr[data-id="${foco}"] [data-qty]`); if (i) i.focus(); }
     }
 
-    function cerrarRes() { resultados = []; q('res').classList.add('hidden'); q('res').innerHTML = ''; q('buscar').setAttribute('aria-expanded', 'false'); q('buscar').removeAttribute('aria-activedescendant'); }
-
-    // Buscador: sin texto (o < MIN_CHARS) no se muestra nada; filtra en cliente sobre el catálogo cargado.
-    function buscar() {
-      const t = norm(q('buscar').value.trim());
-      if (!catalogo || t.length < MIN_CHARS) { cerrarRes(); q('estado').textContent = ''; return; }
-      const todos = catalogo.filter(p => String(p.idProducto).includes(t) || norm(p.descripcion).includes(t));
-      resultados = todos.slice(0, MAX_RES); activo = 0;
-      q('estado').textContent = !todos.length ? 'Sin coincidencias. Probá con otra búsqueda.'
-        : `${todos.length} coincidencia${todos.length === 1 ? '' : 's'}${todos.length > resultados.length ? `, mostrando ${resultados.length}: afiná la búsqueda` : ''}.`;
-      pintarRes();
-    }
-    function pintarRes() {
-      const ul = q('res');
-      ul.classList.toggle('hidden', !resultados.length);
-      q('buscar').setAttribute('aria-expanded', String(resultados.length > 0));
-      ul.innerHTML = resultados.map((p, i) => {
+    // Listado completo del catálogo en un modal (<dialog>: foco atrapado, Esc y aria nativos).
+    function pintarModal() {
+      if (!catalogo) return;
+      const t = norm(q('filtro').value.trim());
+      const todos = t ? catalogo.filter(p => String(p.idProducto).includes(t) || norm(p.descripcion).includes(t)) : catalogo;
+      const vis = todos.slice(0, MAX_FILAS);
+      q('mtotal').textContent = !todos.length ? 'Sin coincidencias. Probá con otro filtro.'
+        : `${todos.length} producto${todos.length === 1 ? '' : 's'}${todos.length > vis.length ? `, mostrando ${vis.length}: afiná el filtro` : ''}.`;
+      q('mcuerpo').innerHTML = vis.map(p => {
         const ya = lista.has(p.idProducto), sin = !(Number(p.stockOrigen) > 0);
         const razon = ya ? 'Agregado' : sin ? 'Sin stock en origen' : '';
-        return `<li id="${k}-r${i}" role="option" class="res-it${i === activo ? ' act' : ''}" data-i="${i}" aria-selected="${i === activo}" aria-disabled="${!!razon}">
-          <span class="num">${esc(p.idProducto)}</span><span class="grow">${esc(p.descripcion)}</span>
-          <span class="st">Origen <b>${fmt(p.stockOrigen)}</b></span><span class="st">Destino <b>${fmt(p.stockDestino)}</b></span>
-          <span class="st">Ubicación <b>${P.ubicaciones.html(p.idProducto)}</b></span>
-          ${razon ? `<span class="btn btn-rem" aria-disabled="true" style="opacity:.55">${razon}</span>`
-            : '<button type="button" class="btn btn-rem" data-agregar tabindex="-1">Agregar</button>'}</li>`;
+        return `<tr><td class="num">${esc(p.idProducto)}</td><td>${esc(p.descripcion)}</td>
+          <td class="num">${fmt(p.stockOrigen)}</td><td class="num">${fmt(p.stockDestino)}</td><td>${P.ubicaciones.html(p.idProducto)}</td>
+          <td class="num"><button type="button" class="btn btn-rem" data-id="${esc(p.idProducto)}"${razon ? ' disabled' : ''}
+            aria-label="${razon ? razon + ': ' : 'Agregar '}${esc(p.descripcion)}">${razon || 'Agregar'}</button></td></tr>`;
       }).join('');
-      if (resultados.length) q('buscar').setAttribute('aria-activedescendant', `${k}-r${activo}`);
     }
-    function agregar(i) {
-      const p = resultados[i];
+    function abrirModal() {
+      if (!catalogo) return;
+      q('filtro').value = ''; pintarModal();
+      q('modal').showModal();
+    }
+    function cerrarModal() {
+      if (q('modal').open) q('modal').close();
+    }
+    function agregar(p) {
       if (!p || lista.has(p.idProducto) || !(Number(p.stockOrigen) > 0)) return;
-      lista.set(p.idProducto, '');
-      q('buscar').value = ''; cerrarRes();
+      lista.set(p.idProducto, ''); ultimo = p.idProducto;
       q('estado').textContent = `Agregado: ${p.descripcion}. ${lista.size} en el listado.`;
       error('');
-      renderLista(p.idProducto);
+      renderLista();
+      pintarModal();
+      q('filtro').focus(); // el modal sigue abierto para agregar más; el foco a la cantidad se da al cerrar
     }
 
     // Qué falta para poder confirmar (misma regla que armar(), sin mostrar errores): [] = completo.
@@ -140,6 +144,7 @@
     }
     function habilitar() {
       const f = faltantes();
+      q('ver').disabled = !catalogo;
       q('ok').disabled = enviando || f.length > 0;
       q('faltan').textContent = f.length ? 'Falta: ' + f.join(', ') : '';
     }
@@ -161,7 +166,7 @@
     async function cargarCatalogo() {
       const { origen, destino } = par();
       error('');
-      catalogo = null; habilitar(); cerrarRes(); q('estado').textContent = '';
+      catalogo = null; cerrarModal(); habilitar(); q('estado').textContent = '';
       const mio = ++pedido;
       if (!origen || !destino) { renderLista(); return; }
       if (origen === destino) { renderLista(); error('El origen y el destino no pueden ser el mismo depósito.'); return; }
@@ -173,7 +178,6 @@
         habilitar();
         renderLista();
         reevaluar();
-        buscar();
       } catch (e) {
         if (mio !== pedido) return;
         renderLista(); error(e.message);
@@ -258,29 +262,25 @@
         q('origen').innerHTML = opts; q('destino').innerHTML = opts;
         const [o, d] = preset.def(ctl, central);
         q('origen').value = String(o); q('destino').value = String(d);
-        q('desc').value = ''; q('buscar').value = ''; lista.clear(); renderLista();
+        q('desc').value = ''; lista.clear(); renderLista();
       }
       cargarCatalogo();
-      P.ubicaciones.cargar().then(() => { renderLista(); if (resultados.length) pintarRes(); });
+      P.ubicaciones.cargar().then(() => { renderLista(); if (q('modal').open) pintarModal(); });
     }
     const invalidar = () => { iniciado = false; catalogo = null; };
 
     q('origen').addEventListener('change', cargarCatalogo);
     q('destino').addEventListener('change', cargarCatalogo);
-    q('buscar').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, DEBOUNCE_MS); });
-    q('buscar').addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); buscar(); agregar(activo); return; }
-      if (e.key === 'Escape') { cerrarRes(); return; }
-      if (!resultados.length || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
-      e.preventDefault();
-      activo = (activo + (e.key === 'ArrowDown' ? 1 : resultados.length - 1)) % resultados.length;
-      pintarRes();
-      q('res').children[activo].scrollIntoView({ block: 'nearest' });
+    q('ver').addEventListener('click', abrirModal);
+    q('filtro').addEventListener('input', pintarModal);
+    q('mcuerpo').addEventListener('click', e => {
+      const b = e.target.closest('button[data-id]');
+      if (b) agregar(hallar(b.dataset.id));
     });
-    q('res').addEventListener('mousedown', e => e.preventDefault()); // no pierde foco el input
-    q('res').addEventListener('click', e => {
-      const li = e.target.closest('li[data-i]');
-      if (li) agregar(Number(li.dataset.i));
+    q('modal').addEventListener('click', e => { if (e.target === q('modal') || e.target.closest('[data-cerrar]')) cerrarModal(); });
+    q('modal').addEventListener('close', () => {
+      const i = ultimo != null && q('cuerpo').querySelector(`tr[data-id="${ultimo}"] [data-qty]`);
+      (i || q('ver')).focus(); ultimo = null;
     });
     q('cuerpo').addEventListener('input', e => {
       const tr = e.target.closest('tr[data-id]');
@@ -295,9 +295,9 @@
     q('cuerpo').addEventListener('click', e => {
       const tr = e.target.closest('tr[data-id]');
       if (!tr || !e.target.closest('[data-quitar]')) return;
-      lista.delete(tr.dataset.id); renderLista(); buscar();
+      lista.delete(tr.dataset.id); renderLista();
       q('estado').textContent = `Producto quitado. ${lista.size} en el listado.`;
-      q('buscar').focus();
+      q('ver').focus();
     });
     root.querySelector('form').addEventListener('submit', e => {
       e.preventDefault();
