@@ -265,14 +265,14 @@
     q('cuerpo').addEventListener('input', e => {
       const tr = e.target.closest('tr[data-id]');
       if (!tr || !e.target.matches('[data-qty]')) return;
-      const id = Number(tr.dataset.id), p = hallar(id);
+      const id = tr.dataset.id, p = hallar(id); // idProducto es texto (PLU de SIGA): no convertir a número
       lista.set(id, e.target.value);
       if (p && Number(e.target.value) > Number(p.stockOrigen)) e.target.setAttribute('aria-invalid', 'true'); else e.target.removeAttribute('aria-invalid');
     });
     q('cuerpo').addEventListener('click', e => {
       const tr = e.target.closest('tr[data-id]');
       if (!tr || !e.target.closest('[data-quitar]')) return;
-      lista.delete(Number(tr.dataset.id)); renderLista(); buscar();
+      lista.delete(tr.dataset.id); renderLista(); buscar();
       q('estado').textContent = `Producto quitado. ${lista.size} en el listado.`;
       q('buscar').focus();
     });
