@@ -8,133 +8,213 @@
 <script src="/css/apidelta-theme.js"></script>
 <link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid rgba(26,28,24,.16); }
-th { color: #5c5f52; font-weight: 600; font-size: 11.5px; text-transform: uppercase; white-space: nowrap; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-tbody tr:hover { background: #f5f8f1; }
-tr.cerrado td { color: #8a8c78; }
-td.propia, th.propia { background: rgba(64,89,54,.07); }
-.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; font-size: .72rem; font-weight: 600; white-space: nowrap; }
-.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.pill--rojo { background: #fde7e9; color: #a4262c; }
-.pill--amarillo { background: #fff4ce; color: #8a5d00; }
-.pill--verde { background: #dff6dd; color: #0e700e; }
-.pill--gris { background: #eeeee7; color: #5c5f52; }
-.error-box { background: #fde7e9; color: #a4262c; border: 1px solid #f6c6c2; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
-.msg-vacio { color: #5c5f52; padding: 18px; text-align: center; font-size: 14px; }
-.btn { padding: 5px 12px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(26,28,24,.16); background: transparent; color: #242423; cursor: pointer; }
-.btn:hover:not(:disabled) { background: #f5f8f1; }
-.btn-prim { background: #405936; color: #fff; border-color: #405936; }
-.btn-prim:hover:not(:disabled) { background: #4f6e42; }
-.btn-peligro { background: #a4262c; color: #fff; border-color: #a4262c; }
-.btn-peligro:hover:not(:disabled) { background: #8a1f24; }
-.btn:disabled { opacity: .55; cursor: not-allowed; }
-.btn-mini { padding: 2px 8px; font-size: 12px; }
-.btn:focus-visible, .campo:focus-visible, .navtab:focus-visible, .opcion:focus-visible { outline: 2px solid #405936; outline-offset: 1px; }
-.campo { border: 1px solid rgba(26,28,24,.16); border-radius: 8px; padding: 5px 9px; font-size: 13px; background: #fff; width: 100%; }
-.lbl { display: block; font-size: 12px; font-weight: 600; color: #5c5f52; margin-bottom: 3px; }
-.velo { position: fixed; inset: 0; background: rgba(26,28,24,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-.velo[hidden] { display: none; }
-.modal { background: #fff; border-radius: 12px; border: 1px solid rgba(26,28,24,.16); padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 8px 24px rgba(26,28,24,.25); }
-.opciones { max-height: 190px; overflow-y: auto; border: 1px solid rgba(26,28,24,.16); border-radius: 8px; margin-top: 6px; }
-.opcion { display: block; width: 100%; text-align: left; padding: 5px 10px; font-size: 13px; background: #fff; border: 0; border-bottom: 1px solid #eee; cursor: pointer; }
-.opcion:hover { background: #f5f8f1; }
-.opcion small { color: #5c5f52; margin-left: 6px; }
-.scroll-x { overflow-x: auto; }
-tr.alerta td:first-child { box-shadow: inset 3px 0 0 #8a5d00; }
-tr.alerta { background: #fffaf0; }
-.banda { background: #fff4ce; color: #5c3d00; border: 1px solid #f0d98a; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
-.banda[hidden] { display: none; }
-.chip { border: 1px solid #d9b94d; background: #fff; border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
-.chip:hover, .chip.on { background: #8a5d00; color: #fff; }
-.chip:focus-visible { outline: 2px solid #405936; outline-offset: 1px; }
+  :root { --v-tenue: #6b6f60; --v-linea: rgba(26,28,24,.10); --v-acento: #405936; }
+  .plu { font-family: ui-monospace, Consolas, monospace; font-size: .75rem; white-space: nowrap; color: var(--v-tenue); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--v-linea); vertical-align: middle; }
+  th { color: var(--v-tenue); font-weight: 500; font-size: 12px; white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: #f8faf5; }
+  tr.cerrado td { color: #9a9d8c; }
+  tr.cerrado .btn-sec { opacity: .5; }
+  .sub { display: block; font-size: 12px; color: var(--v-tenue); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot--rojo { background: #c4314b; }
+  .dot--amarillo { background: #d29200; }
+  .dot--verde { background: #3a8a3a; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill--rojo { color: #a4262c; }
+  .pill--amarillo { color: #8a5d00; }
+  .pill--verde { color: #0e700e; }
+  .pill--gris { color: var(--v-tenue); }
+  .aviso-asim { background: #fff4ce; color: #8a5d00; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+  .asim { color: #8a5d00; font-size: 12px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+  .error-box { background: #fde7e9; color: #a4262c; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  .exito-box { background: #eef6ec; color: #0e700e; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  .exito-box[hidden] { display: none; }
+  .msg-vacio { color: var(--v-tenue); padding: 28px; text-align: center; font-size: 14px; }
+  .btn { padding: 6px 14px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(26,28,24,.16); background: transparent; color: #242423; cursor: pointer; }
+  .btn:hover:not(:disabled) { background: #f5f8f1; }
+  .btn-prim { background: var(--v-acento); color: #fff; border-color: var(--v-acento); }
+  .btn-prim:hover:not(:disabled) { background: #4f6e42; }
+  .btn-peligro { background: #a4262c; color: #fff; border-color: #a4262c; }
+  .btn-peligro:hover:not(:disabled) { background: #8a1f24; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-mini { padding: 3px 9px; font-size: 12px; }
+  .btn-sec { border-color: transparent; color: var(--v-acento); font-weight: 500; }
+  .btn-sec:hover:not(:disabled) { border-color: var(--v-linea); }
+  .btn-tenue { border-color: transparent; color: var(--v-tenue); }
+  /* Chips de acción por fila: color = etapa (igual que el Historial). */
+  .acciones { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .acc { --c: #405936; --r: 64,89,54; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 96px; height: 29px; padding: 0 11px; border-radius: 6px; font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; color: var(--c); background: rgba(var(--r),.07); border: 1px solid rgba(var(--r),.45); }
+  .acc svg { width: 14px; height: 14px; flex: none; }
+  .acc-of { --c: #0f5ea8; --r: 15,94,168; }
+  .acc-venc { --c: #a4262c; --r: 164,38,44; }
+  .acc-vend { --c: #0e700e; --r: 14,112,14; }
+  .acc-mas { --c: #5b5f52; --r: 91,95,82; min-width: 0; width: 29px; padding: 0; font-size: 16px; font-weight: 700; }
+  .acc:hover:not(:disabled) { background: rgba(var(--r),.14); border-color: var(--c); }
+  .acc:active:not(:disabled) { background: rgba(var(--r),.22); }
+  .acc:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+  .acc:disabled { color: #9a9d8c; background: #f3f4f0; border: 1px dashed #c9ccbf; cursor: not-allowed; }
+  .btn:focus-visible, .campo:focus-visible, .navtab:focus-visible, .opcion:focus-visible, .mitem:focus-visible { outline: 2px solid var(--v-acento); outline-offset: 1px; }
+  .campo { border: 1px solid rgba(26,28,24,.16); border-radius: 8px; padding: 6px 10px; font-size: 13px; background: #fff; width: 100%; }
+  .lbl { display: block; font-size: 12px; font-weight: 500; color: var(--v-tenue); margin-bottom: 4px; }
+  .velo { position: fixed; inset: 0; background: rgba(26,28,24,.35); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .velo[hidden] { display: none; }
+  .modal { background: #fff; border-radius: 12px; padding: 22px; width: 100%; max-width: 420px; box-shadow: 0 8px 24px rgba(26,28,24,.2); }
+  .opciones { max-height: 190px; overflow-y: auto; border: 1px solid var(--v-linea); border-radius: 8px; margin-top: 6px; }
+  .opcion { display: block; width: 100%; text-align: left; padding: 6px 10px; font-size: 13px; background: #fff; border: 0; border-bottom: 1px solid var(--v-linea); cursor: pointer; }
+  .opcion:hover { background: #f5f8f1; }
+  .opcion small { color: var(--v-tenue); margin-left: 6px; }
+  .scroll-x { overflow-x: auto; }
+  tr.alerta td:first-child { box-shadow: inset 2px 0 0 #d29200; }
+  .banda { font-size: 13px; color: var(--v-tenue); margin-bottom: 10px; }
+  .banda[hidden] { display: none; }
+  .chip { background: none; border: 0; padding: 0 2px; font-size: 12px; color: var(--v-acento); text-decoration: underline; cursor: pointer; }
+  .chip:hover, .chip.on { font-weight: 600; }
+  .lnk { background: none; border: 0; padding: 0; font-size: 12px; color: var(--v-acento); text-decoration: underline; cursor: pointer; }
+  .lnk:hover { color: #2e4126; }
+  .lnk:focus-visible, .chip:focus-visible { outline: 2px solid var(--v-acento); outline-offset: 2px; border-radius: 2px; }
+  .menu { position: fixed; z-index: 40; min-width: 160px; background: #fff; border: 1px solid var(--v-linea); border-radius: 8px; padding: 4px; box-shadow: 0 4px 14px rgba(26,28,24,.14); }
+  .menu[hidden] { display: none; }
+  .mitem { display: block; width: 100%; text-align: left; padding: 6px 10px; font-size: 13px; background: none; border: 0; border-radius: 6px; cursor: pointer; color: #242423; }
+  .mitem:hover { background: #f5f8f1; }
+  .mitem--peligro { color: #a4262c; }
+  .mitem--off { color: #6b6b66; cursor: not-allowed; }
+  .mitem--off:hover { background: none; }
+  .cel-off { color: #8c8c86; }
+  .cel-on { font-size: 15px; font-weight: 700; color: var(--v-acento); }
+  .cel-off s { text-decoration-line: line-through; text-decoration-thickness: 2px; text-decoration-color: #a4262c; }
+  .cel-of { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 2px; min-height: 40px; }
+  .cel-off .cel-on { color: #8c8c86; }
+  td.etapa { font-weight: 600; color: #242423; }
+  .etapa-num { display: inline-block; padding: 2px 10px; border-radius: 6px; background: #e4eedc; border: 1px solid #b7cfa3; color: #242423; font-weight: 700; text-align: center; }
+  tr.cerrado .etapa-num { opacity: .55; }
+  .est-dim { opacity: .55; }
+  .est { font-size: 12px; font-weight: 600; }
+  .est-ok { color: #0e700e; }
+  .est-corr { color: #a4262c; }
+  .est-pend { color: #5b5f52; }
+  .cmp-dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; margin: 0 0 8px; }
+  .cmp-dl dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cmp-ul { margin: 0; padding: 8px 0 0; list-style: none; border-top: 1px solid var(--v-linea); font-size: 12px; }
+  .pill--rojo, .pill--amarillo, .pill--verde { font-weight: 600; }
+  .hist-cab, .hist-reg > summary { display: grid; grid-template-columns: 16px 90px minmax(0,1fr) 120px 110px 28px; gap: 0 12px; align-items: center; padding: 10px 12px; font-size: 13px; }
+  .hist-cab { color: var(--v-tenue); font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--v-linea); }
+  .hist-reg { border-bottom: 1px solid var(--v-linea); }
+  .hist-reg > summary { cursor: pointer; list-style: none; }
+  .hist-reg > summary::-webkit-details-marker { display: none; }
+  .hist-reg > summary:hover { background: #f8faf5; }
+  .hist-reg > summary:focus-visible { outline: 2px solid var(--v-acento); outline-offset: -2px; }
+  .hist-chev { width: 7px; height: 7px; border-right: 1.5px solid var(--v-tenue); border-bottom: 1.5px solid var(--v-tenue); transform: rotate(-45deg); transition: transform .12s; margin-left: 3px; }
+  .hist-reg[open] .hist-chev { transform: rotate(45deg); }
+  .hist-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist-etapa { font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .hist-etapa::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 6px; }
+  .hist-del { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--v-tenue); cursor: pointer; }
+  .hist-del:hover { color: #a4262c; background: #fbeaea; }
+  .hist-del:focus-visible { outline: 2px solid var(--v-acento); outline-offset: 1px; color: #a4262c; }
+  .hist-lin { margin: 0; padding: 2px 12px 12px 130px; list-style: none; }
+  .hist-ev { display: grid; grid-template-columns: 120px minmax(0,1fr) 90px 140px; gap: 0 12px; padding: 5px 0 5px 10px; font-size: 12.5px; border-left: 2px solid var(--v-linea); color: #3b3d35; }
+  .hist-ev.et { border-left-color: currentColor; font-weight: 600; }
+  .hist-ev span:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+  .et-oferta { color: #0f5ea8; } .et-vencido { color: #a4262c; } .et-vendido { color: #0e700e; } .et-cargado { color: var(--v-tenue); } .et-corregir { color: #8a5d00; }
 </style>
 </head>
 <body class="font-body text-ink">
 
-<header class="acrylic sticky top-0 z-20 shadow-fluent">
+<header class="acrylic sticky top-0 z-20">
   <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3">
-    <h1 class="font-disp text-2xl font-bold">CONTROL DE VENCIMIENTOS</h1>
-    <span class="text-sm">Lotes por sucursal</span>
+    <h1 class="font-disp text-2xl font-bold">VENCIMIENTOS</h1>
     <div class="ml-auto flex items-center gap-2">
-      <button id="btnAlta" type="button" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm">Cargar vencimiento</button>
+      <button id="btnUmbrales" type="button" class="btn btn-mini btn-tenue">Configuración</button>
       <a href="/sucursales" class="text-sm">← Sucursales</a>
       <button id="btnLogout" type="button" class="px-3 py-1.5 rounded-lg text-sm" title="Cerrar sesión">Salir</button>
     </div>
   </div>
   <div class="max-w-[1500px] mx-auto px-4 flex" role="tablist" aria-label="Secciones">
-    <button class="navtab on" id="tabListado" role="tab" aria-selected="true" aria-controls="panelListado" data-tab="listado" type="button">Listado</button>
-    <button class="navtab" id="tabMia" role="tab" aria-selected="false" aria-controls="panelMia" data-tab="mia" type="button">Mi sucursal</button>
+    <button class="navtab on" id="tabMia" role="tab" aria-selected="true" aria-controls="panelMia" data-tab="mia" type="button">Mi sucursal</button>
+    <button class="navtab" id="tabCarga" role="tab" aria-selected="false" aria-controls="panelCarga" data-tab="carga" type="button">Cargar vencimiento</button>
+    <button class="navtab" id="tabOtras" role="tab" aria-selected="false" aria-controls="panelOtras" data-tab="otras" type="button">Otras sucursales</button>
+    <button class="navtab" id="tabSL" role="tab" aria-selected="false" aria-controls="panelSL" data-tab="sl" type="button">Sin lote</button>
+    <button class="navtab" id="tabHist"role="tab" aria-selected="false" aria-controls="panelHist" data-tab="hist" type="button">Historial</button>
   </div>
 </header>
 
 <main class="max-w-[1500px] mx-auto px-4 py-5">
+  <div id="avisoGlobal" class="exito-box mb-3" role="status" hidden></div>
+  <div id="listadoMsg"></div>
 
-  <!-- Tab Listado -->
-  <section id="panelListado" role="tabpanel" aria-labelledby="tabListado" class="tab-panel">
-    <div class="bg-card rounded-xl border border-borde p-3 mb-3 flex flex-wrap items-end gap-3">
-      <div class="w-64"><label class="lbl" for="fTexto">Producto</label><input id="fTexto" class="campo" type="search" placeholder="Nombre o código"></div>
-      <div class="w-44"><label class="lbl" for="fSemaforo">Semáforo</label>
-        <select id="fSemaforo" class="campo"><option value="">Todos</option><option value="rojo">Rojo</option><option value="amarillo">Amarillo</option><option value="verde">Verde</option></select></div>
-      <label class="text-sm flex items-center gap-2 pb-1.5"><input id="fCerrados" type="checkbox"> Mostrar cerrados</label>
-      <div class="ml-auto flex items-center gap-3 pb-1">
-        <span id="umbralesTxt" class="text-xs text-gris"></span>
-        <button id="btnUmbrales" type="button" class="btn btn-mini" hidden>Editar umbrales</button>
+  <!-- Tab Carga -->
+  <section id="panelCarga" role="tabpanel" aria-labelledby="tabCarga" class="tab-panel" hidden>
+    <div id="cargaAviso" class="max-w-[560px] mx-auto"></div>
+    <form id="formAlta" class="bg-card rounded-xl border border-borde p-6 max-w-[560px] mx-auto mt-6" novalidate hidden>
+      <h2 class="font-bold text-lg mb-4">Cargar vencimiento</h2>
+      <div class="mb-3">
+        <span class="lbl">Sucursal</span>
+        <div id="altaSucTxt" class="text-sm font-semibold text-verde"></div>
+        <div id="altaSucWrap" hidden><label class="lbl" for="altaSuc">Sucursal</label><select id="altaSuc" class="campo"></select></div>
       </div>
-    </div>
-    <div class="flex items-center gap-3 mb-2">
-      <div id="cruceAviso" class="text-xs text-gris" role="status"></div>
-      <button id="btnHuerfanos" type="button" class="btn btn-mini ml-auto" hidden>Movimientos sin lote</button>
-    </div>
-    <div id="avisosBanda" class="banda" role="region" aria-label="Avisos de falta de movimiento" hidden></div>
-    <div id="listadoMsg"></div>
-    <div class="bg-card rounded-xl border border-borde shadow-fluent scroll-x"><table id="tablaListado"></table></div>
+      <div class="mb-3">
+        <label class="lbl" for="altaBuscar">Producto</label>
+        <input id="altaBuscar" class="campo" type="search" autocomplete="off" placeholder="Escribí al menos 2 letras o el código">
+        <div id="altaOpciones" class="opciones" hidden></div>
+        <div id="altaElegido" class="text-sm mt-2 text-verde font-semibold" aria-live="polite"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div><label class="lbl" for="altaFecha">Vencimiento</label><input id="altaFecha" class="campo" type="date"></div>
+        <div><label class="lbl" for="altaUnid">Unidades</label><input id="altaUnid" class="campo" type="number" min="1" step="1"></div>
+      </div>
+      <div id="altaError" class="error-box mb-3" role="alert" hidden></div>
+      <div id="altaExito" class="exito-box mb-3" role="status" hidden></div>
+      <div class="flex justify-end"><button type="submit" id="altaOk" class="btn btn-prim">Guardar</button></div>
+    </form>
   </section>
 
   <!-- Tab Mi sucursal -->
-  <section id="panelMia" role="tabpanel" aria-labelledby="tabMia" class="tab-panel" hidden>
+  <section id="panelMia" role="tabpanel" aria-labelledby="tabMia" class="tab-panel">
     <div id="miaAviso"></div>
     <div id="miaContenido">
-      <div class="bg-card rounded-xl border border-borde p-3 mb-3 flex flex-wrap items-end gap-3">
+      <div class="mb-2 flex flex-wrap items-end gap-3">
         <div id="miaSelWrap" class="w-60" hidden><label class="lbl" for="miaSucursal">Sucursal</label><select id="miaSucursal" class="campo"></select></div>
-        <h2 id="miaTitulo" class="font-bold text-verde pb-1"></h2>
+        <h2 id="miaTitulo" class="font-bold text-lg pb-1"></h2>
+        <span id="umbralesTxt" class="text-xs text-gris ml-auto pb-1" title="Semáforo de vencimiento"></span>
       </div>
-      <p class="text-xs text-gris mb-2">Anotar oferta o vendido a mano es solo respaldo: si SIGA tiene el movimiento, manda SIGA.</p>
-      <div id="miaMsg"></div>
-      <div class="bg-card rounded-xl border border-borde shadow-fluent scroll-x"><table id="tablaMia"></table></div>
-
-      <h2 class="font-bold text-verde mt-6 mb-2">Historial de movimientos</h2>
-      <div id="histMsg"></div>
-      <div class="bg-card rounded-xl border border-borde scroll-x"><table id="tablaHist"></table></div>
+      <div id="ventasAviso" class="text-xs text-gris mb-1" role="status"></div>
+      <div id="avisosBanda" class="banda" role="region" aria-label="Avisos de falta de movimiento" hidden></div>
+            <div id="miaMsg"></div>
+      <div class="scroll-x"><table id="tablaMia"></table></div>
     </div>
+  </section>
+
+  <!-- Tab Sin lote -->
+  <section id="panelSL" role="tabpanel" aria-labelledby="tabSL" class="tab-panel" hidden>
+    <h2 class="font-bold text-lg">Sin lote</h2>
+    <p id="slSub" class="text-xs text-gris mb-2">Movimientos de tu sucursal que todavía no están en ningún registro.</p>
+    <div class="mb-2 w-64"><label class="lbl" for="fSLTexto">Producto</label><input id="fSLTexto" class="campo" type="search" placeholder="PLU o nombre"></div>
+    <div id="slMsg"></div>
+    <div class="scroll-x"><table id="tablaSL"></table></div>
+  </section>
+
+  <!-- Tab Historial -->
+  <section id="panelHist" role="tabpanel" aria-labelledby="tabHist" class="tab-panel" hidden>
+    <h2 class="font-bold text-lg mb-2">Historial · <span id="histTitulo"></span></h2>
+    <div id="histMsg"></div>
+    <div id="tablaHist"></div>
+  </section>
+
+  <!-- Tab Otras sucursales -->
+  <section id="panelOtras" role="tabpanel" aria-labelledby="tabOtras" class="tab-panel" hidden>
+    <div class="mb-2 flex flex-wrap items-end gap-3">
+      <div class="w-64"><label class="lbl" for="fOtrasTexto">Producto</label><input id="fOtrasTexto" class="campo" type="search" placeholder="Nombre, código o PLU"></div>
+    </div>
+    <div id="otrasMsg"></div>
+    <div class="scroll-x"><table id="tablaOtras"></table></div>
   </section>
 </main>
 
-<!-- Modal: cargar vencimiento -->
-<div id="mAlta" class="velo" hidden>
-  <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mAltaT" novalidate>
-    <h2 id="mAltaT" class="font-bold text-lg mb-3">Cargar vencimiento</h2>
-    <div id="altaSucWrap" class="mb-3" hidden><label class="lbl" for="altaSuc">Sucursal</label><select id="altaSuc" class="campo"></select></div>
-    <div class="mb-3">
-      <label class="lbl" for="altaBuscar">Producto</label>
-      <input id="altaBuscar" class="campo" type="search" autocomplete="off" placeholder="Escribí al menos 2 letras o el código">
-      <div id="altaOpciones" class="opciones" hidden></div>
-      <div id="altaElegido" class="text-sm mt-2 text-verde font-semibold" aria-live="polite"></div>
-    </div>
-    <div class="grid grid-cols-2 gap-3 mb-3">
-      <div><label class="lbl" for="altaFecha">Vencimiento</label><input id="altaFecha" class="campo" type="date"></div>
-      <div><label class="lbl" for="altaUnid">Unidades</label><input id="altaUnid" class="campo" type="number" min="1" step="1"></div>
-    </div>
-    <div id="altaError" class="error-box mb-3" role="alert" hidden></div>
-    <div class="flex justify-end gap-2">
-      <button type="button" class="btn" data-cerrar>Cancelar</button>
-      <button type="submit" id="altaOk" class="btn btn-prim">Guardar</button>
-    </div>
-  </form>
-</div>
-
-<!-- Modal: acción sobre un lote (corregir / oferta / vendido) -->
+<!-- Modal: cantidad de un lote (corregir / vendido / vencido) -->
 <div id="mAcc" class="velo" hidden>
   <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mAccT" novalidate>
     <h2 id="mAccT" class="font-bold text-lg mb-1"></h2>
@@ -149,22 +229,83 @@ tr.alerta { background: #fffaf0; }
   </form>
 </div>
 
-<!-- Modal: umbrales (admin) -->
+<!-- Modal: pasar a oferta (movimientos PARA OFERTA de SIGA) -->
+<div id="mOf" class="velo" hidden>
+  <div class="modal fade-in" style="max-width:680px" role="dialog" aria-modal="true" aria-labelledby="mOfT" aria-describedby="mOfSub">
+    <h2 id="mOfT" class="font-bold text-lg">Pasar a oferta</h2>
+    <p id="mOfSub" class="text-sm text-gris mb-1"></p>
+    <p id="ofInfo" class="text-sm mb-1" hidden></p>
+    <p id="ofResumen" class="text-sm mb-3" aria-live="polite"></p>
+    <div id="ofAsim" class="aviso-asim mb-2" aria-live="polite" hidden></div>
+    <div id="ofCuerpo" class="scroll-x" style="max-height:340px;overflow-y:auto" aria-live="polite"></div>
+    <div id="ofError" class="error-box mt-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2 mt-3"><button type="button" id="ofCerrar" class="btn" data-cerrar>Cancelar</button><button type="button" id="ofOk" class="btn btn-prim" disabled>OK</button></div>
+  </div>
+</div>
+
+<!-- Modal: cambiar / quitar asignación de oferta -->
+<div id="mQuit" class="velo" hidden>
+  <form class="modal fade-in" role="alertdialog" aria-modal="true" aria-labelledby="mQuitT" aria-describedby="mQuitTxt" novalidate>
+    <h2 id="mQuitT" class="font-bold text-lg mb-2"></h2>
+    <p id="mQuitTxt" class="text-sm mb-3"></p>
+    <div id="quitError" class="error-box mb-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="quitCancel" class="btn" data-cerrar>Cancelar</button>
+      <button type="submit" id="quitOk" class="btn btn-prim">Quitar</button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal: comparar cantidades de los movimientos con las cargadas -->
+<div id="mCmp" class="velo" hidden>
+  <div class="modal fade-in" role="alertdialog" aria-modal="true" aria-labelledby="mCmpT" aria-describedby="cmpSub">
+    <h2 id="mCmpT" class="font-bold text-lg">Cantidades distintas</h2>
+    <p id="cmpSub" class="text-sm text-gris mb-3"></p>
+    <div id="cmpCuerpo" class="text-sm"></div>
+    <p id="cmpAsim" class="aviso-asim mt-3" hidden>Incluye movimientos asimétricos: se tomó solo lo negativo.</p>
+    <p class="text-sm font-medium mt-3">¿Las cantidades de los movimientos son correctas?</p>
+    <div id="cmpError" class="error-box mt-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2 mt-3">
+      <button type="button" class="btn" data-cerrar>Volver</button>
+      <button type="button" id="cmpCorr" class="btn btn-peligro">Corregir</button>
+      <button type="button" id="cmpOk" class="btn btn-prim">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: configuración (Mi sucursal para todos; el resto solo admin) -->
 <div id="mUmb" class="velo" hidden>
   <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mUmbT" novalidate>
-    <h2 id="mUmbT" class="font-bold text-lg mb-1">Configuración</h2>
-    <p class="text-sm text-gris mb-3">Rojo: hasta N días o vencido. Amarillo: hasta M días. Verde: más allá.</p>
-    <div class="grid grid-cols-2 gap-3 mb-3">
-      <div><label class="lbl" for="umbRojo">Rojo (días)</label><input id="umbRojo" class="campo" type="number" min="0" step="1"></div>
-      <div><label class="lbl" for="umbAmarillo">Amarillo (días)</label><input id="umbAmarillo" class="campo" type="number" min="0" step="1"></div>
+    <h2 id="mUmbT" class="font-bold text-lg mb-3">Configuración</h2>
+    <h3 class="text-sm font-semibold mb-1">Mi sucursal</h3>
+    <div class="mb-3">
+      <label class="lbl" for="cfgMiSucursal">Sucursal asignada (Id)</label>
+      <input id="cfgMiSucursal" class="campo" type="number" min="1" step="1" inputmode="numeric">
+      <div id="cfgMiSucNombre" class="text-xs text-gris mt-1"></div>
     </div>
-    <h3 class="text-sm font-bold text-verde mb-1">Cruce con SIGA</h3>
+    <div id="umbAdmin" hidden>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label class="lbl" for="umbRojo" title="Rojo: hasta N días o vencido">Rojo (días)</label><input id="umbRojo" class="campo" type="number" min="0" step="1"></div>
+      <div><label class="lbl" for="umbAmarillo" title="Amarillo: hasta M días; más allá, verde">Amarillo (días)</label><input id="umbAmarillo" class="campo" type="number" min="0" step="1"></div>
+    </div>
+    <h3 class="text-sm font-semibold mb-1">Movimientos PARA OFERTA</h3>
+    <div class="mb-3">
+      <label class="lbl" for="cfgDiasMaxOferta">Días hacia atrás</label>
+      <input id="cfgDiasMaxOferta" class="campo" type="number" min="1" max="365" step="1" inputmode="numeric">
+    </div>
+    <h3 class="text-sm font-semibold mb-1">Movimientos de vencidos</h3>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label class="lbl" for="cfgOfertaVencida">Tipo de movimiento de vencidos</label><input id="cfgOfertaVencida" class="campo" type="text" maxlength="50" placeholder="OFERTA VENCIDO"></div>
+      <div><label class="lbl" for="cfgDiasMaxVencido">Días máximos hacia atrás para movimientos de vencidos</label><input id="cfgDiasMaxVencido" class="campo" type="number" min="1" max="365" step="1" inputmode="numeric"></div>
+    </div>
+    <h3 class="text-sm font-semibold mb-1">Cruce con SIGA</h3>
     <div class="grid grid-cols-2 gap-3 mb-3">
       <div><label class="lbl" for="cfgOferta">Tipo "para oferta"</label><input id="cfgOferta" class="campo" type="text" maxlength="50"></div>
       <div><label class="lbl" for="cfgNoVendido">Tipo "vencido / no vendido"</label><input id="cfgNoVendido" class="campo" type="text" maxlength="50"></div>
       <div><label class="lbl" for="cfgDeposito">Depósito de movimientos</label><input id="cfgDeposito" class="campo" type="number" min="1" step="1"></div>
       <div><label class="lbl" for="cfgDiasAviso">Días de aviso</label><input id="cfgDiasAviso" class="campo" type="number" min="0" step="1"></div>
       <div><label class="lbl" for="cfgMargen">Margen (días)</label><input id="cfgMargen" class="campo" type="number" min="0" step="1"></div>
+    </div>
     </div>
     <div id="umbError" class="error-box mb-3" role="alert" hidden></div>
     <div class="flex justify-end gap-2">
@@ -174,14 +315,25 @@ tr.alerta { background: #fffaf0; }
   </form>
 </div>
 
-<!-- Modal: movimientos de SIGA sin lote -->
-<div id="mHuer" class="velo" hidden>
-  <div class="modal fade-in" style="max-width:640px" role="dialog" aria-modal="true" aria-labelledby="mHuerT">
-    <h2 id="mHuerT" class="font-bold text-lg mb-1">Movimientos sin lote</h2>
-    <p class="text-sm text-gris mb-3">Movimientos de SIGA a oferta o vencido que no corresponden a ningún lote cargado. Revisalos y cargá el lote si falta.</p>
-    <div class="scroll-x" style="max-height:340px;overflow-y:auto"><table><thead><tr><th>Sucursal</th><th>Producto</th><th class="num">Oferta</th><th class="num">Vencido</th></tr></thead><tbody id="huerCuerpo"></tbody></table></div>
-    <div class="flex justify-end mt-3"><button type="button" id="huerCerrar" class="btn" data-cerrar>Cerrar</button></div>
-  </div>
+<!-- Modal: dar de alta un movimiento sin lote -->
+<div id="mAltaSL" class="velo" hidden>
+  <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mAltaSLT" aria-describedby="altaSLSub" novalidate>
+    <h2 id="mAltaSLT" class="font-bold text-lg mb-1">Dar de alta</h2>
+    <p id="altaSLSub" class="text-sm text-gris mb-3"></p>
+    <div id="altaSLAsim" class="text-sm mb-2" hidden></div>
+    <div id="altaSLCampos">
+      <label class="lbl" for="altaSLFecha">Fecha de vencimiento</label>
+      <input id="altaSLFecha" class="campo mb-2" type="date" required>
+      <label class="lbl" for="altaSLUnid">Cantidades puestas en oferta</label>
+      <input id="altaSLUnid" class="campo mb-2" type="number" min="1" step="1" inputmode="numeric" required>
+    </div>
+    <p id="altaSLTxt" class="text-sm text-gris mb-3"></p>
+    <div id="altaSLError" class="error-box mb-3" role="alert" hidden></div>
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn" data-cerrar>Cancelar</button>
+      <button type="submit" id="altaSLOk" class="btn btn-prim">Dar de alta</button>
+    </div>
+  </form>
 </div>
 
 <!-- Modal: confirmar borrado (admin) -->
@@ -196,6 +348,8 @@ tr.alerta { background: #fffaf0; }
     </div>
   </form>
 </div>
+
+<div id="menuFila" class="menu" role="menu" hidden></div>
 
 <script src="/js/vencimientos.js"></script>
 </body>

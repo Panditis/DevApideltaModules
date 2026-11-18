@@ -1,9 +1,10 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const { semaforo, diasParaVencer, pendiente, estadoSucursal, hoyLocal } = require('../lib/vencimientos');
+const { semaforo, diasParaVencer, pendiente, estadoSucursal, ofertaEstado, vencidoEstado, baseVencido, vistaLote, validarFecha, hoyLocal } = require('../lib/vencimientos');
 const { esSucursalReal } = require('../lib/sucursales_no_reales');
-const { cruzarLote, consultarMovimientos } = require('../lib/vencimientos_siga');
+const { cruzarLote, consultarMovimientos, consultarMovimientosClase, marcarAsignados } = require('../lib/vencimientos_siga');
+const { consultarVentas, calcularVentas } = require('../lib/vencimientos_ventas');
 
 // ── Rutas del Control de vencimientos (Sucursales), Etapa 1 ───────────────────
 // Listado compartido de lotes; cada usuario escribe solo en la columna de su sucursal
@@ -12,6 +13,8 @@ const { cruzarLote, consultarMovimientos } = require('../lib/vencimientos_siga')
 const SIN_SUCURSAL = 'Tu usuario no tiene sucursal asignada. Pedile al administrador que la configure.';
 const ID_LOTE_RE = /^[0-9a-f-]{36}$/i;
 const TOPE_PRODUCTOS = 30;
+// Rubros que entran al buscador (mismos nombres que lib/a8020.js y rutas_carteles_pesables.js).
+const RUBROS_BUSCADOR = ['Almacen', 'Pesables Fraccionado'];
 
 function httpError(status, mensaje) {
   return Object.assign(new Error(mensaje), { status });
@@ -25,7 +28,7 @@ function enteroPositivo(valor, campo) {
 }
 
 module.exports = function crearRutasVencimientos(deps) {
-  const { store, idSucursalDe, getPool } = deps;
+  const { store, idSucursalDe, actualizarUsuario, getPool } = deps;
   const router = express.Router();
 
   // Igual que apiRoute pero respeta err.status; los 500 se loguean y no filtran detalles.
@@ -74,7 +77,7 @@ module.exports = function crearRutasVencimientos(deps) {
       for (const [suc, col] of Object.entries(l.sucursales)) {
         if (!esSucursalReal(suc)) continue;
         columnas.add(Number(suc));
-        sucursales[suc] = { unidades: col.unidades, oferta: col.oferta, vendido: col.vendido, pendiente: pendiente(col), estado: estadoSucursal(col) };
+        sucursales[suc] = { unidades: col.unidades, oferta: col.oferta, vendido: col.vendido, vencido: col.vencido || 0, pendiente: pendiente(col), estado: estadoSucursal(col), ofertasSistema: col.ofertasSistema || [], ofertaEstado: ofertaEstado(col), vencidosSistema: col.vencidosSistema || [], vencidoEstado: vencidoEstado(col), vencidoBase: baseVencido(col), origenSistema: !!col.origenSistema };
       }
       const totalUnidades = Object.values(sucursales).reduce((t, c) => t + c.unidades, 0);
       return { id: l.id, idProducto: l.idProducto, nombre: l.nombre || null, codigo: l.codigo || null, vencimiento: l.vencimiento,
@@ -109,10 +112,162 @@ module.exports = function crearRutasVencimientos(deps) {
     return store.registrarMovimiento({ idLote: id, idSucursal, tipo: b.tipo, cantidad: enteroPositivo(b.cantidad, 'cantidad'), usuario: ctx.user.usuario });
   }));
 
+  // Movimientos de SIGA (solo lectura) de un producto en la sucursal efectiva, por clase:
+  // 'oferta' = PARA OFERTA, 'vencido' = OFERTA VENCIDO. Si SIGA falla: 502 (la UI distingue "no hay" de "falló").
+  const CLASES = { oferta: { dias: 'diasMaxOferta', nombre: 'PARA OFERTA' }, vencido: { dias: 'diasMaxVencido', nombre: 'OFERTA VENCIDO' } };
+  const leerMovimientosSiga = async (clase, idProducto, idSucursal) => {
+    const config = await store.leerConfig();
+    try {
+      return { config, movimientos: await consultarMovimientosClase(getPool, { clase, idProducto, idSucursal, config, hoy: hoyLocal() }) };
+    } catch (err) {
+      console.error(`[vencimientos] movimientos ${clase} SIGA falló`, { idProducto, idSucursal }, err);
+      throw httpError(502, 'No se pudieron leer los movimientos de SIGA');
+    }
+  };
+
+  // Sucursal para lectura: la propia; admin puede pedir otra. 400 si no hay o es ficticia.
+  const sucursalLectura = (ctx, pedida) => {
+    const hayPedida = ctx.esAdmin && pedida !== undefined && pedida !== null && pedida !== '';
+    const idSucursal = hayPedida ? enteroPositivo(pedida, 'idSucursal') : ctx.idSucursal;
+    if (!idSucursal) throw httpError(400, ctx.esAdmin ? 'Indicá idSucursal.' : SIN_SUCURSAL);
+    if (!esSucursalReal(idSucursal)) throw httpError(400, `La sucursal ${idSucursal} no es una sucursal real.`);
+    return idSucursal;
+  };
+
+  for (const [clase, { dias, nombre }] of Object.entries(CLASES)) {
+    router.get(`/api/vencimientos/movimientos-${clase}`, api(async req => {
+      const ctx = contexto(req);
+      const idSucursal = sucursalLectura(ctx, req.query.idSucursal);
+      const idProducto = enteroPositivo(req.query.idProducto, 'idProducto');
+      const [{ config, movimientos }, lotes] = await Promise.all([leerMovimientosSiga(clase, idProducto, idSucursal), store.listarLotes()]);
+      return { idSucursal, diasMax: config[dias], movimientos: marcarAsignados(movimientos, lotes, idProducto, idSucursal, clase) };
+    }));
+
+    router.post(`/api/vencimientos/lotes/:id/${clase}`, api(async req => {
+      const ctx = contexto(req);
+      const b = req.body || {};
+      const id = idLote(req);
+      const idSucursal = sucursalObjetivo(ctx, b.idSucursal, true);
+      // Body viejo { numeroMovimiento } = lote de uno.
+      const crudos = b.numerosMovimiento !== undefined ? b.numerosMovimiento : (b.numeroMovimiento !== undefined ? [b.numeroMovimiento] : []);
+      if (!Array.isArray(crudos) || !crudos.length) throw httpError(400, 'Indicá al menos un movimiento en numerosMovimiento.');
+      const numeros = crudos.map(n => enteroPositivo(n, 'numerosMovimiento'));
+      if (new Set(numeros).size !== numeros.length) throw httpError(400, 'numerosMovimiento tiene valores repetidos.');
+      const lote = (await store.listarLotes()).find(l => l.id === id);
+      if (!lote) throw httpError(404, 'Lote inexistente');
+      if (!lote.sucursales[idSucursal]) throw httpError(404, `La sucursal ${idSucursal} no tiene unidades en este lote`);
+      const { movimientos } = await leerMovimientosSiga(clase, lote.idProducto, idSucursal);
+      const elegidos = numeros.map(n => {
+        const m = movimientos.find(x => x.numeroMovimiento === n);
+        if (!m) throw httpError(400, `El movimiento ${n} no es un ${nombre} de este producto en la sucursal dentro de la ventana.`);
+        return m;
+      });
+      // El store vuelve a chequear asignaciones dentro de la cola (409 si alguno es de otro registro; nada se guarda).
+      return vistaLote(await store.asignarSistema(clase, { idLote: id, idSucursal, movimientos: elegidos, confirmacion: b.confirmacion, usuario: ctx.user.usuario }));
+    }));
+
+    router.put(`/api/vencimientos/lotes/:id/${clase}/confirmacion`, api(async req => {
+      const ctx = contexto(req);
+      const b = req.body || {};
+      const id = idLote(req);
+      const idSucursal = sucursalObjetivo(ctx, b.idSucursal, true);
+      return vistaLote(await store.confirmarSistema(clase, { idLote: id, idSucursal, confirmacion: b.confirmacion, usuario: ctx.user.usuario }));
+    }));
+
+    router.delete(`/api/vencimientos/lotes/:id/${clase}`, api(async req => {
+      const ctx = contexto(req);
+      const id = idLote(req);
+      const idSucursal = sucursalObjetivo(ctx, req.query.idSucursal, true);
+      const q = req.query.numeroMovimiento;
+      const numeroMovimiento = q === undefined || q === '' ? undefined : enteroPositivo(q, 'numeroMovimiento');
+      return vistaLote(await store.quitarSistema(clase, { idLote: id, idSucursal, numeroMovimiento, usuario: ctx.user.usuario }));
+    }));
+  }
+
+  // Movimientos de SIGA (oferta y vencido) de la sucursal que no están asignados a ningún registro,
+  // sin los productos que ya tienen un registro activo (esos van por el flujo normal). Solo lectura.
+  router.get('/api/vencimientos/sin-lote', api(async req => {
+    const ctx = contexto(req);
+    const idSucursal = sucursalLectura(ctx, req.query.idSucursal);
+    const [config, lotes] = await Promise.all([store.leerConfig(), store.listarLotes()]);
+    const hoy = hoyLocal();
+    let porClase;
+    try {
+      porClase = await Promise.all(Object.keys(CLASES).map(async clase =>
+        (await consultarMovimientosClase(getPool, { clase, idSucursal, config, hoy, rubros: RUBROS_BUSCADOR })).map(m => ({ clase, ...m }))));
+    } catch (err) {
+      console.error('[vencimientos] sin-lote SIGA falló', { idSucursal }, err);
+      throw httpError(502, 'No se pudieron leer los movimientos de SIGA');
+    }
+    const suc = String(idSucursal);
+    const activos = new Set(lotes.filter(l => { const col = l.sucursales[suc]; return col && !(col.vencidosSistema || []).length && pendiente(col) > 0; }).map(l => Number(l.idProducto)));
+    const movimientos = porClase.flat()
+      .filter(m => !activos.has(m.idProducto) && !marcarAsignados([m], lotes, m.idProducto, idSucursal, m.clase)[0].asignadoA)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.numeroMovimiento - a.numeroMovimiento);
+    return { idSucursal, diasMaxOferta: config.diasMaxOferta, diasMaxVencido: config.diasMaxVencido, movimientos };
+  }));
+
+  // Da de alta un registro desde un movimiento sin lote y lo deja asignado.
+  // oferta: unidades y vencimiento del usuario (si no suman, queda a confirmar). vencido: directo al historial.
+  router.post('/api/vencimientos/sin-lote/alta', api(async req => {
+    const ctx = contexto(req);
+    const b = req.body || {};
+    const hayPedida = b.idSucursal !== undefined && b.idSucursal !== null && b.idSucursal !== '';
+    if (!ctx.esAdmin && hayPedida && Number(b.idSucursal) !== ctx.idSucursal) throw httpError(403, 'Solo podés modificar datos de tu sucursal.');
+    const idSucursal = sucursalLectura(ctx, b.idSucursal);
+    if (!CLASES[b.clase]) throw httpError(400, "clase debe ser 'oferta' o 'vencido'.");
+    const numeroMovimiento = enteroPositivo(b.numeroMovimiento, 'numeroMovimiento');
+    const idProducto = enteroPositivo(b.idProducto, 'idProducto');
+    const esOferta = b.clase === 'oferta';
+    // Oferta: vencimiento y unidades obligatorios (puede ser pasada). Vencido: opcional, default = fecha del movimiento.
+    const hayVenc = b.vencimiento !== undefined && b.vencimiento !== null && b.vencimiento !== '';
+    const vencPedido = esOferta || hayVenc ? validarFecha(b.vencimiento, 'vencimiento') : null;
+    const unidades = esOferta ? enteroPositivo(b.unidades, 'unidades') : undefined;
+    const config = await store.leerConfig();
+    let movimientos;
+    try {
+      movimientos = await consultarMovimientosClase(getPool, { clase: b.clase, idProducto, idSucursal, config, hoy: hoyLocal(), rubros: RUBROS_BUSCADOR });
+    } catch (err) {
+      console.error('[vencimientos] sin-lote alta SIGA falló', { idProducto, idSucursal, numeroMovimiento }, err);
+      throw httpError(502, 'No se pudieron leer los movimientos de SIGA');
+    }
+    const m = movimientos.find(x => x.numeroMovimiento === numeroMovimiento);
+    if (!m) throw httpError(400, `El movimiento ${numeroMovimiento} no es un ${CLASES[b.clase].nombre} de este producto en la sucursal dentro de la ventana.`);
+    if (!esOferta && !Number.isSafeInteger(m.cantidad)) throw httpError(400, 'La cantidad del movimiento no es un número entero');
+    const vencimiento = vencPedido || String(m.fecha).slice(0, 10);
+    // El store chequea asignado/duplicado dentro de la cola (409) y hace alta + asignación en un solo paso.
+    return vistaLote(await store.altaDesdeMovimiento({ clase: b.clase, idProducto, vencimiento, unidades, idSucursal, usuario: ctx.user.usuario,
+      nombre: m.nombre || undefined, codigo: m.codigo || undefined, movimiento: { numeroMovimiento: m.numeroMovimiento, fecha: m.fecha, cantidad: m.cantidad } }));
+  }));
+
+  // Elimina el registro de UNA sucursal (historial incluido); el lote se borra si era la única.
+  router.delete('/api/vencimientos/lotes/:id/registro', api(async req => {
+    const ctx = contexto(req);
+    const id = idLote(req);
+    const pedida = req.query.idSucursal;
+    const hayPedida = pedida !== undefined && pedida !== '';
+    if (!ctx.esAdmin && hayPedida && Number(pedida) !== ctx.idSucursal) throw httpError(403, 'Solo podés eliminar registros de tu sucursal.');
+    if (!(ctx.esAdmin && hayPedida) && !ctx.idSucursal) throw httpError(400, ctx.esAdmin ? 'Indicá idSucursal.' : SIN_SUCURSAL);
+    const idSucursal = ctx.esAdmin && hayPedida ? enteroPositivo(pedida, 'idSucursal') : ctx.idSucursal;
+    const r = await store.eliminarRegistro({ idLote: id, idSucursal });
+    console.log('[vencimientos] registro eliminado', { idLote: r.idLote, idProducto: r.idProducto, idSucursal: r.idSucursal, usuario: ctx.user.usuario, movimientos: r.movimientos, loteEliminado: r.loteEliminado });
+    return { ok: true, idSucursal: r.idSucursal, loteEliminado: r.loteEliminado };
+  }));
+
   router.delete('/api/vencimientos/lotes/:id', api(async req => {
     soloAdmin(contexto(req));
     const lote = await store.bajaLote(idLote(req));
     return { ok: true, id: lote.id };
+  }));
+
+  // Cada usuario cambia solo su propia sucursal (id de la sesión, nunca del body). Vacío/null desasigna.
+  router.put('/api/vencimientos/mi-sucursal', api(async req => {
+    const ctx = contexto(req);
+    const v = (req.body || {}).idSucursal;
+    const idSucursal = v === undefined || v === null || String(v).trim() === '' ? null : enteroPositivo(v, 'idSucursal');
+    if (idSucursal !== null && !esSucursalReal(idSucursal)) throw httpError(400, `La sucursal ${idSucursal} no es una sucursal real.`);
+    await actualizarUsuario(ctx.user.id, { idSucursal });
+    return { ok: true, idSucursal };
   }));
 
   router.get('/api/vencimientos/config', api(async req => { contexto(req); return store.leerConfig(); }));
@@ -122,8 +277,8 @@ module.exports = function crearRutasVencimientos(deps) {
     const b = req.body || {};
     // Compatibilidad: { rojo, amarillo } plano sigue valiendo como umbrales.
     const umbrales = b.umbrales || (b.rojo !== undefined || b.amarillo !== undefined ? { rojo: b.rojo, amarillo: b.amarillo } : undefined);
-    const { tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias } = b;
-    return store.guardarConfig({ umbrales, tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias });
+    const { tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias, diasMaxOferta, tipoOfertaVencida, diasMaxVencido } = b;
+    return store.guardarConfig({ umbrales, tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias, diasMaxOferta, tipoOfertaVencida, diasMaxVencido });
   }));
 
   // Cruce de solo lectura contra SIGA. Si SIGA falla, 200 con cruceDisponible:false: el listado sigue andando.
@@ -142,6 +297,29 @@ module.exports = function crearRutasVencimientos(deps) {
     const avisos = Object.entries(porLote).flatMap(([idLote, sucs]) =>
       Object.values(sucs).filter(r => r.aviso).map(r => ({ idLote, idSucursal: r.idSucursal, aviso: r.aviso })));
     return { cruceDisponible: true, cruce: porLote, huerfanos, avisos, config };
+  }));
+
+  // Ventas de SIGA de UNA sucursal (la del usuario; un admin puede pedir ?idSucursal) para todos los lotes.
+  // Sin sucursal o ficticia: 200 sin consultar. Si SIGA falla, 200 con ventasDisponible:false.
+  router.get('/api/vencimientos/ventas', api(async req => {
+    const ctx = contexto(req);
+    const pedida = req.query.idSucursal;
+    const hayPedida = ctx.esAdmin && pedida !== undefined && pedida !== '';
+    const idSucursal = hayPedida ? enteroPositivo(pedida, 'idSucursal') : ctx.idSucursal;
+    if (hayPedida && !esSucursalReal(idSucursal)) throw httpError(400, 'idSucursal no válida.');
+    if (!idSucursal) return { ventasDisponible: true, idSucursal: null, mensaje: 'Sin sucursal asignada', ventas: {} };
+    if (!esSucursalReal(idSucursal)) return { ventasDisponible: true, idSucursal, mensaje: 'Sucursal no válida', ventas: {} };
+    const lotes = await store.listarLotes();
+    if (!lotes.length) return { ventasDisponible: true, idSucursal, ventas: {} };
+    const hoy = hoyLocal();
+    let filas;
+    try {
+      filas = await consultarVentas(getPool, lotes, hoy, idSucursal);
+    } catch (err) {
+      console.error('[vencimientos] ventas SIGA falló', { idSucursal, lotes: lotes.length, hoy }, err);
+      return { ventasDisponible: false, idSucursal, mensaje: 'Ventas no disponibles', ventas: {} };
+    }
+    return { ventasDisponible: true, idSucursal, ventas: calcularVentas(lotes, filas, hoy, idSucursal) };
   }));
 
   router.get('/api/vencimientos/historial', api(async req => {
@@ -169,10 +347,13 @@ module.exports = function crearRutasVencimientos(deps) {
     const id = /^\d+$/.test(q) ? Number(q) : NaN;
     const porId = Number.isSafeInteger(id);
     if (porId) request.input('idProducto', id); // number entero → mssql lo infiere Int
+    RUBROS_BUSCADOR.forEach((rubro, i) => request.input(`rubro${i}`, rubro));
     const cond = palabras.map((_, i) => `p.NombreProducto LIKE @w${i}`).join(' AND ');
+    const rubros = RUBROS_BUSCADOR.map((_, i) => `@rubro${i}`).join(', ');
     const r = await request.query(`SELECT TOP ${TOPE_PRODUCTOS} p.IdProducto, p.CodigoDeBarras, p.NombreProducto
       FROM dbo.Productos p
-      WHERE p.Activo = 1 AND ((${cond}) OR p.CodigoDeBarras = @codigo${porId ? ' OR p.IdProducto = @idProducto' : ''})
+      INNER JOIN Rubros r ON r.IdRubro = p.IdRubro
+      WHERE p.Activo = 1 AND r.NombreRubro IN (${rubros}) AND ((${cond}) OR p.CodigoDeBarras = @codigo${porId ? ' OR p.IdProducto = @idProducto' : ''})
       ORDER BY p.NombreProducto`);
     return (r.recordset || []).map(f => ({ idProducto: String(f.IdProducto).trim(), codigo: f.CodigoDeBarras ? String(f.CodigoDeBarras).trim() : null, nombre: f.NombreProducto }));
   }));

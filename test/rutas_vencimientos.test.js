@@ -14,6 +14,7 @@ const USUARIOS = {
   beto: { id: 2, usuario: 'beto', esAdmin: false, idSucursal: 2 },
   sin: { id: 3, usuario: 'sin', esAdmin: false },
   admin: { id: 4, usuario: 'admin', esAdmin: true },
+  ficticia: { id: 5, usuario: 'ficticia', esAdmin: false, idSucursal: 6 },
 };
 
 function armar({ filas = [], falla = false } = {}) {
@@ -27,7 +28,8 @@ function armar({ filas = [], falla = false } = {}) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => { req.session = { user: USUARIOS[req.get('x-user')] }; next(); });
-  app.use(crearRutas({ store, getPool, idSucursalDe: u => u.idSucursal || null }));
+  const cambiosUsuario = [];
+  app.use(crearRutas({ store, getPool, idSucursalDe: u => u.idSucursal || null, actualizarUsuario: (id, c) => cambiosUsuario.push({ id, ...c }) }));
   let server;
   const pedir = async (user, metodo, ruta, body) => {
     if (!server) server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
@@ -35,7 +37,7 @@ function armar({ filas = [], falla = false } = {}) {
       method: metodo, headers: { 'x-user': user, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
-  return { pedir, sql, cerrar: () => { if (server) { server.closeAllConnections(); server.close(); } } };
+  return { pedir, sql, cambiosUsuario, cerrar: () => { if (server) { server.closeAllConnections(); server.close(); } } };
 }
 
 const ALTA = { idProducto: 10, vencimiento: '2030-12-31', unidades: 20, nombre: 'Yerba', codigo: '779' };
@@ -154,6 +156,20 @@ test('productos: por nombre no compara IdProducto; numérico sí, como entero', 
   } finally { c.cerrar(); }
 });
 
+test('productos: solo rubros Almacen y Pesables Fraccionado, como parámetros', async () => {
+  const a = armar();
+  try {
+    assert.strictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/productos?q=yerba mate')).status, 200);
+    assert.match(a.sql.query, /INNER JOIN Rubros r ON r\.IdRubro = p\.IdRubro/);
+    assert.match(a.sql.query, /r\.NombreRubro IN \(@rubro0, @rubro1\) AND \(\(/);
+    assert.deepStrictEqual([a.sql.inputs.rubro0, a.sql.inputs.rubro1], ['Almacen', 'Pesables Fraccionado']);
+    assert.ok(!('rubro2' in a.sql.inputs));
+    for (const otro of ['Bultos', 'Cajas', 'Deposito', 'Venta Directa']) {
+      assert.ok(!a.sql.query.includes(otro) && !Object.values(a.sql.inputs).includes(otro), otro);
+    }
+  } finally { a.cerrar(); }
+});
+
 test('PUT unidades: null, vacío o booleano no se toman como 0/1 (regresión)', async () => {
   const a = armar();
   try {
@@ -242,7 +258,7 @@ test('config de cruce: defaults, PUT admin valida, diasAviso sigue al rojo', asy
   const a = armar();
   try {
     const d = (await a.pedir('ana', 'GET', '/api/vencimientos/config')).body;
-    assert.deepStrictEqual(d, { umbrales: { rojo: 15, amarillo: 45 }, tipoOferta: 'PARA OFERTA', tipoNoVendido: 'VENCIDO', depositoMovimientos: 1, margenDias: 7, diasAviso: 15 });
+    assert.deepStrictEqual(d, { umbrales: { rojo: 15, amarillo: 45 }, tipoOferta: 'PARA OFERTA', tipoNoVendido: 'VENCIDO', depositoMovimientos: 1, margenDias: 7, diasMaxOferta: 10, tipoOfertaVencida: 'OFERTA VENCIDO', diasMaxVencido: 10, diasAviso: 15 });
     assert.strictEqual((await a.pedir('ana', 'PUT', '/api/vencimientos/config', { diasAviso: 3 })).status, 403);
     for (const malo of [{ diasAviso: -1 }, { depositoMovimientos: 0 }, { tipoOferta: '  ' }, { tipoNoVendido: 'x'.repeat(51) }, {}]) {
       assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', malo)).status, 400, JSON.stringify(malo));
@@ -250,5 +266,466 @@ test('config de cruce: defaults, PUT admin valida, diasAviso sigue al rojo', asy
     const ok = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAviso: 3, depositoMovimientos: 2, tipoOferta: ' Para Oferta ' });
     assert.strictEqual(ok.status, 200);
     assert.deepStrictEqual([ok.body.diasAviso, ok.body.depositoMovimientos, ok.body.tipoOferta, ok.body.umbrales.rojo], [3, 2, 'Para Oferta', 15]);
+  } finally { a.cerrar(); }
+});
+
+test('PUT mi-sucursal: cambia solo la propia, vacío desasigna, valida y rechaza 6/8/11', async () => {
+  const a = armar();
+  try {
+    const ok = await a.pedir('ana', 'PUT', '/api/vencimientos/mi-sucursal', { idSucursal: '3', id: 4 });
+    assert.deepStrictEqual([ok.status, ok.body], [200, { ok: true, idSucursal: 3 }]);
+    const vacio = await a.pedir('sin', 'PUT', '/api/vencimientos/mi-sucursal', { idSucursal: '' });
+    assert.deepStrictEqual(vacio.body, { ok: true, idSucursal: null });
+    assert.deepStrictEqual(a.cambiosUsuario, [{ id: 1, idSucursal: 3 }, { id: 3, idSucursal: null }]);
+    for (const idSucursal of ['abc', 0, -2, 1.5, 6, 8, '11']) {
+      const r = await a.pedir('ana', 'PUT', '/api/vencimientos/mi-sucursal', { idSucursal });
+      assert.strictEqual(r.status, 400, String(idSucursal));
+      assert.ok(r.body.error);
+    }
+    assert.strictEqual((await a.pedir('nadie', 'PUT', '/api/vencimientos/mi-sucursal', { idSucursal: 2 })).status, 401);
+    assert.strictEqual(a.cambiosUsuario.length, 2);
+  } finally { a.cerrar(); }
+});
+
+test('ventas: sin lotes no consulta SIGA', async () => {
+  const a = armar();
+  try {
+    const r = await a.pedir('ana', 'GET', '/api/vencimientos/ventas');
+    assert.deepStrictEqual(r.body, { ventasDisponible: true, idSucursal: 1, ventas: {} });
+    assert.strictEqual(a.sql.query, null);
+  } finally { a.cerrar(); }
+});
+
+const HOY_LOCAL = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`; })();
+const FILAS_VENTAS = [{ IdSucursal: 1, IdProducto: '10', Dia: HOY_LOCAL, Cantidad: 4 }, { IdSucursal: 2, IdProducto: '10', Dia: HOY_LOCAL, Cantidad: 2 }];
+
+test('ventas: solo la sucursal del usuario, también en lotes que no cargó; otra no se mezcla', async () => {
+  const a = armar({ filas: FILAS_VENTAS });
+  try {
+    const l = await a.pedir('beto', 'POST', '/api/vencimientos/lotes', ALTA); // lo carga la 2, no la 1
+    const r = await a.pedir('ana', 'GET', '/api/vencimientos/ventas?idSucursal=2');
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.body, { ventasDisponible: true, idSucursal: 1, ventas: { [l.body.id]: { vendidoDesdeCarga: 4, promMensual12: 0.3 } } },
+      'no admin ignora ?idSucursal');
+    assert.strictEqual(a.sql.inputs.suc, 1);
+    assert.match(a.sql.query, /v.IdSucursal = @suc/);
+  } finally { a.cerrar(); }
+});
+
+test('ventas: admin elige ?idSucursal; inválida o ficticia → 400', async () => {
+  const a = armar({ filas: FILAS_VENTAS });
+  try {
+    const l = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const r = await a.pedir('admin', 'GET', '/api/vencimientos/ventas?idSucursal=2');
+    assert.deepStrictEqual(r.body, { ventasDisponible: true, idSucursal: 2, ventas: { [l.body.id]: { vendidoDesdeCarga: 2, promMensual12: 0.2 } } });
+    for (const q of ['abc', '0', '-1', '6', '8', '11']) assert.strictEqual((await a.pedir('admin', 'GET', `/api/vencimientos/ventas?idSucursal=${q}`)).status, 400, q);
+  } finally { a.cerrar(); }
+});
+
+test('ventas: sin sucursal o sucursal ficticia → 200 sin consultar SIGA', async () => {
+  const a = armar({ filas: FILAS_VENTAS });
+  try {
+    await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    for (const u of ['sin', 'admin']) {
+      assert.deepStrictEqual((await a.pedir(u, 'GET', '/api/vencimientos/ventas')).body,
+        { ventasDisponible: true, idSucursal: null, mensaje: 'Sin sucursal asignada', ventas: {} });
+    }
+    assert.deepStrictEqual((await a.pedir('ficticia', 'GET', '/api/vencimientos/ventas?idSucursal=1')).body,
+      { ventasDisponible: true, idSucursal: 6, mensaje: 'Sucursal no válida', ventas: {} });
+    assert.strictEqual(a.sql.query, null);
+  } finally { a.cerrar(); }
+});
+
+test('ventas: SIGA falla → 200 con ventasDisponible:false', async () => {
+  const a = armar({ falla: true });
+  try {
+    await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const r = await a.pedir('ana', 'GET', '/api/vencimientos/ventas');
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.body, { ventasDisponible: false, idSucursal: 1, mensaje: 'Ventas no disponibles', ventas: {} });
+  } finally { a.cerrar(); }
+});
+
+const FILA_OF = (n, fecha, cant) => ({ NumeroMovimiento: n, Fecha: new Date(`${fecha}T00:00:00Z`), Tipo: 'PARA  OFERTA ', Cantidad: cant });
+
+test('movimientos-oferta: sucursal propia, parámetros, fecha límite, orden y asignadoA', async () => {
+  const a = armar({ filas: [FILA_OF(5, '2026-11-01', 3), FILA_OF(9, '2026-11-10', 4), { ...FILA_OF(1, '2026-11-11', 1), Tipo: 'VENCIDO' }] });
+  try {
+    const { body: lote } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const r = await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10&idSucursal=2');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.idSucursal, 1, 'no admin ignora idSucursal');
+    assert.strictEqual(r.body.diasMax, 10);
+    assert.deepStrictEqual(r.body.movimientos.map(m => [m.numeroMovimiento, m.fecha, m.cantidad]), [[9, '2026-11-10', 4], [5, '2026-11-01', 3]]);
+    assert.ok(Object.keys(a.sql.inputs).every(k => !/^p\d+$/.test(k)), 'sin nombres pN');
+    assert.strictEqual(a.sql.inputs.sucursal, 1);
+    assert.strictEqual(a.sql.inputs.producto, '10');
+    const d = new Date(); d.setDate(d.getDate() - 10);
+    const esperado = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    assert.strictEqual(a.sql.inputs.desde, esperado);
+    const p = await a.pedir('ana', 'POST', `/api/vencimientos/lotes/${lote.id}/oferta`, { numeroMovimiento: 9, confirmacion: 'ok' });
+    assert.strictEqual(p.status, 200);
+    const r2 = await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10');
+    assert.deepStrictEqual(r2.body.movimientos[0].asignadoA, { idLote: lote.id, idSucursal: 1 });
+    assert.strictEqual(r2.body.movimientos[1].asignadoA, null);
+    const ad = await a.pedir('admin', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10&idSucursal=2');
+    assert.strictEqual(ad.body.idSucursal, 2);
+    assert.strictEqual(a.sql.inputs.sucursal, 2);
+  } finally { a.cerrar(); }
+});
+
+test('movimientos-oferta: 400 sin sucursal, ficticia, idProducto inválido; 502 si SIGA falla', async () => {
+  const a = armar({ falla: true });
+  try {
+    assert.strictEqual((await a.pedir('sin', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10')).status, 400);
+    assert.strictEqual((await a.pedir('ficticia', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10')).status, 400);
+    assert.strictEqual((await a.pedir('admin', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10&idSucursal=8')).status, 400);
+    assert.strictEqual((await a.pedir('admin', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10')).status, 400);
+    for (const q of ['', 'abc', '0', '-3', '1.5']) assert.strictEqual((await a.pedir('ana', 'GET', `/api/vencimientos/movimientos-oferta?idProducto=${q}`)).status, 400);
+    const f = await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10');
+    assert.strictEqual(f.status, 502);
+    assert.strictEqual(f.body.error, 'No se pudieron leer los movimientos de SIGA');
+  } finally { a.cerrar(); }
+});
+
+test('POST/DELETE oferta: asigna, idempotente, ajeno 400, otro registro 409, otra sucursal 403, historial', async () => {
+  const a = armar({ filas: [FILA_OF(9, '2026-11-10', 4)] });
+  try {
+    const { body: l1 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const { body: l2 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { ...ALTA, vencimiento: '2031-01-01' });
+    await a.pedir('beto', 'POST', '/api/vencimientos/lotes', ALTA);
+    const u = id => `/api/vencimientos/lotes/${id}/oferta`;
+    const ok = await a.pedir('ana', 'POST', u(l1.id), { numeroMovimiento: 9, confirmacion: 'ok' });
+    assert.strictEqual(ok.status, 200);
+    assert.deepStrictEqual({ ...ok.body.sucursales['1'].ofertasSistema[0], asignado: 'x' },{ numeroMovimiento: 9, fecha: '2026-11-10', cantidad: 4, asignado: 'x', usuario: 'ana' });
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numeroMovimiento: 9, confirmacion: 'ok' })).status, 200);
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numeroMovimiento: 99, confirmacion: 'ok' })).status, 400);
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l2.id), { numeroMovimiento: 9, confirmacion: 'ok' })).status, 409);
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numeroMovimiento: 9, idSucursal: 2, confirmacion: 'ok' })).status, 403);
+    assert.strictEqual((await a.pedir('ana', 'DELETE', `${u(l1.id)}?idSucursal=2`)).status, 403);
+    const h = await a.pedir('ana', 'GET', '/api/vencimientos/historial');
+    assert.ok(h.body.movimientos.some(m => m.tipo === 'oferta-sistema' && m.numeroMovimiento === 9 && m.cantidad === 4));
+    const d = await a.pedir('ana', 'DELETE', u(l1.id));
+    assert.strictEqual(d.status, 200);
+    assert.deepStrictEqual(d.body.sucursales['1'].ofertasSistema, []);
+    assert.strictEqual((await a.pedir('ana', 'DELETE', u(l1.id))).status, 404);
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l2.id), { numeroMovimiento: 9, confirmacion: 'ok' })).status, 200);
+    const l = await a.pedir('ana', 'GET', '/api/vencimientos/lotes');
+    const fila = l.body.lotes.find(x => x.id === l2.id).sucursales['1'];
+    assert.deepStrictEqual(fila.ofertasSistema.map(o => o.numeroMovimiento), [9]);
+    assert.ok(!('ofertaSistema' in fila));
+    assert.deepStrictEqual(l.body.lotes.find(x => x.id === l1.id).sucursales['1'].ofertasSistema, []);
+    assert.strictEqual(fila.vencido, 0);
+  } finally { a.cerrar(); }
+});
+
+test('POST/DELETE oferta: varios movimientos por registro y DELETE por numeroMovimiento', async () => {
+  const a = armar({ filas: [FILA_OF(9, '2026-11-10', 4), FILA_OF(10, '2026-11-11', 2)] });
+  try {
+    const { body: l1 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const { body: l2 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { ...ALTA, vencimiento: '2031-01-01' });
+    const u = id => `/api/vencimientos/lotes/${id}/oferta`;
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numeroMovimiento: 9, confirmacion: 'ok' })).status, 200);
+    const dos = await a.pedir('ana', 'POST', u(l1.id), { numeroMovimiento: 10, confirmacion: 'ok' });
+    assert.deepStrictEqual(dos.body.sucursales['1'].ofertasSistema.map(o => o.numeroMovimiento), [9, 10]);
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l2.id), { numeroMovimiento: 10, confirmacion: 'ok' })).status, 409);
+    assert.strictEqual((await a.pedir('ana', 'DELETE', `${u(l1.id)}?numeroMovimiento=abc`)).status, 400);
+    assert.strictEqual((await a.pedir('ana', 'DELETE', `${u(l2.id)}?numeroMovimiento=10`)).status, 404);
+    const d = await a.pedir('ana', 'DELETE', `${u(l1.id)}?numeroMovimiento=10`);
+    assert.deepStrictEqual(d.body.sucursales['1'].ofertasSistema.map(o => o.numeroMovimiento), [9]);
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l2.id), { numeroMovimiento: 10, confirmacion: 'ok' })).status, 200);
+    const mo = await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10');
+    const porNum = Object.fromEntries(mo.body.movimientos.map(m => [m.numeroMovimiento, m.asignadoA && m.asignadoA.idLote]));
+    assert.deepStrictEqual(porNum, { 9: l1.id, 10: l2.id });
+  } finally { a.cerrar(); }
+});
+
+test('movimiento vencido por ruta y PUT config diasMaxOferta', async () => {
+  const a = armar();
+  try {
+    const { body: lote } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { ...ALTA, unidades: 5 });
+    const u = `/api/vencimientos/lotes/${lote.id}/movimientos`;
+    await a.pedir('ana', 'POST', u, { tipo: 'vendido', cantidad: 2 });
+    const v = await a.pedir('ana', 'POST', u, { tipo: 'vencido', cantidad: 3 });
+    assert.strictEqual(v.status, 200);
+    const l = await a.pedir('ana', 'GET', '/api/vencimientos/lotes');
+    assert.deepStrictEqual([l.body.lotes[0].sucursales['1'].pendiente, l.body.lotes[0].sucursales['1'].estado], [0, 'cerrado']);
+    assert.strictEqual((await a.pedir('ana', 'POST', u, { tipo: 'otro', cantidad: 1 })).status, 400);
+    assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxOferta: 500 })).status, 400);
+    assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxOferta: 10 })).body.diasMaxOferta, 10);
+  } finally { a.cerrar(); }
+});
+
+test('POST oferta en lote: validación, falta confirmar, coincide => ok, PUT confirmacion, DELETE limpia', async () => {
+  const a = armar({ filas: [FILA_OF(9, '2026-11-10', 4), FILA_OF(10, '2026-11-11', 16), FILA_OF(11, '2026-11-12', 3)] });
+  try {
+    const { body: l1 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA); // 20 unidades
+    const { body: l2 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { ...ALTA, vencimiento: '2031-01-01' });
+    const u = id => `/api/vencimientos/lotes/${id}/oferta`;
+    const fila = async id => (await a.pedir('ana', 'GET', '/api/vencimientos/lotes')).body.lotes.find(x => x.id === id).sucursales['1'];
+    for (const body of [{}, { numerosMovimiento: [] }, { numerosMovimiento: 'x' }, { numerosMovimiento: [9, 'a'] }, { numerosMovimiento: [9, 9] }, { numerosMovimiento: [0] }])
+      assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), body)).status, 400, JSON.stringify(body));
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [9, 99], confirmacion: 'ok' })).status, 400);
+    const falta = await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [9] });
+    assert.strictEqual(falta.status, 400);
+    assert.strictEqual(falta.body.error, 'Falta confirmar las cantidades');
+    assert.deepStrictEqual((await fila(l1.id)).ofertasSistema, []);
+    assert.strictEqual((await fila(l1.id)).ofertaEstado, null);
+    const c = await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [9], confirmacion: 'corregir' });
+    assert.strictEqual(c.status, 200);
+    assert.strictEqual(c.body.sucursales['1'].ofertaEstado, 'corregir');
+    assert.ok(!('ofertaDecision' in c.body.sucursales['1']));
+    assert.strictEqual((await fila(l1.id)).ofertaEstado, 'corregir');
+    // PUT confirmacion
+    const pc = id => `/api/vencimientos/lotes/${id}/oferta/confirmacion`;
+    assert.strictEqual((await a.pedir('ana', 'PUT', pc(l1.id), { confirmacion: 'x' })).status, 400);
+    assert.strictEqual((await a.pedir('ana', 'PUT', pc(l2.id), { confirmacion: 'ok' })).status, 400);
+    assert.strictEqual((await a.pedir('ana', 'PUT', pc(l1.id), { confirmacion: 'ok', idSucursal: 2 })).status, 403);
+    const p = await a.pedir('ana', 'PUT', pc(l1.id), { confirmacion: 'ok' });
+    assert.strictEqual(p.status, 200);
+    assert.strictEqual(p.body.sucursales['1'].ofertaEstado, 'ok');
+    assert.ok(!('ofertaDecision' in p.body.sucursales['1']));
+    const h = await a.pedir('ana', 'GET', '/api/vencimientos/historial');
+    assert.ok(h.body.movimientos.some(m => m.tipo === 'oferta-confirmacion' && m.estado === 'ok' && m.cantidadSistema === 4 && m.unidades === 20));
+    // 409 de uno aborta todo
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l2.id), { numerosMovimiento: [11, 9], confirmacion: 'ok' })).status, 409);
+    assert.deepStrictEqual((await fila(l2.id)).ofertasSistema, []);
+    // mezcla con ya asignado, suma 20 = unidades => ok derivado
+    const ok = await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [9, 10] });
+    assert.strictEqual(ok.status, 200);
+    assert.deepStrictEqual(ok.body.sucursales['1'].ofertasSistema.map(o => o.numeroMovimiento), [9, 10]);
+    assert.strictEqual(ok.body.sucursales['1'].ofertaEstado, 'ok');
+    assert.strictEqual((await a.pedir('ana', 'PUT', pc(l1.id), { confirmacion: 'corregir' })).status, 400, 'coinciden');
+    // DELETE limpia la decisión
+    const d = await a.pedir('ana', 'DELETE', `${u(l1.id)}?numeroMovimiento=10`);
+    assert.strictEqual(d.status, 200);
+    assert.strictEqual(d.body.sucursales['1'].ofertaEstado, null);
+    assert.ok(!('ofertaDecision' in d.body.sucursales['1']));
+  } finally { a.cerrar(); }
+});
+
+const FILA_VE = (n, fecha, cant, entra = cant) => ({ NumeroMovimiento: n, Fecha: new Date(`${fecha}T00:00:00Z`), Tipo: 'OFERTA  VENCIDO', Cantidad: 0, Entra: entra, Sale: cant });
+
+test('vencido: GET movimientos, POST sin oferta 400, confirmación, PUT, DELETE, lotes, historial, config', async () => {
+  const a = armar({ filas: [FILA_OF(9, '2026-11-10', 4), FILA_VE(70, '2026-11-12', 1), { ...FILA_VE(71, '2026-11-13', 9), Tipo: 'VENCIDO' }, FILA_VE(72, '2026-11-11', 2, 5)] });
+  try {
+    const { body: l1 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const u = id => `/api/vencimientos/lotes/${id}/vencido`;
+    const g = await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-vencido?idProducto=10');
+    assert.strictEqual(g.status, 200);
+    assert.deepStrictEqual([g.body.idSucursal, g.body.diasMax], [1, 10]);
+    assert.deepStrictEqual(g.body.movimientos.map(m => [m.numeroMovimiento, m.cantidad, m.entra, m.asimetrico, m.asignadoA]), [[70, 1, 1, false, null], [72, 2, 5, true, null]], 'solo OFERTA VENCIDO');
+    assert.match(a.sql.query, /AS Entra/);
+    assert.strictEqual(a.sql.inputs.tipoMovimientoSql, 'OFERTAVENCIDO');
+    assert.ok(Object.keys(a.sql.inputs).every(k => !/^p\d+$/.test(k)));
+    assert.match(a.sql.query, /ABS\(SUM\(mp\.Cantidad\)\)/);
+    assert.doesNotMatch(a.sql.query, /OFERTA ?VENCIDO/);
+    // Sin oferta: la base son las unidades cargadas.
+    const sinConf = await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [70] });
+    assert.deepStrictEqual([sinConf.status, sinConf.body.error], [400, 'Falta confirmar las cantidades']);
+    const sinOf = await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [70], confirmacion: 'ok' });
+    const colSinOf = sinOf.body.sucursales['1'];
+    assert.deepStrictEqual([sinOf.status, colSinOf.vencidoEstado, colSinOf.vencidoBase], [200, 'ok', colSinOf.unidades]);
+    const dSinOf = await a.pedir('ana', 'DELETE', u(l1.id));
+    assert.deepStrictEqual([dSinOf.status, dSinOf.body.sucursales['1'].vencidoBase], [200, colSinOf.unidades]);
+    assert.strictEqual((await a.pedir('ana', 'POST', `/api/vencimientos/lotes/${l1.id}/oferta`, { numerosMovimiento: [9], confirmacion: 'ok' })).status, 200);
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [70] })).status, 400, 'falta confirmar');
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [71], confirmacion: 'ok' })).status, 400, 'no es OFERTA VENCIDO');
+    assert.strictEqual((await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [70], idSucursal: 2, confirmacion: 'ok' })).status, 403);
+    const p = await a.pedir('ana', 'POST', u(l1.id), { numerosMovimiento: [70], confirmacion: 'ok' });
+    assert.strictEqual(p.status, 200);
+    const col = p.body.sucursales['1'];
+    assert.deepStrictEqual([col.vencidosSistema.map(v => v.numeroMovimiento), col.vencidoEstado, 'vencidoDecision' in col, col.vencidoBase], [[70], 'ok', false, 4]);
+    const g2 = await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-vencido?idProducto=10');
+    assert.deepStrictEqual(g2.body.movimientos[0].asignadoA, { idLote: l1.id, idSucursal: 1 });
+    const c = await a.pedir('ana', 'PUT', `${u(l1.id)}/confirmacion`, { confirmacion: 'corregir' });
+    assert.deepStrictEqual([c.body.sucursales['1'].vencidoEstado, c.body.sucursales['1'].vencidoBase], ['corregir', 4]);
+    const l = await a.pedir('ana', 'GET', '/api/vencimientos/lotes');
+    const fila = l.body.lotes.find(x => x.id === l1.id).sucursales['1'];
+    assert.deepStrictEqual([fila.vencidoEstado, fila.pendiente, fila.vencidosSistema.length, fila.vencidoBase], ['corregir', 19, 1, 4]);
+    const h = await a.pedir('ana', 'GET', '/api/vencimientos/historial');
+    assert.ok(h.body.movimientos.some(m => m.tipo === 'vencido-confirmacion' && m.estado === 'corregir' && m.cantidadSistema === 1 && m.base === 4));
+    const d = await a.pedir('ana', 'DELETE', `${u(l1.id)}?numeroMovimiento=70`);
+    assert.deepStrictEqual([d.status, d.body.sucursales['1'].vencidosSistema, d.body.sucursales['1'].vencidoEstado], [200, [], null]);
+    assert.strictEqual((await a.pedir('ana', 'DELETE', u(l1.id))).status, 404);
+    assert.strictEqual((await a.pedir('ana', 'PUT', '/api/vencimientos/config', { diasMaxVencido: 20 })).status, 403);
+    assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxVencido: 0 })).status, 400);
+    const cf = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxVencido: 20, tipoOfertaVencida: 'OFERTA VENCIDO' });
+    assert.deepStrictEqual([cf.body.diasMaxVencido, cf.body.tipoOfertaVencida], [20, 'OFERTA VENCIDO']);
+  } finally { a.cerrar(); }
+});
+
+test('movimientos-vencido: 502 si SIGA falla', async () => {
+  const a = armar({ falla: true });
+  try {
+    assert.strictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-vencido?idProducto=10')).status, 502);
+  } finally { a.cerrar(); }
+});
+
+test('DELETE registro: permisos, 400/404, lote sigue o se borra, movimientos liberados, recarga', async () => {
+  const a = armar({ filas: [FILA_OF(9, '2026-11-10', 4)] });
+  try {
+    const { body: l1 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    const { body: l2 } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { ...ALTA, vencimiento: '2031-01-01' });
+    await a.pedir('beto', 'POST', '/api/vencimientos/lotes', ALTA);
+    const of = id => `/api/vencimientos/lotes/${id}/oferta`;
+    const reg = id => `/api/vencimientos/lotes/${id}/registro`;
+    assert.strictEqual((await a.pedir('ana', 'POST', of(l1.id), { numeroMovimiento: 9, confirmacion: 'ok' })).status, 200);
+    assert.strictEqual((await a.pedir('ana', 'POST', of(l2.id), { numeroMovimiento: 9, confirmacion: 'ok' })).status, 409);
+    assert.strictEqual((await a.pedir('ana', 'DELETE', `${reg(l1.id)}?idSucursal=2`)).status, 403);
+    assert.strictEqual((await a.pedir('sin', 'DELETE', reg(l1.id))).status, 400);
+    assert.strictEqual((await a.pedir('admin', 'DELETE', reg(l1.id))).status, 400);
+    assert.strictEqual((await a.pedir('admin', 'DELETE', `${reg(l1.id)}?idSucursal=abc`)).status, 400);
+    assert.strictEqual((await a.pedir('ana', 'DELETE', reg('00000000-0000-0000-0000-000000000000'))).status, 404);
+    assert.strictEqual((await a.pedir('admin', 'DELETE', `${reg(l1.id)}?idSucursal=3`)).status, 404);
+    // ana borra su registro: el lote sigue por beto
+    const d = await a.pedir('ana', 'DELETE', reg(l1.id));
+    assert.deepStrictEqual(d.body, { ok: true, idSucursal: 1, loteEliminado: false });
+    let lotes = (await a.pedir('ana', 'GET', '/api/vencimientos/lotes')).body.lotes;
+    assert.deepStrictEqual(Object.keys(lotes.find(x => x.id === l1.id).sucursales), ['2']);
+    assert.ok(lotes.find(x => x.id === l2.id), 'no toca otros lotes');
+    const mo = await a.pedir('ana', 'GET', '/api/vencimientos/movimientos-oferta?idProducto=10');
+    assert.strictEqual(mo.body.movimientos.find(m => m.numeroMovimiento === 9).asignadoA, null);
+    assert.strictEqual((await a.pedir('ana', 'POST', of(l2.id), { numeroMovimiento: 9, confirmacion: 'ok' })).status, 200);
+    // admin borra el de beto: era la única sucursal → lote eliminado y se puede recargar
+    const d2 = await a.pedir('admin', 'DELETE', `${reg(l1.id)}?idSucursal=2`);
+    assert.deepStrictEqual(d2.body, { ok: true, idSucursal: 2, loteEliminado: true });
+    lotes = (await a.pedir('ana', 'GET', '/api/vencimientos/lotes')).body.lotes;
+    assert.deepStrictEqual(lotes.map(x => x.id), [l2.id]);
+    const re = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', ALTA);
+    assert.strictEqual(re.status, 200);
+    assert.notStrictEqual(re.body.id, l1.id);
+    // DELETE admin existente intacto
+    assert.strictEqual((await a.pedir('ana', 'DELETE', `/api/vencimientos/lotes/${l2.id}`)).status, 403);
+    assert.strictEqual((await a.pedir('admin', 'DELETE', `/api/vencimientos/lotes/${l2.id}`)).status, 200);
+  } finally { a.cerrar(); }
+});
+
+// --- Movimientos sin lote ---------------------------------------------------
+const filaSiga = (n, tipo, idProducto, extra = {}) => ({ NumeroMovimiento: n, Fecha: `2030-01-0${n % 9 + 1}`, Tipo: tipo, Cantidad: 4, Sale: 4, Entra: 4,
+  IdProducto: String(idProducto), NombreProducto: `Prod ${idProducto}`, CodigoDeBarras: `c${idProducto}`, ...extra });
+
+test('sin-lote: sucursal propia/admin, 400, parámetros, exclusiones, orden y 502', async () => {
+  const filas = [filaSiga(1, 'PARA OFERTA', 10), filaSiga(2, 'PARA OFERTA', 11), filaSiga(3, 'OFERTA VENCIDO', 12), filaSiga(4, 'PARA OFERTA', 13), filaSiga(5, 'PARA OFERTA', 14)];
+  const a = armar({ filas });
+  try {
+    // 11: registro activo -> fuera. 12: registro cerrado (vendido todo) -> sigue. 13: alta desde mov 4 -> activo y asignado -> fuera.
+    await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { idProducto: 11, vencimiento: '2030-12-31', unidades: 3 });
+    const { body: c } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { idProducto: 12, vencimiento: '2030-12-31', unidades: 2 });
+    await a.pedir('ana', 'POST', `/api/vencimientos/lotes/${c.id}/movimientos`, { tipo: 'vendido', cantidad: 2 });
+    assert.strictEqual((await a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'oferta', numeroMovimiento: 4, idProducto: 13, vencimiento: '2031-01-01', unidades: 4 })).status, 200);
+    const r = await a.pedir('ana', 'GET', '/api/vencimientos/sin-lote?idSucursal=2');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.idSucursal, 1, 'no admin ignora idSucursal');
+    assert.deepStrictEqual([r.body.diasMaxOferta, r.body.diasMaxVencido], [10, 10]);
+    assert.deepStrictEqual(r.body.movimientos.map(m => [m.clase, m.numeroMovimiento]), [['oferta', 5], ['vencido', 3], ['oferta', 1]]);
+    assert.deepStrictEqual(r.body.movimientos[2], { clase: 'oferta', numeroMovimiento: 1, fecha: '2030-01-02', idProducto: 10, nombre: 'Prod 10', codigo: 'c10', cantidad: 4, entra: 0, asimetrico: false });
+    assert.deepStrictEqual([a.sql.inputs.rubro0, a.sql.inputs.rubro1, a.sql.inputs.sucursal], ['Almacen', 'Pesables Fraccionado', 1]);
+    assert.ok(Object.keys(a.sql.inputs).every(k => !/^p\d+$/.test(k)));
+    assert.strictEqual((await a.pedir('admin', 'GET', '/api/vencimientos/sin-lote?idSucursal=2')).body.idSucursal, 2);
+    assert.strictEqual((await a.pedir('sin', 'GET', '/api/vencimientos/sin-lote')).status, 400);
+    assert.strictEqual((await a.pedir('ficticia', 'GET', '/api/vencimientos/sin-lote')).status, 400);
+    assert.strictEqual((await a.pedir('admin', 'GET', '/api/vencimientos/sin-lote?idSucursal=11')).status, 400);
+  } finally { a.cerrar(); }
+  const f = armar({ falla: true });
+  try {
+    const r = await f.pedir('ana', 'GET', '/api/vencimientos/sin-lote');
+    assert.deepStrictEqual([r.status, r.body.error], [502, 'No se pudieron leer los movimientos de SIGA']);
+  } finally { f.cerrar(); }
+});
+
+test('sin-lote/alta oferta: unidades = cantidad, ok sin confirmar, origenSistema, historial, activo', async () => {
+  const a = armar({ filas: [filaSiga(7, 'PARA OFERTA', 10)] });
+  try {
+    const r = await a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'oferta', numeroMovimiento: 7, idProducto: 10, vencimiento: '2020-01-01', unidades: 4 });
+    assert.strictEqual(r.status, 200);
+    const col = r.body.sucursales['1'];
+    assert.deepStrictEqual([r.body.nombre, r.body.codigo, col.unidades, col.ofertaEstado, col.origenSistema], ['Prod 10', 'c10', 4, 'ok', true]);
+    assert.deepStrictEqual(col.ofertasSistema.map(o => [o.numeroMovimiento, o.cantidad, o.usuario]), [[7, 4, 'ana']]);
+    assert.deepStrictEqual(col.movimientos.map(m => [m.tipo, m.unidades ?? m.cantidad]), [['alta', 4], ['oferta-sistema', 4]]);
+    const l = await a.pedir('ana', 'GET', '/api/vencimientos/lotes');
+    assert.deepStrictEqual([l.body.lotes[0].sucursales['1'].estado, l.body.lotes[0].sucursales['1'].origenSistema], ['cargado', true]);
+    const dup = await a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'oferta', numeroMovimiento: 7, idProducto: 10, vencimiento: '2021-01-01', unidades: 4 });
+    assert.strictEqual(dup.status, 409, 'ya asignado');
+  } finally { a.cerrar(); }
+});
+
+test('sin-lote/alta vencido: queda cerrado; registros normales con origenSistema false', async () => {
+  const a = armar({ filas: [filaSiga(8, 'OFERTA VENCIDO', 10, { Sale: 3, Entra: 3 })] });
+  try {
+    await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { idProducto: 20, vencimiento: '2030-12-31', unidades: 3 });
+    const r = await a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'vencido', numeroMovimiento: 8, idProducto: 10, vencimiento: '2020-01-01', unidades: 4 });
+    assert.strictEqual(r.status, 200);
+    const col = r.body.sucursales['1'];
+    assert.deepStrictEqual([col.unidades, col.vencidoEstado, col.vencidosSistema.length], [3, 'ok', 1]);
+    assert.deepStrictEqual(col.movimientos.map(m => m.tipo), ['alta', 'vencido-sistema']);
+    const l = await a.pedir('ana', 'GET', '/api/vencimientos/lotes');
+    const reg = l.body.lotes.find(x => x.idProducto === 10).sucursales['1'];
+    assert.deepStrictEqual([reg.pendiente, reg.estado], [0, 'cerrado']);
+    assert.strictEqual(l.body.lotes.find(x => x.idProducto === 20).sucursales['1'].origenSistema, false);
+  } finally { a.cerrar(); }
+});
+
+test('sin-lote/alta: 400 no está en SIGA/fecha/clase, 403, 409 duplicado, columna en lote ajeno, atomicidad', async () => {
+  const a = armar({ filas: [filaSiga(7, 'PARA OFERTA', 10), filaSiga(9, 'PARA OFERTA', 10)] });
+  const alta = (u, b) => a.pedir(u, 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'oferta', numeroMovimiento: 7, idProducto: 10, vencimiento: '2030-12-31', unidades: 4, ...b });
+  try {
+    assert.strictEqual((await alta('ana', { numeroMovimiento: 99 })).status, 400);
+    assert.strictEqual((await alta('ana', { vencimiento: '2030-02-30' })).status, 400);
+    assert.strictEqual((await alta('ana', { clase: 'otra' })).status, 400);
+    assert.strictEqual((await alta('ana', { idSucursal: 2 })).status, 403);
+    assert.strictEqual((await alta('sin', {})).status, 400);
+    await a.pedir('beto', 'POST', '/api/vencimientos/lotes', { idProducto: 10, vencimiento: '2030-12-31', unidades: 5 });
+    const r = await alta('ana', {});
+    assert.deepStrictEqual(Object.keys(r.body.sucursales).sort(), ['1', '2']);
+    const dup = await alta('ana', { numeroMovimiento: 9 });
+    assert.deepStrictEqual([dup.status, dup.body.error], [409, 'Ya hay un registro de este producto con ese vencimiento en tu sucursal']);
+    const ad = await alta('admin', { idSucursal: 3, numeroMovimiento: 9 });
+    assert.deepStrictEqual(Object.keys(ad.body.sucursales).sort(), ['1', '2', '3']);
+  } finally { a.cerrar(); }
+  // Vencido con cantidad no entera -> 400 y no queda lote. Oferta con la misma cantidad y unidades entero -> OK.
+  const b = armar({ filas: [filaSiga(5, 'OFERTA VENCIDO', 10, { Cantidad: 1.5, Sale: 1.5, Entra: 1.5 }), filaSiga(6, 'PARA OFERTA', 10, { Cantidad: 1.5, Sale: 1.5, Entra: 1.5 })] });
+  try {
+    const f = await b.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'vencido', numeroMovimiento: 5, idProducto: 10 });
+    assert.deepStrictEqual([f.status, f.body.error], [400, 'La cantidad del movimiento no es un número entero']);
+    assert.strictEqual((await b.pedir('ana', 'GET', '/api/vencimientos/lotes')).body.lotes.length, 0);
+    const o = await b.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'oferta', numeroMovimiento: 6, idProducto: 10, vencimiento: '2030-12-31', unidades: 2 });
+    assert.deepStrictEqual([o.status, o.body.sucursales['1'].unidades, o.body.sucursales['1'].ofertaEstado], [200, 2, null]);
+  } finally { b.cerrar(); }
+});
+
+test('sin-lote/alta oferta: unidades declaradas, sin confirmar si no suman, después confirmación normal', async () => {
+  const a = armar({ filas: [filaSiga(7, 'PARA OFERTA', 10), filaSiga(9, 'PARA OFERTA', 11)] });
+  const alta = b => a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'oferta', numeroMovimiento: 7, idProducto: 10, vencimiento: '2030-12-31', ...b });
+  try {
+    for (const unidades of [undefined, 0, 1.5, 'abc', -2, '1.5']) assert.strictEqual((await alta({ unidades })).status, 400, `unidades ${unidades}`);
+    assert.strictEqual((await alta({ unidades: 4, vencimiento: undefined })).status, 400, 'sin vencimiento');
+    assert.strictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/lotes')).body.lotes.length, 0, 'nada guardado');
+    const r = await alta({ unidades: 6 });
+    assert.strictEqual(r.status, 200);
+    const col = r.body.sucursales['1'];
+    assert.deepStrictEqual([col.unidades, col.ofertaEstado, col.ofertasSistema.length], [6, null, 1]);
+    assert.deepStrictEqual(col.movimientos.map(m => [m.tipo, m.unidades ?? m.cantidad]), [['alta', 6], ['oferta-sistema', 4]]);
+    const conf = c => a.pedir('ana', 'PUT', `/api/vencimientos/lotes/${r.body.id}/oferta/confirmacion`, { confirmacion: c });
+    assert.strictEqual((await conf('corregir')).body.sucursales['1'].ofertaEstado, 'corregir');
+    assert.strictEqual((await conf('ok')).body.sucursales['1'].ofertaEstado, 'ok');
+    const igual = await a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'oferta', numeroMovimiento: 9, idProducto: 11, vencimiento: '2030-12-31', unidades: '4' });
+    assert.deepStrictEqual([igual.status, igual.body.sucursales['1'].ofertaEstado], [200, 'ok']);
+  } finally { a.cerrar(); }
+});
+
+test('sin-lote/alta vencido sin vencimiento ni unidades: vence = fecha del movimiento, cerrado; 409 duplicado', async () => {
+  const a = armar({ filas: [filaSiga(8, 'OFERTA VENCIDO', 10), filaSiga(17, 'OFERTA VENCIDO', 10)] });
+  try {
+    const r = await a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'vencido', numeroMovimiento: 8, idProducto: 10 });
+    assert.strictEqual(r.status, 200);
+    const col = r.body.sucursales['1'];
+    assert.deepStrictEqual([r.body.vencimiento, col.unidades, col.vencidoEstado, col.origenSistema], ['2030-01-09', 4, 'ok', true]);
+    const reg = (await a.pedir('ana', 'GET', '/api/vencimientos/lotes')).body.lotes[0].sucursales['1'];
+    assert.deepStrictEqual([reg.pendiente, reg.estado], [0, 'cerrado']);
+    assert.deepStrictEqual(col.movimientos.map(m => m.tipo), ['alta', 'vencido-sistema']);
+    // mov 17 tiene la misma fecha (17 % 9 + 1 = 9) -> mismo vencimiento -> 409
+    const dup = await a.pedir('ana', 'POST', '/api/vencimientos/sin-lote/alta', { clase: 'vencido', numeroMovimiento: 17, idProducto: 10 });
+    assert.deepStrictEqual([dup.status, dup.body.error], [409, 'Ya hay un registro de este producto con ese vencimiento en tu sucursal']);
   } finally { a.cerrar(); }
 });
