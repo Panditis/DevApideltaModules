@@ -123,6 +123,7 @@ body.imprimiendo #remito{display:block;color:#000;font-family:Arial,Helvetica,sa
     <button class="tab" type="button" role="tab" id="tab-stock" data-tab="stock" aria-controls="panel-stock" aria-selected="true">Stock</button>
     <button class="tab" type="button" role="tab" id="tab-ingreso" data-tab="ingreso" aria-controls="panel-ingreso" aria-selected="false" tabindex="-1">Ingresar mercadería</button>
     <button class="tab" type="button" role="tab" id="tab-devolver" data-tab="devolver" aria-controls="panel-devolver" aria-selected="false" tabindex="-1">Devolver a central</button>
+    <button class="tab" type="button" role="tab" id="tab-ubicaciones" data-tab="ubicaciones" aria-controls="panel-ubicaciones" aria-selected="false" tabindex="-1">Ubicaciones</button>
     <button class="tab" type="button" role="tab" id="tab-historial" data-tab="historial" aria-controls="panel-historial" aria-selected="false" tabindex="-1">Historial</button>
   </div>
 
@@ -149,6 +150,8 @@ body.imprimiendo #remito{display:block;color:#000;font-family:Arial,Helvetica,sa
   <section id="panel-ingreso" class="hidden" role="tabpanel" aria-labelledby="tab-ingreso"></section>
   <section id="panel-devolver" class="hidden" role="tabpanel" aria-labelledby="tab-devolver"></section>
 
+  <section id="panel-ubicaciones" class="hidden" role="tabpanel" aria-labelledby="tab-ubicaciones"></section>
+
   <section id="panel-historial" class="hidden" role="tabpanel" aria-labelledby="tab-historial">
     <div class="flex items-center gap-3 mb-3">
       <button id="btnHist" type="button" class="btn">Recargar historial</button>
@@ -173,5 +176,6 @@ body.imprimiendo #remito{display:block;color:#000;font-family:Arial,Helvetica,sa
 
 <script src="/js/deposito_proarmet.js"></script>
 <script src="/js/deposito_proarmet_mov.js"></script>
+<script src="/js/deposito_proarmet_ubic.js"></script>
 </body>
 </html>
