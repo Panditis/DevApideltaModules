@@ -1,13 +1,13 @@
 'use strict';
-// Tab "Ubicaciones": secciones físicas del depósito con productos asignados (cantidad <= stock sin ubicar).
-// API: GET /api/proarmet/ubicaciones?idDeposito=, POST /ubicacion, PUT|DELETE /ubicacion/:id[?forzar=1], PUT /ubicacion/:id/producto.
+// Tab "Ubicaciones": listado de qué va en cada lugar del depósito. No depende del stock: se puede agregar cualquier producto activo.
+// API: GET /api/proarmet/ubicaciones?idDeposito=, POST /ubicacion, PUT|DELETE /ubicacion/:id[?forzar=1], PUT /ubicacion/:id/producto; catálogo: GET /productos?origen=N&destino=N (se ignora el stock).
 (() => {
   const P = window.Proarmet;
   const { esc, fmt, norm, api, toast } = P;
   const root = P.$('panel-ubicaciones');
-  const MAX_RES = 8, NOMBRE_MAX = 40;
+  const MAX_RES = 15, MIN_CHARS = 2, NOMBRE_MAX = 40;
 
-  let datos = null, pedido = 0, editando = null; // editando: null | 'nueva' | id
+  let datos = null, pedido = 0, editando = null, catalogo = null, catId = null; // catalogo: productos activos del depósito (cache por tab) // editando: null | 'nueva' | id
   const abiertas = new Set();                    // ids de ubicaciones expandidas (sobreviven a las recargas)
 
   root.innerHTML = `
@@ -26,7 +26,6 @@
       <div id="ub-form-err" class="error hidden mt-3" role="alert"></div>
     </form>
     <div id="ub-error" class="error hidden mb-3" role="alert"></div>
-    <div id="ub-sin"></div>
     <div id="ub-lista" aria-live="polite"></div>`;
   const $ = id => root.querySelector('#' + id);
 
@@ -39,25 +38,9 @@
     return `<thead><tr><th scope="col" class="num" style="width:90px">PLU</th><th scope="col">Descripción</th>${extra}</tr></thead>`;
   }
 
-  function renderSinUbicar() {
-    const l = (datos.sinUbicar || []).filter(p => Number(p.pendiente) > 0);
-    const opts = ubicaciones().map(u => `<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('');
-    const filas = l.map(p => `<tr data-prod="${esc(p.idProducto)}"><td class="num">${esc(p.idProducto)}</td><td>${esc(p.descripcion)}</td>
-      <td class="num">${fmt(p.stock)}</td><td class="num">${fmt(p.asignado)}</td><td class="num"><b>${fmt(p.pendiente)}</b></td>
-      <td><div class="flex gap-2 items-center">
-        <select class="ctl" data-dest aria-label="Ubicación para ${esc(p.descripcion)}"${opts ? '' : ' disabled'}>${opts || '<option>Sin ubicaciones</option>'}</select>
-        <input type="number" class="ctl qty" data-cant min="0" max="${esc(p.pendiente)}" step="any" value="${esc(p.pendiente)}" aria-label="Cantidad a asignar de ${esc(p.descripcion)}">
-        <button type="button" class="btn btn-rem" data-asignar${opts ? '' : ' disabled'}>Asignar a…</button></div></td></tr>`).join('');
-    $('ub-sin').innerHTML = `<h3 class="text-sm font-semibold mb-2">Sin ubicar <span class="badge">${l.length}</span></h3>
-      <div class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden mb-5">${l.length ? `<div class="scroll-tabla"><table class="tabla">${cabeceraProductos(
-        '<th scope="col" class="num" style="width:90px">Stock</th><th scope="col" class="num" style="width:90px">Asignado</th><th scope="col" class="num" style="width:90px">Pendiente</th><th scope="col">Asignar</th>')}<tbody>${filas}</tbody></table></div>`
-        : '<div class="vacio"><b>Todo el stock está ubicado</b></div>'}</div>`;
-  }
-
   function filaAsignado(p) {
-    const exc = p.excedido ? ` <span class="badge b-rev" title="Lo asignado supera el stock actual">Excedido</span>` : '';
-    return `<tr data-prod="${esc(p.idProducto)}"><td class="num">${esc(p.idProducto)}</td><td>${esc(p.descripcion)}${exc}</td>
-      <td class="num"><input type="number" class="ctl qty" data-cant min="0" step="any" value="${esc(p.cantidad)}" aria-label="Cantidad de ${esc(p.descripcion)}"${p.excedido ? ' aria-invalid="true"' : ''}></td>
+    return `<tr data-prod="${esc(p.idProducto)}"><td class="num">${esc(p.idProducto)}</td><td>${esc(p.descripcion)}</td>
+      <td class="num"><input type="number" class="ctl qty" data-cant min="0" step="any" value="${esc(p.cantidad)}" aria-label="Cantidad de ${esc(p.descripcion)}"></td>
       <td class="num"><button type="button" class="btn btn-rem" data-guardar aria-label="Guardar cantidad de ${esc(p.descripcion)}">Guardar</button>
         <button type="button" class="btn btn-rem" data-quitar aria-label="Quitar ${esc(p.descripcion)} de la ubicación">Quitar</button></td></tr>`;
   }
@@ -65,11 +48,10 @@
   function renderUbicacion(u) {
     const abierta = abiertas.has(u.id);
     const prods = u.productos || [];
-    const exc = prods.some(p => p.excedido);
     return `<div class="rounded-xl border border-borde shadow-fluent bg-card mb-3" data-ub="${esc(u.id)}">
       <div class="flex items-center gap-3 p-3">
         <button type="button" class="btn-ico" data-alternar aria-expanded="${abierta}" aria-controls="ub-det-${esc(u.id)}" aria-label="${abierta ? 'Contraer' : 'Expandir'} ${esc(u.nombre)}">${abierta ? '▾' : '▸'}</button>
-        <div class="grow min-w-0"><div class="font-semibold">${esc(u.nombre)}${exc ? ' <span class="badge b-rev">Excedido</span>' : ''}</div>
+        <div class="grow min-w-0"><div class="font-semibold">${esc(u.nombre)}</div>
           <div class="text-sm text-gris">${esc(u.descripcion) || 'Sin descripción'}</div></div>
         <span class="text-sm text-gris tabular-nums">${fmt(u.totalProductos)} producto${u.totalProductos === 1 ? '' : 's'} · ${fmt(u.totalUnidades)} unidades</span>
         <button type="button" class="btn btn-rem" data-editar>Editar</button>
@@ -77,9 +59,9 @@
       </div>
       <div id="ub-det-${esc(u.id)}" class="${abierta ? '' : 'hidden'} p-3 border-t border-borde">
         ${prods.length ? `<table class="tabla mb-3">${cabeceraProductos('<th scope="col" class="num" style="width:120px">Cantidad</th><th scope="col" style="width:170px"><span class="sr-only">Acciones</span></th>')}<tbody>${prods.map(filaAsignado).join('')}</tbody></table>`
-          : '<div class="vacio" style="padding:16px"><b>Sin productos asignados</b>Buscá abajo un producto con stock sin ubicar.</div>'}
-        <label class="lbl" for="ub-b-${esc(u.id)}">Agregar producto (PLU o descripción, solo con stock pendiente)</label>
-        <input id="ub-b-${esc(u.id)}" type="search" class="ctl" style="width:320px" data-buscar autocomplete="off" placeholder="Buscar en el stock sin ubicar">
+          : '<div class="vacio" style="padding:16px"><b>Sin productos asignados</b>Buscá abajo un producto para agregarlo.</div>'}
+        <label class="lbl" for="ub-b-${esc(u.id)}">Agregar producto (PLU o descripción, mínimo ${MIN_CHARS} caracteres)</label>
+        <input id="ub-b-${esc(u.id)}" type="search" class="ctl" style="width:320px" data-buscar autocomplete="off" placeholder="Buscar en el catálogo">
         <ul class="res hidden" data-res aria-label="Productos disponibles"></ul>
       </div></div>`;
   }
@@ -88,7 +70,6 @@
     if (!datos) return;
     const us = ubicaciones();
     $('ub-conteo').textContent = `${us.length} ${us.length === 1 ? "ubicación" : "ubicaciones"}`;
-    renderSinUbicar();
     $('ub-lista').innerHTML = us.length ? us.map(renderUbicacion).join('')
       : '<div class="vacio"><b>Todavía no hay ubicaciones</b>Creá una con "Nueva ubicación" para ordenar el depósito.</div>';
   }
@@ -97,19 +78,27 @@
   async function mostrar() {
     const id = P.idControlado();
     aviso('');
-    if (!id) { datos = null; $('ub-sin').innerHTML = ''; $('ub-lista').innerHTML = '<div class="vacio"><b>Elegí un depósito</b></div>'; return; }
+    if (!id) { datos = null; $('ub-lista').innerHTML = '<div class="vacio"><b>Elegí un depósito</b></div>'; return; }
     const mio = ++pedido;
     if (!datos) $('ub-lista').innerHTML = '<div class="sk"></div><div class="sk"></div><div class="sk"></div>';
     try {
       const r = await api(`/api/proarmet/ubicaciones?idDeposito=${id}`);
       if (mio !== pedido) return;
-      datos = r; render();
+      datos = r; P.ubicaciones.invalidar(); render(); cargarCatalogo();
     } catch (e) {
       if (mio !== pedido) return;
-      datos = null; $('ub-sin').innerHTML = ''; $('ub-lista').innerHTML = ''; aviso(e.message);
+      datos = null; $('ub-lista').innerHTML = ''; aviso(e.message);
     }
   }
-  const invalidar = () => { datos = null; pedido++; cerrarForm(); };
+  const invalidar = () => { datos = null; catalogo = null; pedido++; cerrarForm(); };
+  // Catálogo completo de productos activos, una vez por tab y depósito; si falla, el buscador avisa al usarlo.
+  async function cargarCatalogo() {
+    const id = P.idControlado();
+    if (catalogo && catId === id) return;
+    catId = id;
+    try { catalogo = (await api(`/api/proarmet/productos?origen=${id}&destino=${id}`)).productos || []; }
+    catch (e) { catalogo = null; aviso('No se pudo cargar el catálogo de productos: ' + e.message); }
+  }
   P.movs.ubicaciones = { mostrar, invalidar };
 
   // Ejecuta una escritura, avisa el error del backend y recarga la tab.
@@ -160,28 +149,24 @@
   function resultados(card, q) {
     const ul = card.querySelector('[data-res]');
     const t = norm(q.trim());
-    if (!t) { ul.classList.add('hidden'); ul.innerHTML = ''; return; }
-    const l = (datos.sinUbicar || []).filter(p => Number(p.pendiente) > 0 && (String(p.idProducto).includes(t) || norm(p.descripcion).includes(t)));
+    if (t.length < MIN_CHARS) { ul.classList.add('hidden'); ul.innerHTML = ''; return; }
     ul.classList.remove('hidden');
-    ul.innerHTML = l.length ? l.slice(0, MAX_RES).map(p => `<li class="res-it" data-prod="${esc(p.idProducto)}"><span class="num">${esc(p.idProducto)}</span><span class="grow">${esc(p.descripcion)}</span>
-      <span class="st">Stock <b>${fmt(p.stock)}</b> · Asignado <b>${fmt(p.asignado)}</b> · Pendiente <b>${fmt(p.pendiente)}</b></span>
-      <input type="number" class="ctl qty" data-cant min="0" max="${esc(p.pendiente)}" step="any" value="${esc(p.pendiente)}" aria-label="Cantidad a agregar de ${esc(p.descripcion)}">
-      <button type="button" class="btn btn-rem" data-agregar>Agregar</button></li>`).join('')
-      : '<li class="res-it" aria-disabled="true">Sin productos con stock pendiente para esa búsqueda</li>';
+    if (!catalogo) { ul.innerHTML = '<li class="res-it" aria-disabled="true">Catálogo no disponible. Recargá la pestaña.</li>'; return; }
+    const todos = catalogo.filter(p => String(p.idProducto).includes(t) || norm(p.descripcion).includes(t));
+    ul.innerHTML = todos.length ? todos.slice(0, MAX_RES).map(p => `<li class="res-it" data-prod="${esc(p.idProducto)}"><span class="num">${esc(p.idProducto)}</span><span class="grow">${esc(p.descripcion)}</span>
+      <input type="number" class="ctl qty" data-cant min="0" step="any" placeholder="Cant." aria-label="Cantidad a agregar de ${esc(p.descripcion)}">
+      <button type="button" class="btn btn-rem" data-agregar>Agregar</button></li>`).join('') + (todos.length > MAX_RES ? `<li class="res-it" aria-disabled="true">Mostrando ${MAX_RES} de ${todos.length}: afiná la búsqueda</li>` : '')
+      : '<li class="res-it" aria-disabled="true">Sin coincidencias</li>';
   }
 
-  // Valida la cantidad contra el tope y devuelve el número, o null tras avisar.
-  function leerCant(input, tope) {
+  // Devuelve la cantidad (> 0, sin tope), o null tras avisar.
+  function leerCant(input) {
     const n = Number(input.value);
-    if (!(n > 0) || (tope != null && n > tope)) {
-      input.setAttribute('aria-invalid', 'true'); input.focus();
-      toast(tope != null ? `Ingresá una cantidad mayor a 0 y hasta ${fmt(tope)}.` : 'Ingresá una cantidad mayor a 0.', true);
-      return null;
-    }
+    if (!(n > 0)) { input.setAttribute('aria-invalid', 'true'); input.focus(); toast('Ingresá una cantidad mayor a 0.', true); return null; }
     input.removeAttribute('aria-invalid');
     return n;
   }
-  const sinUb = id => (datos.sinUbicar || []).find(p => String(p.idProducto) === String(id));
+  const enCatalogo = id => (catalogo || []).find(p => String(p.idProducto) === String(id));
 
   // ── Eventos ───────────────────────────────────────────────────────────
   root.addEventListener('click', async e => {
@@ -197,19 +182,11 @@
       if (!(n >= 0)) { toast('Cantidad inválida.', true); return; }
       asignar(u.id, fila.dataset.prod, n, 'Cantidad actualizada');
     } else if (b.hasAttribute('data-agregar')) {
-      const p = sinUb(fila.dataset.prod); if (!p) return;
-      const n = leerCant(fila.querySelector('[data-cant]'), Number(p.pendiente)); if (n == null) return;
+      const p = enCatalogo(fila.dataset.prod); if (!p) return;
+      const n = leerCant(fila.querySelector('[data-cant]')); if (n == null) return;
       const actual = ((u.productos || []).find(x => String(x.idProducto) === String(p.idProducto)) || {}).cantidad || 0;
       abiertas.add(u.id);
       asignar(u.id, p.idProducto, Number(actual) + n, 'Producto agregado a la ubicación');
-    } else if (b.hasAttribute('data-asignar')) {
-      const p = sinUb(fila.dataset.prod); if (!p) return;
-      const n = leerCant(fila.querySelector('[data-cant]'), Number(p.pendiente)); if (n == null) return;
-      const idUb = fila.querySelector('[data-dest]').value;
-      const dest = ubicaciones().find(x => String(x.id) === idUb); if (!dest) return;
-      const actual = ((dest.productos || []).find(x => String(x.idProducto) === String(p.idProducto)) || {}).cantidad || 0;
-      abiertas.add(dest.id);
-      asignar(dest.id, p.idProducto, Number(actual) + n, `Asignado a "${dest.nombre}"`);
     }
   });
   root.addEventListener('input', e => {
@@ -217,6 +194,6 @@
   });
   root.addEventListener('keydown', e => {
     if (e.key === 'Escape' && e.target.matches('[data-buscar]')) { e.target.value = ''; resultados(e.target.closest('[data-ub]'), ''); }
-    if (e.key === 'Enter' && e.target.matches('[data-cant]')) { const b = e.target.closest('tr,li').querySelector('button[data-agregar],button[data-guardar],button[data-asignar]'); if (b) b.click(); }
+    if (e.key === 'Enter' && e.target.matches('[data-cant]')) { const b = e.target.closest('tr,li').querySelector('button[data-agregar],button[data-guardar]'); if (b) b.click(); }
   });
 })();

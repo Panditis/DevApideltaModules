@@ -48,7 +48,7 @@
       <div class="scroll-tabla"><table class="tabla"><thead><tr>
         <th scope="col" class="num" style="width:90px">Código</th><th scope="col">Descripción</th>
         <th scope="col" class="num" style="width:120px">Stock origen</th><th scope="col" class="num" style="width:120px">Stock destino</th>
-        <th scope="col" class="num" style="width:130px">Cantidad</th><th scope="col" style="width:90px"><span class="sr-only">Quitar</span></th></tr></thead>
+        <th scope="col" style="width:200px">Ubicación</th><th scope="col" class="num" style="width:130px">Cantidad</th><th scope="col" style="width:90px"><span class="sr-only">Quitar</span></th></tr></thead>
         <tbody id="${k}-cuerpo"></tbody></table></div>
       <div class="mt-3"><label class="lbl" for="${k}-usuario">Usuario responsable</label>
         <select id="${k}-usuario" class="ctl" required><option value="">Cargando usuarios…</option></select></div>
@@ -74,11 +74,12 @@
         const tope = Math.max(0, Number(p.stockOrigen) || 0);
         return `<tr data-id="${esc(id)}"><td class="num">${esc(id)}</td><td>${esc(p.descripcion || '')}</td>
           <td class="num">${p.stockOrigen == null ? '—' : fmt(p.stockOrigen)}</td><td class="num">${p.stockDestino == null ? '—' : fmt(p.stockDestino)}</td>
+          <td>${P.ubicaciones.html(id)}</td>
           <td class="num"><input type="number" class="ctl qty" data-qty min="0" max="${esc(tope)}" step="any" inputmode="decimal"
             aria-label="Cantidad a ${preset.verbo} de ${esc(p.descripcion || id)}" value="${esc(c)}"${Number(c) > tope ? ' aria-invalid="true"' : ''}></td>
           <td class="num"><button type="button" class="btn btn-rem" data-quitar aria-label="Quitar ${esc(p.descripcion || id)} del listado">Quitar</button></td></tr>`;
       }).join('')
-        : '<tr><td colspan="6"><div class="vacio">Todavía no agregaste productos. Buscá arriba y agregalos.</div></td></tr>';
+        : '<tr><td colspan="7"><div class="vacio">Todavía no agregaste productos. Buscá arriba y agregalos.</div></td></tr>';
       contar();
       if (foco != null) { const i = q('cuerpo').querySelector(`tr[data-id="${foco}"] [data-qty]`); if (i) i.focus(); }
     }
@@ -105,6 +106,7 @@
         return `<li id="${k}-r${i}" role="option" class="res-it${i === activo ? ' act' : ''}" data-i="${i}" aria-selected="${i === activo}" aria-disabled="${!!razon}">
           <span class="num">${esc(p.idProducto)}</span><span class="grow">${esc(p.descripcion)}</span>
           <span class="st">Origen <b>${fmt(p.stockOrigen)}</b></span><span class="st">Destino <b>${fmt(p.stockDestino)}</b></span>
+          <span class="st">Ubicación <b>${P.ubicaciones.html(p.idProducto)}</b></span>
           ${razon ? `<span class="btn btn-rem" aria-disabled="true" style="opacity:.55">${razon}</span>`
             : '<button type="button" class="btn btn-rem" data-agregar tabindex="-1">Agregar</button>'}</li>`;
       }).join('');
@@ -143,7 +145,7 @@
       const mio = ++pedido;
       if (!origen || !destino) { renderLista(); return; }
       if (origen === destino) { renderLista(); error('El origen y el destino no pueden ser el mismo depósito.'); return; }
-      q('cuerpo').innerHTML = `<tr><td colspan="6">${sk(2)}</td></tr>`;
+      q('cuerpo').innerHTML = `<tr><td colspan="7">${sk(2)}</td></tr>`;
       try {
         const r = await api(`/api/proarmet/productos?origen=${origen}&destino=${destino}`);
         if (mio !== pedido) return;
@@ -213,6 +215,7 @@
           lineas: body.lineas.map(l => ({ ...l, descripcion: (catalogo.find(p => p.idProducto === l.idProducto) || {}).descripcion || null })),
         };
         lista.clear(); renderLista(); q('desc').value = '';
+        P.ubicaciones.cargar(true); // refresca el mapa vigente
         P.movimientoHecho();
         P.imprimirRemito(remito);
         cargarCatalogo(); // cambiaron los stocks de origen y destino
@@ -238,6 +241,7 @@
         q('desc').value = ''; q('buscar').value = ''; lista.clear(); renderLista();
       }
       cargarCatalogo();
+      P.ubicaciones.cargar().then(() => { renderLista(); if (resultados.length) pintarRes(); });
     }
     const invalidar = () => { iniciado = false; catalogo = null; };
 

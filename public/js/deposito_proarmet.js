@@ -39,6 +39,35 @@
   const idControlado = () => Number($('selControlado').value) || null;
   const nombreDep = id => ((deps && deps.depositos.find(d => d.idDeposito === id)) || {}).nombre || '';
 
+  // ── Ubicaciones del depósito controlado: una sola carga compartida (tab Ubicaciones, Ingresar, Devolver, remito) ──
+  // cargar(forzar) -> Promise<{ubicaciones:[...]}|null>; si falla resuelve null y el resto sigue sin ubicaciones.
+  let ubicP = null, ubicId = null, ubicMapa = new Map();
+  const ubicaciones = {
+    cargar(forzar) {
+      const id = idControlado();
+      if (!id) { ubicP = null; ubicMapa = new Map(); return Promise.resolve(null); }
+      if (!forzar && ubicP && ubicId === id) return ubicP;
+      ubicId = id;
+      const p = api(`/api/proarmet/ubicaciones?idDeposito=${id}`).then(r => {
+        if (ubicP !== p) return r;
+        const m = new Map();
+        for (const u of (r && r.ubicaciones) || []) for (const pr of u.productos || []) {
+          const k = String(pr.idProducto);
+          if (!m.has(k)) m.set(k, []);
+          m.get(k).push({ nombre: u.nombre, cantidad: pr.cantidad });
+        }
+        ubicMapa = m;
+        return r;
+      }).catch(() => { if (ubicP === p) { ubicP = null; ubicMapa = new Map(); } return null; });
+      ubicP = p;
+      return p;
+    },
+    invalidar() { ubicP = null; ubicMapa = new Map(); },
+    // Texto plano "Estante A (12), Pasillo 2 (3)" o '' si el producto no está en ninguna ubicación.
+    texto: id => (ubicMapa.get(String(id)) || []).map(u => `${u.nombre} (${fmt(u.cantidad)})`).join(', '),
+    html(id) { const t = this.texto(id); return t ? esc(t) : '<span class="text-gris">Sin ubicación</span>'; },
+  };
+
   // ── Stock (solo consulta) ─────────────────────────────────────────────
   function renderStock() {
     if (!stock) return;
@@ -132,14 +161,15 @@
         <tr><th>Tipo</th><td>${esc(d.tipo || '-')}</td><th>Responsable</th><td>${esc(d.usuario || '-')}</td></tr>
         <tr><th>Origen</th><td>${esc(d.depOrigenNombre)}</td><th>Destino</th><td>${esc(d.depDestinoNombre)}</td></tr>
         <tr><th>Descripción</th><td colspan="3">${esc(d.descripcion)}</td></tr></table>
-      <table class="rm-items"><thead><tr><th style="width:90px">Código</th><th>Producto</th><th class="num" style="width:90px">Cantidad</th></tr></thead>
-        <tbody>${ls.map(l => `<tr><td>${esc(l.idProducto)}</td><td>${esc(l.descripcion || '')}</td><td class="num">${fmt(l.cantidad)}</td></tr>`).join('')}</tbody></table>
+      <table class="rm-items"><thead><tr><th style="width:90px">Código</th><th>Producto</th><th style="width:200px">${esc(d.ubicRotulo || 'Ubicación')}</th><th class="num" style="width:90px">Cantidad</th></tr></thead>
+        <tbody>${ls.map(l => `<tr><td>${esc(l.idProducto)}</td><td>${esc(l.descripcion || '')}</td><td>${esc(ubicaciones.texto(l.idProducto) || 'Sin ubicación')}</td><td class="num">${fmt(l.cantidad)}</td></tr>`).join('')}</tbody></table>
       <div class="rm-cierre"><p class="rm-total">Movimiento Nº ${esc(d.numeroMovimiento)} · Total: ${ls.length} línea${ls.length === 1 ? '' : 's'}</p>
       <div class="rm-firmas">${firma('Entrega', d.usuario)}${firma('Recibe', '')}</div></div>`;
   }
   // Imprime después de pintar el DOM; un fallo de impresión no afecta al movimiento ya registrado.
-  function imprimirRemito(d) {
+  async function imprimirRemito(d) {
     try {
+      await ubicaciones.cargar(); // cacheado; si falla, el remito sale sin ubicaciones
       renderRemito(d);
       document.body.classList.add('imprimiendo');
       window.addEventListener('afterprint', () => document.body.classList.remove('imprimiendo'), { once: true });
@@ -173,6 +203,7 @@
   }
   function cambioDeposito() {
     for (const k of ['stock', 'historial']) cargada[k] = false;
+    ubicaciones.invalidar();
     for (const m of Object.values(window.Proarmet.movs)) m.invalidar();
     $('titulo').textContent = (nombreDep(idControlado()) || 'Depósito Proarmet').toUpperCase();
     cargarTab(tab);
@@ -198,7 +229,7 @@
   }
 
   window.Proarmet = {
-    $, esc, fmt, norm, sk, api, toast, idControlado, movimientoHecho, imprimirRemito, nombreDep,
+    $, esc, fmt, norm, sk, api, toast, idControlado, ubicaciones, movimientoHecho, imprimirRemito, nombreDep,
     getDeps: () => deps, movs: {},
   };
 
@@ -216,7 +247,7 @@
   function remitoDeHist(i) {
     const m = hist && hist[i];
     if (!m) return;
-    imprimirRemito({ ...m, tipo: m.tipoMovimiento || (deps && deps.tipoMovimiento) || '', depOrigenNombre: m.depOrigenNombre || nombreDep(m.depOrigen), depDestinoNombre: m.depDestinoNombre || nombreDep(m.depDestino) });
+    imprimirRemito({ ...m, tipo: m.tipoMovimiento || (deps && deps.tipoMovimiento) || '', depOrigenNombre: m.depOrigenNombre || nombreDep(m.depOrigen), depDestinoNombre: m.depDestinoNombre || nombreDep(m.depDestino), ubicRotulo: 'Ubicación actual' });
   }
   $('histCuerpo').addEventListener('click', e => {
     const b = e.target.closest('[data-remito]');
