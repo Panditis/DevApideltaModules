@@ -30,40 +30,42 @@ test('validarAsignacion', () => {
   assert.ok(u.validarAsignacion({ idProducto: '1', cantidad: -1 }).error);
   assert.ok(u.validarAsignacion({ idProducto: '1', cantidad: '' }).error);
   assert.ok(u.validarAsignacion({ idProducto: '1', cantidad: Infinity }).error);
+  assert.match(u.validarAsignacion({ idProducto: '1', cantidad: 1.2345 }).error, /3 decimales/);
+  assert.strictEqual(u.validarAsignacion({ idProducto: '1', cantidad: 1.234 }).cantidad, 1.234);
   assert.deepStrictEqual(u.validarAsignacion({ idProducto: 12, cantidad: '1.5' }), { idProducto: '12', cantidad: 1.5 });
 });
 
-test('asignar: suma por depósito ≤ stock, 0 quita, borrar con forzar', () => {
+test('asignar: sin tope, mismo producto en varias ubicaciones, 0 quita, borrar con forzar', () => {
   let d = u.crear(V, 7, { nombre: 'A' }, 'a', 't').datos;
   d = u.crear(d, 7, { nombre: 'B' }, 'b', 't').datos;
-  d = u.crear(d, 8, { nombre: 'C' }, 'c', 't').datos;
-  let r = u.asignar(d, 'a', 'P1', 6, 10);
-  assert.strictEqual(r.disponible, 4);
-  d = r.datos;
-  d = u.asignar(d, 'c', 'P1', 9, 10).datos; // otro depósito: no suma
-  assert.match(u.asignar(d, 'b', 'P1', 5, 10).error, /disponible 4/);
-  r = u.asignar(d, 'b', 'P1', 4, 10);
-  assert.strictEqual(r.disponible, 0);
-  d = u.asignar(r.datos, 'a', 'P1', 2.5, 10).datos; // upsert
+  d = u.asignar(d, 'a', 'P1', 600).datos;
+  d = u.asignar(d, 'b', 'P1', 4).datos;
+  assert.deepStrictEqual(d.asignaciones, [{ idUbicacion: 'a', idProducto: 'P1', cantidad: 600 }, { idUbicacion: 'b', idProducto: 'P1', cantidad: 4 }]);
+  d = u.asignar(d, 'a', 'P1', 2.5).datos; // upsert
   assert.strictEqual(d.asignaciones.find(x => x.idUbicacion === 'a').cantidad, 2.5);
-  d = u.asignar(d, 'a', 'P1', 0, 0).datos;
+  assert.match(u.asignar(d, 'zz', 'P1', 1).error, /no existe/);
+  d = u.asignar(d, 'a', 'P1', 0).datos;
   assert.ok(!d.asignaciones.some(x => x.idUbicacion === 'a'));
   assert.match(u.borrar(d, 'b', false).error, /1 producto/);
   const sin = u.borrar(d, 'b', true).datos;
   assert.ok(!sin.ubicaciones.some(x => x.id === 'b') && !sin.asignaciones.some(x => x.idUbicacion === 'b'));
 });
 
-test('vista: totales, excedido y sinUbicar', () => {
-  let d = u.crear(V, 7, { nombre: 'A' }, 'a', 't').datos;
-  d = u.asignar(d, 'a', 'P1', 3, 10).datos;
-  d = u.asignar(d, 'a', 'P2', 5, 5).datos;
-  const v = u.vista(d, 7, [{ idProducto: 'P1', descripcion: 'Uno', stock: 10 }, { idProducto: 'P2', descripcion: 'Dos', stock: 2 }, { idProducto: 'P3', descripcion: 'Tres', stock: 0 }]);
+test('vista: totales, descripciones y orden por nombre', () => {
+  let d = u.crear(V, 7, { nombre: 'B' }, 'b', 't').datos;
+  d = u.crear(d, 7, { nombre: 'A' }, 'a', 't').datos;
+  d = u.crear(d, 8, { nombre: 'C' }, 'c', 't').datos;
+  d = u.asignar(d, 'a', 'P1', 3).datos;
+  d = u.asignar(d, 'a', 'P2', 5).datos;
+  d = u.asignar(d, 'b', 'P1', 1).datos;
+  const v = u.vista(d, 7, new Map([['P1', 'Uno']]));
+  assert.deepStrictEqual(Object.keys(v), ['ubicaciones']);
+  assert.deepStrictEqual(v.ubicaciones.map(x => x.nombre), ['A', 'B']);
   assert.strictEqual(v.ubicaciones[0].totalProductos, 2);
   assert.strictEqual(v.ubicaciones[0].totalUnidades, 8);
   assert.deepStrictEqual(v.ubicaciones[0].productos, [
     { idProducto: 'P1', descripcion: 'Uno', cantidad: 3 },
-    { idProducto: 'P2', descripcion: 'Dos', cantidad: 5, excedido: true }]);
-  assert.deepStrictEqual(v.sinUbicar, [{ idProducto: 'P1', descripcion: 'Uno', stock: 10, asignado: 3, pendiente: 7 }]);
+    { idProducto: 'P2', descripcion: null, cantidad: 5 }]);
 });
 
 test('sanear descarta basura y asignaciones huérfanas', () => {
@@ -77,7 +79,8 @@ test('rutas: CRUD y asignación contra SIGA falso', async () => {
   const sqls = [];
   const query = async q => {
     sqls.push(q);
-    if (q.includes('ProductosDepositos')) return q.includes("IdProducto = 'P1'") || !q.includes("pd.IdProducto = '") ? [{ idProducto: 'P1', descripcion: 'Uno', stock: 5 }] : [];
+    if (q.includes('Activo')) return q.includes("'P1'") ? [{ activo: 1 }] : q.includes("'P9'") ? [{ activo: 0 }] : [];
+    if (q.includes('IdProducto IN')) return [{ idProducto: 'P1', descripcion: 'Uno' }];
     return [];
   };
   const app = express();
@@ -96,11 +99,13 @@ test('rutas: CRUD y asignación contra SIGA falso', async () => {
     assert.ok(ok && id);
     assert.match((await pedir('POST', '/api/proarmet/ubicacion', { idDeposito: 7, nombre: 'a' })).error, /Ya existe/);
     assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}`, { nombre: 'Estante', descripcion: 'd' }), { ok: true });
-    assert.match((await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P1', cantidad: 6 })).error, /disponible 5/);
-    assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P1', cantidad: 2 }), { ok: true, disponible: 3 });
+    assert.match((await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P2', cantidad: 1 })).error, /no existe/);
+    assert.match((await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P9', cantidad: 1 })).error, /inactivo/);
+    assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P1', cantidad: 999 }), { ok: true }); // sin stock: OK
     const v = await pedir('GET', '/api/proarmet/ubicaciones?idDeposito=7');
     assert.strictEqual(v.ubicaciones[0].nombre, 'Estante');
-    assert.deepStrictEqual(v.sinUbicar, [{ idProducto: 'P1', descripcion: 'Uno', stock: 5, asignado: 2, pendiente: 3 }]);
+    assert.deepStrictEqual(v, { ubicaciones: [{ id, nombre: 'Estante', descripcion: 'd', totalProductos: 1, totalUnidades: 999, productos: [{ idProducto: 'P1', descripcion: 'Uno', cantidad: 999 }] }] });
+    assert.ok(!sqls.some(q => q.includes('ProductosDepositos')));
     assert.match((await pedir('GET', '/api/proarmet/ubicaciones?idDeposito=99')).error, /activo/);
     assert.match((await pedir('DELETE', `/api/proarmet/ubicacion/${id}`)).error, /asignado/);
     assert.deepStrictEqual(await pedir('DELETE', `/api/proarmet/ubicacion/${id}?forzar=1`), { ok: true });

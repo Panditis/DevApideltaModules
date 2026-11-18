@@ -158,26 +158,19 @@ module.exports = function crearRutasProarmet(deps) {
 
   // ── Ubicaciones (secciones físicas del depósito) ─ persistencia propia en JSON, no toca SIGA.
   const UBIC_PATH = path.join(deps.DATA_DIR || path.join(__dirname, '..', 'data'), 'proarmet_ubicaciones.json');
-  const stockDeposito = (suc, dep, filtro = '') => query(`SELECT RTRIM(pd.IdProducto) AS idProducto, RTRIM(p.NombreProducto) AS descripcion, SUM(pd.Stock) AS stock
-      FROM ProductosDepositos pd INNER JOIN Productos p ON p.IdProducto = pd.IdProducto
-      WHERE pd.IdSucursal = ${suc} AND pd.IdDeposito = ${dep}${filtro}
-      GROUP BY pd.IdProducto, p.NombreProducto`);
-
   router.get('/api/proarmet/ubicaciones', apiRoute(async req => {
     const ctx = await contexto();
     const pedido = req.query.idDeposito;
     const tieneParam = pedido !== undefined && pedido !== '';
     const idDep = tieneParam ? depValido(ctx, pedido) : ctx.defaultControlado;
     if (tieneParam && idDep === null) return { error: `El depósito ${pedido} no está activo en la sucursal ${ctx.c.idSucursal}` };
-    if (idDep === null) return { ubicaciones: [], sinUbicar: [] };
+    if (idDep === null) return { ubicaciones: [] };
     const datos = await ubic.leer(UBIC_PATH);
-    const stock = await stockDeposito(ctx.c.idSucursal, idDep);
-    const conStock = new Set(stock.map(s => String(s.idProducto).trim()));
-    const faltan = ubic.idsAsignados(datos, idDep).filter(id => !conStock.has(id) && ubic.PLU_RE.test(id));
-    const filas = faltan.length
-      ? await query(`SELECT RTRIM(IdProducto) AS idProducto, RTRIM(NombreProducto) AS descripcion FROM Productos WHERE IdProducto IN (${faltan.map(id => `'${id}'`).join(',')})`)
+    const ids = ubic.idsAsignados(datos, idDep).filter(id => ubic.PLU_RE.test(id));
+    const filas = ids.length
+      ? await query(`SELECT RTRIM(IdProducto) AS idProducto, RTRIM(NombreProducto) AS descripcion FROM Productos WHERE IdProducto IN (${ids.map(id => `'${id}'`).join(',')})`)
       : [];
-    return ubic.vista(datos, idDep, stock, new Map(filas.map(f => [String(f.idProducto).trim(), f.descripcion])));
+    return ubic.vista(datos, idDep, new Map(filas.map(f => [String(f.idProducto).trim(), f.descripcion])));
   }));
 
   router.post('/api/proarmet/ubicacion', apiRoute(async req => {
@@ -206,14 +199,14 @@ module.exports = function crearRutasProarmet(deps) {
     if (!u) return { error: 'La ubicación no existe' };
     const ctx = await contexto();
     if (depValido(ctx, u.idDeposito) === null) return { error: `El depósito ${u.idDeposito} de la ubicación ya no está activo` };
-    let stock = 0;
     if (v.cantidad > 0) {
-      const filas = await stockDeposito(ctx.c.idSucursal, u.idDeposito, ` AND pd.IdProducto = '${v.idProducto}'`);
-      stock = filas.length ? Number(filas[0].stock) || 0 : 0;
+      // PLU ya validado contra PLU_RE (alfanumérico), seguro de interpolar.
+      const filas = await query(`SELECT CAST(Activo AS int) AS activo FROM Productos WHERE IdProducto = '${v.idProducto}'`);
+      if (!filas.length) return { error: `El producto ${v.idProducto} no existe` };
+      if (!Number(filas[0].activo)) return { error: `El producto ${v.idProducto} está inactivo` };
     }
-    // ponytail: stock leído fuera de la cola; el chequeo de suma sí corre dentro (sin carreras entre asignaciones).
-    const r = await ubic.modificar(UBIC_PATH, d => ubic.asignar(d, req.params.id, v.idProducto, v.cantidad, stock));
-    return r.error ? { error: r.error } : { ok: true, disponible: r.disponible };
+    const r = await ubic.modificar(UBIC_PATH, d => ubic.asignar(d, req.params.id, v.idProducto, v.cantidad));
+    return r.error ? { error: r.error } : { ok: true };
   }));
 
   return router;
