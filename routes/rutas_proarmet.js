@@ -199,13 +199,18 @@ module.exports = function crearRutasProarmet(deps) {
     if (!u) return { error: 'La ubicación no existe' };
     const ctx = await contexto();
     if (depValido(ctx, u.idDeposito) === null) return { error: `El depósito ${u.idDeposito} de la ubicación ya no está activo` };
-    if (v.cantidad > 0) {
-      // PLU ya validado contra PLU_RE (alfanumérico), seguro de interpolar.
-      const filas = await query(`SELECT CAST(Activo AS int) AS activo FROM Productos WHERE IdProducto = '${v.idProducto}'`);
-      if (!filas.length) return { error: `El producto ${v.idProducto} no existe` };
-      if (!Number(filas[0].activo)) return { error: `El producto ${v.idProducto} está inactivo` };
-    }
-    const r = await ubic.modificar(UBIC_PATH, d => ubic.asignar(d, req.params.id, v.idProducto, v.cantidad));
+    // PLU ya validado contra PLU_RE (alfanumérico), seguro de interpolar.
+    const filas = await query(`SELECT CAST(Activo AS int) AS activo FROM Productos WHERE IdProducto = '${v.idProducto}'`);
+    if (!filas.length) return { error: `El producto ${v.idProducto} no existe` };
+    if (!Number(filas[0].activo)) return { error: `El producto ${v.idProducto} está inactivo` };
+    const r = await ubic.modificar(UBIC_PATH, d => ubic.asignar(d, req.params.id, v.idProducto));
+    return r.error ? { error: r.error } : { ok: true };
+  }));
+
+  router.delete('/api/proarmet/ubicacion/:id/producto/:idProducto', apiRoute(async req => {
+    const v = ubic.validarAsignacion({ idProducto: req.params.idProducto });
+    if (v.error) return v;
+    const r = await ubic.modificar(UBIC_PATH, d => ubic.quitar(d, req.params.id, v.idProducto));
     return r.error ? { error: r.error } : { ok: true };
   }));
 

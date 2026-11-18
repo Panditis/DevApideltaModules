@@ -25,27 +25,24 @@ test('crear/editar: nombre obligatorio, ≤40, único CI por depósito', () => {
   assert.strictEqual(V.ubicaciones.length, 0); // no muta
 });
 
-test('validarAsignacion', () => {
-  assert.ok(u.validarAsignacion({ idProducto: "1'; --", cantidad: 1 }).error);
-  assert.ok(u.validarAsignacion({ idProducto: '1', cantidad: -1 }).error);
-  assert.ok(u.validarAsignacion({ idProducto: '1', cantidad: '' }).error);
-  assert.ok(u.validarAsignacion({ idProducto: '1', cantidad: Infinity }).error);
-  assert.match(u.validarAsignacion({ idProducto: '1', cantidad: 1.2345 }).error, /3 decimales/);
-  assert.strictEqual(u.validarAsignacion({ idProducto: '1', cantidad: 1.234 }).cantidad, 1.234);
-  assert.deepStrictEqual(u.validarAsignacion({ idProducto: 12, cantidad: '1.5' }), { idProducto: '12', cantidad: 1.5 });
+test('validarAsignacion: solo PLU saneado', () => {
+  assert.ok(u.validarAsignacion({ idProducto: "1'; --" }).error);
+  assert.ok(u.validarAsignacion({ idProducto: '' }).error);
+  assert.deepStrictEqual(u.validarAsignacion({ idProducto: 12, cantidad: 5 }), { idProducto: '12' });
 });
 
-test('asignar: sin tope, mismo producto en varias ubicaciones, 0 quita, borrar con forzar', () => {
+test('asignar/quitar: idempotente, mismo PLU en varias ubicaciones, borrar con forzar', () => {
   let d = u.crear(V, 7, { nombre: 'A' }, 'a', 't').datos;
   d = u.crear(d, 7, { nombre: 'B' }, 'b', 't').datos;
-  d = u.asignar(d, 'a', 'P1', 600).datos;
-  d = u.asignar(d, 'b', 'P1', 4).datos;
-  assert.deepStrictEqual(d.asignaciones, [{ idUbicacion: 'a', idProducto: 'P1', cantidad: 600 }, { idUbicacion: 'b', idProducto: 'P1', cantidad: 4 }]);
-  d = u.asignar(d, 'a', 'P1', 2.5).datos; // upsert
-  assert.strictEqual(d.asignaciones.find(x => x.idUbicacion === 'a').cantidad, 2.5);
-  assert.match(u.asignar(d, 'zz', 'P1', 1).error, /no existe/);
-  d = u.asignar(d, 'a', 'P1', 0).datos;
+  d = u.asignar(d, 'a', 'P1').datos;
+  d = u.asignar(d, 'b', 'P1').datos;
+  d = u.asignar(d, 'a', 'P1').datos; // idempotente
+  assert.deepStrictEqual(d.asignaciones, [{ idUbicacion: 'a', idProducto: 'P1' }, { idUbicacion: 'b', idProducto: 'P1' }]);
+  assert.match(u.asignar(d, 'zz', 'P1').error, /no existe/);
+  assert.match(u.quitar(d, 'zz', 'P1').error, /no existe/);
+  d = u.quitar(d, 'a', 'P1').datos;
   assert.ok(!d.asignaciones.some(x => x.idUbicacion === 'a'));
+  assert.strictEqual(u.quitar(d, 'a', 'P1').datos.asignaciones.length, 1); // ok aunque no esté
   assert.match(u.borrar(d, 'b', false).error, /1 producto/);
   const sin = u.borrar(d, 'b', true).datos;
   assert.ok(!sin.ubicaciones.some(x => x.id === 'b') && !sin.asignaciones.some(x => x.idUbicacion === 'b'));
@@ -55,23 +52,28 @@ test('vista: totales, descripciones y orden por nombre', () => {
   let d = u.crear(V, 7, { nombre: 'B' }, 'b', 't').datos;
   d = u.crear(d, 7, { nombre: 'A' }, 'a', 't').datos;
   d = u.crear(d, 8, { nombre: 'C' }, 'c', 't').datos;
-  d = u.asignar(d, 'a', 'P1', 3).datos;
-  d = u.asignar(d, 'a', 'P2', 5).datos;
-  d = u.asignar(d, 'b', 'P1', 1).datos;
+  d = u.asignar(d, 'a', 'P2').datos;
+  d = u.asignar(d, 'a', 'P10').datos;
+  d = u.asignar(d, 'a', 'P1').datos;
+  d = u.asignar(d, 'b', 'P1').datos;
   const v = u.vista(d, 7, new Map([['P1', 'Uno']]));
   assert.deepStrictEqual(Object.keys(v), ['ubicaciones']);
   assert.deepStrictEqual(v.ubicaciones.map(x => x.nombre), ['A', 'B']);
-  assert.strictEqual(v.ubicaciones[0].totalProductos, 2);
-  assert.strictEqual(v.ubicaciones[0].totalUnidades, 8);
+  assert.strictEqual(v.ubicaciones[0].totalProductos, 3);
+  assert.ok(!('totalUnidades' in v.ubicaciones[0]));
   assert.deepStrictEqual(v.ubicaciones[0].productos, [
-    { idProducto: 'P1', descripcion: 'Uno', cantidad: 3 },
-    { idProducto: 'P2', descripcion: null, cantidad: 5 }]);
+    { idProducto: 'P1', descripcion: 'Uno' }, { idProducto: 'P2', descripcion: null }, { idProducto: 'P10', descripcion: null }]);
 });
 
 test('sanear descarta basura y asignaciones huérfanas', () => {
   const s = u.sanear({ ubicaciones: [{ id: 'a', idDeposito: 7, nombre: 'A' }, { id: 1 }], asignaciones: [{ idUbicacion: 'a', idProducto: 'P', cantidad: 1 }, { idUbicacion: 'x', idProducto: 'P', cantidad: 1 }, { idUbicacion: 'a', idProducto: 'P', cantidad: 0 }] });
   assert.strictEqual(s.ubicaciones.length, 1);
-  assert.strictEqual(s.asignaciones.length, 1);
+  assert.deepStrictEqual(s.asignaciones, [{ idUbicacion: 'a', idProducto: 'P' }]);
+});
+
+test('sanear: datos viejos con cantidad se ignoran y deduplican', () => {
+  const s = u.sanear({ ubicaciones: [{ id: 'a', idDeposito: 7, nombre: 'A' }], asignaciones: [{ idUbicacion: 'a', idProducto: 'P', cantidad: 3 }, { idUbicacion: 'a', idProducto: 'P', cantidad: 2 }, { idUbicacion: 'a', idProducto: 'Q' }] });
+  assert.deepStrictEqual(s.asignaciones, [{ idUbicacion: 'a', idProducto: 'P' }, { idUbicacion: 'a', idProducto: 'Q' }]);
 });
 
 test('rutas: CRUD y asignación contra SIGA falso', async () => {
@@ -99,15 +101,20 @@ test('rutas: CRUD y asignación contra SIGA falso', async () => {
     assert.ok(ok && id);
     assert.match((await pedir('POST', '/api/proarmet/ubicacion', { idDeposito: 7, nombre: 'a' })).error, /Ya existe/);
     assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}`, { nombre: 'Estante', descripcion: 'd' }), { ok: true });
-    assert.match((await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P2', cantidad: 1 })).error, /no existe/);
-    assert.match((await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P9', cantidad: 1 })).error, /inactivo/);
-    assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P1', cantidad: 999 }), { ok: true }); // sin stock: OK
+    assert.match((await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P2' })).error, /no existe/);
+    assert.match((await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P9' })).error, /inactivo/);
+    assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P1' }), { ok: true });
+    assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P1' }), { ok: true }); // idempotente
     const v = await pedir('GET', '/api/proarmet/ubicaciones?idDeposito=7');
     assert.strictEqual(v.ubicaciones[0].nombre, 'Estante');
-    assert.deepStrictEqual(v, { ubicaciones: [{ id, nombre: 'Estante', descripcion: 'd', totalProductos: 1, totalUnidades: 999, productos: [{ idProducto: 'P1', descripcion: 'Uno', cantidad: 999 }] }] });
+    assert.deepStrictEqual(v, { ubicaciones: [{ id, nombre: 'Estante', descripcion: 'd', totalProductos: 1, productos: [{ idProducto: 'P1', descripcion: 'Uno' }] }] });
+    assert.deepStrictEqual(await pedir('DELETE', '/api/proarmet/ubicacion/zz/producto/P1'), { error: 'La ubicación no existe' });
     assert.ok(!sqls.some(q => q.includes('ProductosDepositos')));
     assert.match((await pedir('GET', '/api/proarmet/ubicaciones?idDeposito=99')).error, /activo/);
     assert.match((await pedir('DELETE', `/api/proarmet/ubicacion/${id}`)).error, /asignado/);
+    assert.deepStrictEqual(await pedir('DELETE', `/api/proarmet/ubicacion/${id}/producto/P1`), { ok: true });
+    assert.deepStrictEqual(await pedir('DELETE', `/api/proarmet/ubicacion/${id}/producto/P1`), { ok: true });
+    assert.deepStrictEqual(await pedir('PUT', `/api/proarmet/ubicacion/${id}/producto`, { idProducto: 'P1' }), { ok: true });
     assert.deepStrictEqual(await pedir('DELETE', `/api/proarmet/ubicacion/${id}?forzar=1`), { ok: true });
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'proarmet_ubicaciones.json'), 'utf8')), V);
   } finally { server.closeAllConnections(); server.close(); }
