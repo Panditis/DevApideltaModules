@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos, nombreUsuario } = require('../lib/proarmet');
+const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos, usuarioMovimiento } = require('../lib/proarmet');
 
 test('cfg: defaults y central desde reserva', () => {
   assert.deepStrictEqual(cfgProarmet(undefined, 1), { idSucursal: 1, idDeposito: 'DepositoProarmet', idDepositoCentral: 1, idTipoMovimiento: 'BIENESUSO' });
@@ -58,11 +58,16 @@ test('historialMovimientos: filtra, ordena, normaliza', () => {
   assert.strictEqual(historialMovimientos(log, { idSucursal: 1, idDeposito: 4, limit: 1, nombres: new Map() }).length, 1);
 });
 
-test('nombreUsuario: valida contra activos y recorta', () => {
-  const us = [{ id: '3', nombre: 'Juan Perez Gomez' }, { id: '7', nombre: 'Ana' }];
-  assert.strictEqual(nombreUsuario(us, 7, 10), 'Ana');
-  assert.strictEqual(nombreUsuario(us, ' 3 ', 10), 'Juan Perez');
-  assert.strictEqual(nombreUsuario(us, '9', 10), null);
-  assert.strictEqual(nombreUsuario(us, undefined, 10), null);
-  assert.strictEqual(nombreUsuario(us, '', 10), null);
+test('usuarioMovimiento: graba el id, valida contra activos y no trunca', () => {
+  const us = [{ id: '3', nombre: 'Juan Perez Gomez' }, { id: '7', nombre: 'Ana' }, { id: 'ABCDEFGHIJK', nombre: 'Largo' }];
+  assert.deepStrictEqual(usuarioMovimiento(us, 7, 10), { usuario: '7' });
+  assert.deepStrictEqual(usuarioMovimiento(us, ' 3 ', 10), { usuario: '3' });
+  for (const v of ['9', undefined, '']) assert.ok(usuarioMovimiento(us, v, 10).error);
+  assert.match(usuarioMovimiento(us, 'ABCDEFGHIJK', 10).error, /supera los 10/);
+});
+
+test('historialMovimientos: resuelve id de usuario a nombre, deja tal cual lo viejo', () => {
+  const log = ['3', 'Juan Viejo', null].map((usuario, i) => ({ id: String(i), origen: 'traslado', idSucursal: 1, depOrigen: 1, depDestino: 4, usuario, lineas: [] }));
+  const r = historialMovimientos(log, { idSucursal: 1, idDeposito: 4, limit: 10, nombres: new Map(), usuarios: new Map([['3', 'Juan Perez Gomez']]) });
+  assert.deepStrictEqual(r.map(m => m.usuario), [null, 'Juan Viejo', 'Juan Perez Gomez']);
 });

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const ubic = require('../lib/proarmet_ubicaciones');
-const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos, nombreUsuario } = require('../lib/proarmet');
+const { cfgProarmet, buscarDeposito, validarMovimiento, chequearLineas, historialMovimientos, usuarioMovimiento } = require('../lib/proarmet');
 const { SQL_USUARIOS } = require('./rutas_tickets');
 
 const USUARIOS_TTL_MS = 5 * 60 * 1000;
@@ -115,7 +115,9 @@ module.exports = function crearRutasProarmet(deps) {
     if (idDep === null) return { movimientos: [] };
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 500);
     const nombres = new Map(ctx.depositos.map(d => [d.idDeposito, d.nombre]));
-    const movimientos = historialMovimientos(leerMovLog(), { idSucursal: ctx.c.idSucursal, idDeposito: idDep, limit, nombres });
+    // Sin usuarios (SIGA caído y sin caché) el historial igual sale, mostrando el id grabado.
+    const usuarios = new Map((await usuariosActivos().catch(() => [])).map(u => [u.id, u.nombre]));
+    const movimientos = historialMovimientos(leerMovLog(), { idSucursal: ctx.c.idSucursal, idDeposito: idDep, limit, nombres, usuarios });
     // El log de Proarmet guarda nombre null: una sola query IN completa las descripciones (PLUs saneados).
     const faltan = [...new Set(movimientos.flatMap(m => m.lineas).filter(l => l.descripcion == null).map(l => l.idProducto))]
       .filter(id => /^[A-Za-z0-9_-]+$/.test(id));
@@ -129,8 +131,9 @@ module.exports = function crearRutasProarmet(deps) {
     const ctx = await contexto();
     const v = validarMovimiento(req.body, ctx.depositos.map(d => d.idDeposito));
     if (v.error) return v;
-    const usuario = nombreUsuario(await usuariosActivos(), req.body && req.body.idUsuario, USUARIO_MOV_MAX);
-    if (!usuario) return { error: 'Elegí el usuario responsable' };
+    const u = usuarioMovimiento(await usuariosActivos(), req.body && req.body.idUsuario, USUARIO_MOV_MAX);
+    if (u.error) return u;
+    const usuario = u.usuario;
     const idTipoMovimiento = ctx.c.idTipoMovimiento;
     if (!TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.includes(idTipoMovimiento)) {
       return { error: `proarmet.idTipoMovimiento inválido. Permitidos: ${TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.join(', ')}` };
