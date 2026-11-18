@@ -93,11 +93,16 @@ module.exports = function crearRutasProarmet(deps) {
       ${stockSub(suc, origen)} AS stockOrigen, ${stockSub(suc, destino)} AS stockDestino
     FROM Productos p WHERE ${filtro} ORDER BY p.NombreProducto`;
 
+  // Rubros que no entran al buscador. Se comparan sin espacios y con CI_AI (mayúsculas/acentos), como analisis_ventas.
+  const RUBROS_OCULTOS = ['Administracion', 'Almacen Bultos/Cajas', 'Pesables Fraccionado'];
+  const filtroRubros = `NOT EXISTS (SELECT 1 FROM Rubros r WHERE r.IdRubro = p.IdRubro
+      AND REPLACE(r.NombreRubro, ' ', '') COLLATE Latin1_General_CI_AI IN (${RUBROS_OCULTOS.map(r => `'${r.replace(/\s/g, '')}'`).join(', ')}))`;
+
   router.get('/api/proarmet/productos', apiRoute(async req => {
     const ctx = await contexto();
     const origen = depValido(ctx, req.query.origen), destino = depValido(ctx, req.query.destino);
     if (origen === null || destino === null) return { error: `origen y destino deben ser depósitos activos de la sucursal ${ctx.c.idSucursal}` };
-    const filas = await query(sqlProductos(ctx.c.idSucursal, origen, destino, 'p.Activo = 1'));
+    const filas = await query(sqlProductos(ctx.c.idSucursal, origen, destino, `p.Activo = 1 AND ${filtroRubros}`));
     return { productos: filas.map(f => ({ idProducto: f.idProducto, descripcion: f.descripcion, stockOrigen: Number(f.stockOrigen), stockDestino: Number(f.stockDestino) })) };
   }));
 
