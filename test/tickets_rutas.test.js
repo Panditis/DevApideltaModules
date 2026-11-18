@@ -848,3 +848,42 @@ test('los multipart que arma el front en su tope (5 archivos, nota vacía, nota 
     assert.strictEqual(archivosEn(ctx).length, 16);
   } finally { cerrar(ctx); }
 });
+
+test('POST /reordenar y /:id/destacar: permisos, errores y JSON guardado', async () => {
+  const ctx = await montar();
+  const { base, dir } = ctx;
+  const leer = () => JSON.parse(fs.readFileSync(path.join(dir, 'tickets.json'), 'utf8'));
+  try {
+    for (const p of ['media', 'media', 'alta']) await pedir(base, 'POST', '', { ...NUEVO, prioridad: p });
+    const antes = leer();
+    const r = await pedir(base, 'POST', '/reordenar', { id: 2, antesDe: 1 });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.length, 3);
+    const guardado = leer();
+    assert.deepStrictEqual(guardado.map(t => [t.id, t.orden]), [[1, 2], [2, 1], [3, 3]]);
+    assert.deepStrictEqual(guardado.map(t => t.historial), antes.map(t => t.historial));
+    assert.strictEqual((await pedir(base, 'POST', '/reordenar', { id: 1, antesDe: null })).status, 200);
+    assert.strictEqual((await pedir(base, 'POST', '/reordenar', { id: 1, antesDe: 3 })).status, 400);
+    assert.strictEqual((await pedir(base, 'POST', '/reordenar', { id: 9, antesDe: null })).status, 404);
+    assert.strictEqual((await pedir(base, 'POST', '/reordenar', { id: 'x' })).status, 400);
+
+    const d = await pedir(base, 'POST', '/1/destacar', { destacado: true });
+    assert.strictEqual(d.status, 200);
+    assert.strictEqual(d.data.destacado, true);
+    const t1 = leer().find(t => t.id === 1);
+    const a1 = antes.find(t => t.id === 1);
+    assert.strictEqual(t1.destacado, true);
+    assert.strictEqual(t1.actualizadoEn, a1.actualizadoEn);
+    assert.deepStrictEqual(t1.historial, a1.historial);
+    assert.strictEqual((await pedir(base, 'POST', '/1/destacar', { destacado: 'si' })).status, 400);
+    assert.strictEqual((await pedir(base, 'POST', '/9/destacar', { destacado: true })).status, 404);
+
+    ctx.sesion.permiso = false;
+    const p1 = await pedir(base, 'POST', '/reordenar', { id: 2, antesDe: null });
+    assert.strictEqual(p1.status, 403);
+    assert.match(p1.data.error, /reordenar/);
+    const p2 = await pedir(base, 'POST', '/1/destacar', { destacado: false });
+    assert.strictEqual(p2.status, 403);
+    assert.match(p2.data.error, /destacar/);
+  } finally { cerrar(ctx); }
+});

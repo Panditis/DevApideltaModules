@@ -219,6 +219,22 @@ module.exports = function crearRutasTickets(deps) {
     return ticket;
   }, 201));
 
+  // Orden manual dentro de una prioridad (antes de las rutas /:id). Responde la lista completa.
+  router.post(`${api}/reordenar`, manejar(req => {
+    if (!puedeGestionar(req)) throw prohibido('No tenés permiso para reordenar los tickets.');
+    const { id, antesDe } = req.body || {};
+    const { lista } = tickets.reordenarTicket(leerTickets(), idValido(id, 'ticket'), antesDe == null ? null : idValido(antesDe, 'ticket'));
+    guardarJSON(TICKETS_PATH, lista);
+    return lista;
+  }));
+
+  router.post(`${api}/:id/destacar`, manejar(req => {
+    if (!puedeGestionar(req)) throw prohibido('No tenés permiso para destacar tickets.');
+    const { lista, ticket } = tickets.destacarTicket(leerTickets(), idValido(req.params.id, 'ticket'), (req.body || {}).destacado);
+    guardarJSON(TICKETS_PATH, lista);
+    return ticket;
+  }));
+
   router.patch(`${api}/:id`, recibirArchivos, manejar(async req => {
     const id = idValido(req.params.id, 'ticket');
     const validos = (await listarUsuarios()).map(u => u.usuario);

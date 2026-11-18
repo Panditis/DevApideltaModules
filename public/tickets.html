@@ -124,6 +124,19 @@
 .tarjeta.e-cancelado,.tarjeta.e-terminado{background:#fbfcfa}
 
 /* ── Lista ─────────────────────────────────────────────────────────────── */
+.estrella{background:none;border:0;padding:0 3px;font-size:16px;line-height:1;color:#d99a00;border-radius:4px;vertical-align:middle;cursor:default}
+button.estrella{cursor:pointer}
+button.estrella:not(.on){color:#8a8d80;opacity:0}
+.tarjeta:hover .estrella,.tarjeta:focus-within .estrella,.tabla tr:hover .estrella,.tabla tr:focus-within .estrella,.estrella:focus-visible,#dCab .estrella{opacity:1!important}
+button.estrella:focus-visible{outline:2px solid var(--verde);outline-offset:1px}
+@media (hover:none){button.estrella:not(.on){opacity:1}}
+.grip{color:#b6b9ad;cursor:grab;margin-right:4px;font-size:12px;letter-spacing:-2px;user-select:none}
+.tarjeta.ins-antes::after,.tarjeta.ins-desp::after{content:'';position:absolute;left:0;right:0;height:3px;border-radius:2px;background:var(--verde);pointer-events:none}
+.tarjeta.ins-antes::after{top:-6px}
+.tarjeta.ins-desp::after{bottom:-6px}
+.tabla tr.ins-antes td{box-shadow:inset 0 3px 0 var(--verde)}
+.tabla tr.ins-desp td{box-shadow:inset 0 -3px 0 var(--verde)}
+.tabla tr.arrastrando{opacity:.4}
 .tabla{width:100%;border-collapse:collapse;font-size:14px}
 .tabla th{color:var(--gris);font-weight:600;font-size:11.5px;text-align:left;padding:10px 12px;border-bottom:1px solid var(--borde-s);background:#fafbf8}
 .tabla td{padding:10px 12px;border-bottom:1px solid var(--borde-s);vertical-align:middle}
@@ -498,6 +511,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
     <select id="flArea" class="ctl ctl-sm max-w-[170px]" aria-label="Filtrar por área"></select>
     <select id="flDest" class="ctl ctl-sm max-w-[170px]" aria-label="Filtrar por destinatario"></select>
     <label class="switch"><input type="checkbox" id="flMios" role="switch"> Solo asignados a mí</label>
+    <label class="switch"><input type="checkbox" id="flPrin" role="switch"> Solo principales <span class="estrella on" aria-hidden="true">★</span></label>
     <span id="conteo" class="text-sm text-gris tabular-nums"></span>
     <span id="avisoPermiso" class="hidden inline-flex items-center gap-1.5 text-xs text-gris">Solo lectura de estados · pedí el permiso Tickets · Gestión</span>
    </div>
@@ -518,6 +532,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
   </section>
 
   <section id="vistaLista" class="hidden" aria-label="Lista de tickets">
+    <p id="pistaOrden" class="text-xs text-gris mb-2" hidden></p>
     <div class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden">
       <table class="tabla">
         <thead>

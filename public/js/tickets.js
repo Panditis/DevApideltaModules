@@ -585,6 +585,7 @@
     const dest = comoLista(t.destinatarios);
     if ($('#flDest').value && !dest.some(u => mismoUsuario(u, $('#flDest').value))) return false;
     if ($('#flMios').checked && !dest.some(u => mismoUsuario(u, estado.meta.yo))) return false;
+    if ($('#flPrin').checked && t.destacado !== true) return false;
     const q = $('#flBuscar').value.trim().toLowerCase();
     if (!q) return true;
     return String(t.id) === q.replace(/^#/, '') || `${t.tarea} ${t.descripcion || ''}`.toLowerCase().includes(q);
@@ -605,12 +606,16 @@
     estado.filtroPrioridad = TODOS;
     ['#flBuscar', '#flArea', '#flDest'].forEach(s => { $(s).value = TODOS; });
     $('#flMios').checked = false;
+    $('#flPrin').checked = false;
     pintarSeguimiento();
   }
 
   // ── Orden ───────────────────────────────────────────────────────────────────
   function ordenDefault(a, b) {
-    return (rango('prioridades', b.prioridad) - rango('prioridades', a.prioridad)) || (tiempo(a.creadoEn) - tiempo(b.creadoEn));
+    const ord = t => (typeof t.orden === 'number' ? t.orden : Infinity); // sin orden (tickets viejos) va al final
+    return (rango('prioridades', b.prioridad) - rango('prioridades', a.prioridad))
+      || (ord(a) === ord(b) ? 0 : ord(a) < ord(b) ? -1 : 1)
+      || (tiempo(a.creadoEn) - tiempo(b.creadoEn)) || (Number(a.id) - Number(b.id));
   }
   function valorOrden(t, col) {
     if (col === 'prioridad') return rango('prioridades', t.prioridad);
@@ -681,7 +686,7 @@
     const clases = `tarjeta p-${esc(t.prioridad)} e-${esc(t.estado)}${estado.guardando.has(String(t.id)) ? ' guardando' : ''}${mover ? '' : ' fija'}${nl ? ' no-leido' : ''}`;
     return `<article class="${clases}" draggable="${mover}" tabindex="0" data-id="${esc(t.id)}"
       aria-label="${nl ? 'Con novedades. ' : ''}Ticket #${esc(t.id)}: ${esc(t.tarea)}. Prioridad ${esc(etiqueta('prioridades', t.prioridad))}, ${esc(etiqueta('estados', t.estado))}.">
-      <div class="fila1">${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span>' : ''}<span class="num">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}
+      <div class="fila1">${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span>' : ''}<span class="num">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}${estrella(t)}
         <span class="ml-auto" title="Creado el ${esc(fecha(t.creadoEn))}">${esc(haceCuanto(t.creadoEn))}</span></div>
       <div class="tit">${esc(t.tarea)}</div>
       <div class="fila3">${t.area ? `<span class="tag-area" title="${esc(t.area)}">${esc(t.area)}</span>` : ''}
@@ -718,10 +723,57 @@
   // Sin permiso de gestión las tarjetas no son draggable y las columnas no aceptan drop (dragover sin preventDefault).
   // Una columna que pide etapas terminadas (con etapas abiertas en el ticket arrastrado) se pinta en rojo; si se suelta
   // igual, moverEstado avisa y no manda nada.
+  // Reordenar dentro de la misma prioridad (y, en el tablero, la misma columna): mitad superior de la tarjeta/fila
+  // destino = antes de ella; mitad inferior = antes de la siguiente de su prioridad (null = al final del grupo).
+  const mismosDePrioridad = item => {
+    const p = buscarTicket(item.dataset.id)?.prioridad;
+    return [...item.parentElement.children].filter(n => n.dataset.id && buscarTicket(n.dataset.id)?.prioridad === p);
+  };
+  function posicionReorden(e, arrastrado) {
+    const item = arrastrado && e.target.closest('[data-id]');
+    const t = item && buscarTicket(item.dataset.id);
+    if (!t || t.prioridad !== arrastrado.prioridad || (item.closest('.col')?.dataset.estado ?? arrastrado.estado) !== arrastrado.estado) return null;
+    const r = item.getBoundingClientRect();
+    const antes = e.clientY < r.top + r.height / 2;
+    const lista = mismosDePrioridad(item);
+    const antesDe = antes ? item.dataset.id : (lista[lista.indexOf(item) + 1]?.dataset.id ?? null);
+    return grupoReordenado(arrastrado.id, antesDe) ? { item, antes, antesDe } : null;
+  }
+  const limpiarInsercion = () => document.querySelectorAll('.ins-antes, .ins-desp').forEach(n => n.classList.remove('ins-antes', 'ins-desp'));
+
   function enlazarArrastre() {
     const tab = $('#tablero');
     let arrastrado = null;
     const limpiarSobre = () => tab.querySelectorAll('.col.sobre').forEach(c => c.classList.remove('sobre', 'sobre-no'));
+    // Lista: filas draggable solo con el orden por defecto (filaTicket).
+    const cuerpo = $('#cuerpo');
+    cuerpo.addEventListener('dragstart', e => {
+      const fila = e.target.closest('tr[data-id]');
+      if (!fila) return;
+      if (!filasMovibles()) { e.preventDefault(); return; }
+      arrastrando = true;
+      arrastrado = buscarTicket(fila.dataset.id);
+      e.dataTransfer.setData('text/plain', fila.dataset.id);
+      e.dataTransfer.effectAllowed = 'move';
+      requestAnimationFrame(() => fila.classList.add('arrastrando'));
+    });
+    cuerpo.addEventListener('dragend', () => { limpiarInsercion(); arrastrado = null; cuerpo.querySelector('.arrastrando')?.classList.remove('arrastrando'); finArrastre(); });
+    cuerpo.addEventListener('dragover', e => {
+      limpiarInsercion();
+      const pos = posicionReorden(e, arrastrado);
+      if (!pos) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      pos.item.classList.add(pos.antes ? 'ins-antes' : 'ins-desp');
+    });
+    cuerpo.addEventListener('drop', e => {
+      const pos = posicionReorden(e, arrastrado);
+      limpiarInsercion();
+      if (!pos) return;
+      e.preventDefault();
+      reordenar(arrastrado.id, pos.antesDe);
+      finArrastre();
+    });
     tab.addEventListener('dragstart', e => {
       const card = e.target.closest('.tarjeta');
       if (!card) return;
@@ -732,10 +784,13 @@
       e.dataTransfer.effectAllowed = 'move';
       requestAnimationFrame(() => card.classList.add('arrastrando'));
     });
-    tab.addEventListener('dragend', e => { e.target.closest('.tarjeta')?.classList.remove('arrastrando'); limpiarSobre(); arrastrado = null; finArrastre(); });
+    tab.addEventListener('dragend', e => { e.target.closest('.tarjeta')?.classList.remove('arrastrando'); limpiarSobre(); limpiarInsercion(); arrastrado = null; finArrastre(); });
     tab.addEventListener('dragover', e => {
       const col = e.target.closest('.col');
       if (!col || !puedeGestionar()) return;
+      limpiarInsercion();
+      const pos = posicionReorden(e, arrastrado);
+      if (pos) pos.item.classList.add(pos.antes ? 'ins-antes' : 'ins-desp');
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       if (!col.classList.contains('sobre')) {
@@ -753,7 +808,9 @@
       if (!col || !puedeGestionar()) return;
       e.preventDefault();
       limpiarSobre();
-      moverEstado(e.dataTransfer.getData('text/plain'), col.dataset.estado);
+      const pos = posicionReorden(e, arrastrado);
+      limpiarInsercion();
+      if (pos) reordenar(arrastrado.id, pos.antesDe); else moverEstado(e.dataTransfer.getData('text/plain'), col.dataset.estado);
       finArrastre(); // moverEstado repinta: la tarjeta original sale del DOM y su dragend ya no llega al tablero
     });
   }
@@ -763,10 +820,12 @@
   }
 
   // ── Lista ───────────────────────────────────────────────────────────────────
+  const filasMovibles = () => puedeGestionar() && !esTactil() && estado.orden.col === null;
   function filaTicket(t) {
     const nl = noLeido(t);
-    return `<tr data-id="${esc(t.id)}" tabindex="0" class="e-${esc(t.estado)}${nl ? ' no-leido' : ''}">
-      <td class="num text-gris pri p-${esc(t.prioridad)}">${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span><span class="sr-only">Con novedades: </span>' : ''}${esc(t.id)}</td>
+    const mover = filasMovibles();
+    return `<tr data-id="${esc(t.id)}" tabindex="0" draggable="${mover}" class="e-${esc(t.estado)}${nl ? ' no-leido' : ''}">
+      <td class="num text-gris pri p-${esc(t.prioridad)}">${mover ? '<span class="grip" aria-hidden="true">⋮⋮</span>' : ''}${estrella(t)}${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span><span class="sr-only">Con novedades: </span>' : ''}${esc(t.id)}</td>
       <td class="tit font-semibold max-w-[420px] break-words">${esc(t.tarea)}${etapasDe(t).length ? `<div class="mt-1 font-normal">${miniProgreso(t)}</div>` : ''}</td>
       <td>${controlPrioridad(t)}</td>
       <td>${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : '—'}</td>
@@ -778,6 +837,11 @@
 
   function pintarLista(visibles) {
     const filtrados = visibles.filter(pasaEstado);
+    const pista = $('#pistaOrden');
+    pista.hidden = !puedeGestionar() || esTactil();
+    pista.textContent = estado.orden.col === null
+      ? 'Arrastrá las filas para acomodar el orden dentro de cada prioridad.'
+      : 'Para reordenar arrastrando, volvé al orden por defecto (clic en la columna ordenada hasta quitar el orden).';
     $('#cuerpo').innerHTML = filtrados.map(filaTicket).join('')
       || `<tr><td colspan="8">${vacioHTML(!estado.tickets.length)}</td></tr>`;
     pintarEncabezados();
@@ -872,6 +936,77 @@
     cambiarCampo(t, 'estado', nuevo, { destino, ok: `#${t.id} pasó a ${etiqueta('estados', nuevo)}.`, error: `No se pudo cambiar el estado del ticket #${t.id}` });
   }
 
+  // Estrella de "ticket principal": botón con permiso de gestión; sin permiso, solo la llena y de solo lectura.
+  function estrella(t, id) {
+    const on = t.destacado === true;
+    if (!puedeGestionar()) return on ? '<span class="estrella on" role="img" aria-label="Ticket principal" title="Ticket principal">★</span>' : '';
+    const txt = `${on ? 'Quitar destacado' : 'Destacar'} ticket #${esc(t.id)}`;
+    return `<button type="button" class="estrella${on ? ' on' : ''}"${id ? ` id="${id}"` : ''} data-estrella="${esc(t.id)}" draggable="false" aria-pressed="${on}" aria-label="${txt}" title="${txt}">${on ? '★' : '☆'}</button>`;
+  }
+  async function destacar(id) {
+    const t = buscarTicket(id);
+    if (ocupado(t) || !puedeGestionar()) return;
+    const destacado = t.destacado !== true;
+    reemplazarTicket(t.id, { ...t, destacado });
+    estado.guardando.add(String(t.id));
+    repintarConservando();
+    try {
+      reemplazarTicket(t.id, await enviarJSON('POST', `${CFG.api}/${encodeURIComponent(t.id)}/destacar`, { destacado }));
+    } catch (e) {
+      const actual = buscarTicket(t.id);
+      if (actual) reemplazarTicket(t.id, { ...actual, destacado: t.destacado });
+      mostrarAviso('error', `No se pudo ${destacado ? 'destacar' : 'quitar el destacado de'}l ticket #${t.id}: ${e.message}`, avisoActual());
+    } finally {
+      estado.guardando.delete(String(t.id));
+      repintarConservando();
+    }
+  }
+
+  // Grupo de la prioridad del ticket con `id` movido antes de `antesDe` (null = al final); null si no cambia nada.
+  function grupoReordenado(id, antesDe) {
+    const t = buscarTicket(id);
+    if (!t) return null;
+    const grupo = estado.tickets.filter(x => x.prioridad === t.prioridad).sort(ordenDefault);
+    const resto = grupo.filter(x => x !== t);
+    const i = antesDe == null ? resto.length : resto.findIndex(x => String(x.id) === String(antesDe));
+    if (i < 0) return null;
+    const nuevo = [...resto.slice(0, i), t, ...resto.slice(i)];
+    return nuevo.every((x, k) => x === grupo[k]) ? null : nuevo;
+  }
+  // Orden manual dentro de la prioridad: optimista (orden 1..n al grupo) y, si el server falla, vuelve atrás.
+  async function reordenar(id, antesDe) {
+    const t = buscarTicket(id);
+    const nuevo = grupoReordenado(id, antesDe);
+    if (!nuevo || ocupado(t)) return false;
+    const previos = estado.tickets;
+    const ordenes = new Map(nuevo.map((x, k) => [String(x.id), k + 1]));
+    estado.tickets = previos.map(x => (ordenes.has(String(x.id)) ? { ...x, orden: ordenes.get(String(x.id)) } : x));
+    estado.guardando.add(String(t.id));
+    repintarConservando();
+    try {
+      const lista = await enviarJSON('POST', `${CFG.api}/reordenar`, { id: t.id, antesDe: antesDe == null ? null : buscarTicket(antesDe).id });
+      if (Array.isArray(lista)) aplicarLista(lista);
+      return true;
+    } catch (e) {
+      estado.tickets = previos;
+      mostrarAviso('error', `No se pudo reordenar el ticket #${t.id}: ${e.message}`, avisoActual());
+      return false;
+    } finally {
+      estado.guardando.delete(String(t.id));
+      repintarConservando();
+    }
+  }
+  // Teclado: Alt+↑ / Alt+↓ mueve la tarjeta/fila enfocada una posición dentro de su prioridad (en lo que se ve).
+  function moverConTeclado(item, dir) {
+    const lista = mismosDePrioridad(item);
+    const i = lista.indexOf(item);
+    const vecino = lista[i + dir];
+    if (!vecino) return;
+    const antesDe = dir < 0 ? vecino.dataset.id : (lista[i + 2]?.dataset.id ?? null);
+    const id = item.dataset.id;
+    reordenar(id, antesDe).then(ok => ok && mostrarToast(`#${id} movido ${dir < 0 ? 'hacia arriba' : 'hacia abajo'} (posición ${i + 1 + dir} de ${lista.length}).`));
+  }
+
   function cambiarPrioridad(id, nueva) {
     const t = buscarTicket(id);
     if (ocupado(t) || !nueva || t.prioridad === nueva) return;
@@ -916,7 +1051,7 @@
     marcarVisto(t);
     const focoId = estado.focoDetalle || ($('#dlgDetalle').contains(document.activeElement) ? document.activeElement.id : '');
     estado.focoDetalle = null;
-    $('#dCab').innerHTML = `<span class="text-sm font-semibold text-gris tabular-nums">#${esc(t.id)}</span>${controlPrioridad(t, 'dPrioridad')}${selectEstado(t, 'dEstado')}`;
+    $('#dCab').innerHTML = `<span class="text-sm font-semibold text-gris tabular-nums">#${esc(t.id)}</span>${estrella(t, 'dEstrella')}${controlPrioridad(t, 'dPrioridad')}${selectEstado(t, 'dEstado')}`;
     $('#dTitulo').textContent = t.tarea;
     $('#dMeta').innerHTML = `${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : ''}
       <span>Creado por <b class="text-ink font-semibold">${esc(nombreDe(t.creadoPor))}</b> · ${esc(fecha(t.creadoEn))}</span>
@@ -1428,7 +1563,9 @@
     estado.tickets = lista;
     estado.cargado = true;
     if (!vistos) iniciarVistos();
-    if (!primera && !cambiados.length) return;
+    // orden y destacado no tocan actualizadoEn: si cambiaron (otro usuario) se repinta igual, sin avisos.
+    const marca = t => `${t.orden}|${t.destacado}`;
+    if (!primera && !cambiados.length) { if (lista.some(t => previos.has(String(t.id)) && marca(previos.get(String(t.id))) !== marca(t))) repintarConservando(); return; }
     const ajenos = primera ? [] : cambiados.filter(t => !esMio(ultimoEvento(t)));
     const abierto = ajenos.find(t => String(t.id) === String(estado.abierto));
     repintarConservando();
@@ -1441,7 +1578,7 @@
     const act = document.activeElement;
     const tipeando = act && /^(INPUT|TEXTAREA)$/.test(act.tagName) && act.id ? [act.id, act.value, act.selectionStart, act.selectionEnd] : null;
     const item = act && act.closest ? act.closest('#tablero [data-id], #cuerpo [data-id]') : null;
-    const focoItem = item && `#${item.closest('#tablero, #cuerpo').id} [data-id="${CSS.escape(item.dataset.id)}"]${act.matches('select') ? (act.matches('[data-prioridad-id]') ? ' select[data-prioridad-id]' : ' select[data-estado-id]') : ''}`;
+    const focoItem = item && `#${item.closest('#tablero, #cuerpo').id} [data-id="${CSS.escape(item.dataset.id)}"]${act.matches('[data-estrella]') ? ' [data-estrella]' : act.matches('select') ? (act.matches('[data-prioridad-id]') ? ' select[data-prioridad-id]' : ' select[data-estado-id]') : ''}`;
     const scrolls = [...document.querySelectorAll('#tablero .col')].map(c => [c.dataset.estado, c.querySelector('.col-cuerpo')?.scrollTop || 0]);
     const scrollDetalle = $('#dCuerpo').scrollTop;
     armarFiltrosDinamicos();
@@ -1594,7 +1731,7 @@
   }
 
   function enlazarSeguimiento() {
-    ['#flArea', '#flDest', '#flMios'].forEach(s => $(s).addEventListener('change', pintarSeguimiento));
+    ['#flArea', '#flDest', '#flMios', '#flPrin'].forEach(s => $(s).addEventListener('change', pintarSeguimiento));
     $('#flBuscar').addEventListener('input', pintarSeguimiento);
     $('#estados').addEventListener('click', e => { const b = e.target.closest('[data-filtro-estado]'); if (b) filtrarPorEstado(b.dataset.filtroEstado); });
     $('#flPrioridad').addEventListener('click', e => {
@@ -1606,12 +1743,17 @@
     // Abrir detalle: clic o Enter/Espacio en una tarjeta o fila (el select de estado no abre el detalle).
     ['#tablero', '#cuerpo'].forEach(s => {
       $(s).addEventListener('click', e => {
-        if (e.target.closest('select')) return;
+        if (e.target.closest('select, [data-estrella]')) return;
         const item = e.target.closest('[data-id]');
         if (item) abrirDetalle(item.dataset.id);
       });
       $(s).addEventListener('keydown', e => {
         const item = e.target.closest('[data-id]');
+        if (item && e.target === item && e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && puedeGestionar() && (s === '#tablero' || estado.orden.col === null)) {
+          e.preventDefault();
+          moverConTeclado(item, e.key === 'ArrowUp' ? -1 : 1);
+          return;
+        }
         if (item && e.target === item && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); abrirDetalle(item.dataset.id); }
       });
     });
@@ -1624,6 +1766,8 @@
     $('#btnNuevo').addEventListener('click', abrirNuevo);
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-accion]');
+      const est = e.target.closest('[data-estrella]');
+      if (est) destacar(est.dataset.estrella);
       if (b && b.dataset.accion === 'nuevo') abrirNuevo();
       if (b && b.dataset.accion === 'limpiar-filtros') limpiarFiltros();
     });

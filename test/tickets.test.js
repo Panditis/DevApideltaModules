@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  PRIORIDADES, ESTADOS, ESTADOS_ETAPA, AREAS, crearTicket, actualizarTicket,
+  PRIORIDADES, ESTADOS, ESTADOS_ETAPA, AREAS, crearTicket, actualizarTicket, reordenarTicket, destacarTicket,
   agregarEtapa, actualizarEtapa, eliminarEtapa, recalcularEstado,
   validarArchivos, agregarAdjuntos, quitarAdjunto, ubicarAdjunto, ocultarRutas, verificarDestino,
 } = require('../lib/tickets');
@@ -29,7 +29,7 @@ test('crearTicket arma el ticket con estado pendiente e historial de creación',
   const { lista, ticket } = crear([], { tarea: '  Arreglar export  ', area: ' Compras ' });
   assert.deepStrictEqual(ticket, {
     id: 1, tarea: 'Arreglar export', prioridad: 'alta', area: 'Compras', descripcion: 'Detalle',
-    destinatarios: ['beto'], estado: 'pendiente', creadoPor: 'ana', creadoEn: T0, actualizadoEn: T0, etapas: [], adjuntos: [],
+    destinatarios: ['beto'], estado: 'pendiente', orden: 1, destacado: false, creadoPor: 'ana', creadoEn: T0, actualizadoEn: T0, etapas: [], adjuntos: [],
     historial: [{ fecha: T0, usuario: 'ana', tipo: 'creado' }],
   });
   assert.deepStrictEqual(lista, [ticket]);
@@ -429,4 +429,78 @@ test('verificarDestino: 404 si no existe el ticket o la nota de destino; devuelv
   falla(() => verificarDestino(conNota, 1, { nota: 0 }), 404, /nota/i); // 0 es el evento "creado"
   falla(() => verificarDestino(conNota, 1, { nota: 9 }), 404, /nota/i);
   falla(() => verificarDestino(conNota, 1, { nota: 1.5 }), 404, /nota/i);
+});
+
+// ── Orden manual y destacado ────────────────────────────────────────────────
+const tk = (id, prioridad, extra = {}) => ({ id, prioridad, creadoEn: T0, historial: [], actualizadoEn: T0, ...extra });
+const ids = (lista, pri) => lista.filter(t => t.prioridad === pri)
+  .sort((a, b) => a.orden - b.orden).map(t => t.id);
+
+test('crearTicket: orden = máximo de toda la lista + 1', () => {
+  assert.strictEqual(crear([{ id: 1, orden: 4 }, { id: 2, orden: 2 }]).ticket.orden, 5);
+  assert.strictEqual(crear([{ id: 1, orden: 4 }, { id: 2 }]).ticket.orden, 6); // el viejo sin orden recibe 5
+  assert.strictEqual(crear([]).ticket.orden, 1);
+});
+
+test('actualizarTicket: cambiar la prioridad manda al final del grupo nuevo; sin cambio no toca orden', () => {
+  const lista = [tk(1, 'alta', { orden: 1, estado: 'pendiente', destinatarios: ['beto'] }), tk(2, 'baja', { orden: 7 })];
+  assert.strictEqual(actualizarTicket(lista, 1, { prioridad: 'baja' }, 'ana', USUARIOS, T1).ticket.orden, 8);
+  assert.strictEqual(actualizarTicket(lista, 1, { prioridad: 'alta', nota: 'x' }, 'ana', USUARIOS, T1).ticket.orden, 1);
+});
+
+test('reordenarTicket: antes de otro, renumera el grupo y deja las otras prioridades', () => {
+  const lista = [tk(1, 'alta', { orden: 1 }), tk(2, 'alta', { orden: 2 }), tk(3, 'alta', { orden: 3 }), tk(4, 'baja', { orden: 9 })];
+  const copia = JSON.parse(JSON.stringify(lista));
+  const { lista: nueva } = reordenarTicket(lista, 3, 1);
+  assert.deepStrictEqual(ids(nueva, 'alta'), [3, 1, 2]);
+  assert.deepStrictEqual(nueva.filter(t => t.prioridad === 'alta').map(t => t.orden).sort(), [1, 2, 3]);
+  assert.strictEqual(nueva[3], lista[3]);
+  assert.deepStrictEqual(lista, copia); // sin mutar
+  nueva.forEach((t, i) => { // sin historial ni actualizadoEn
+    assert.strictEqual(t.actualizadoEn, T0);
+    assert.deepStrictEqual(t.historial, lista[i].historial);
+  });
+});
+
+test('reordenarTicket: al final, sin movimiento y mismo id devuelven igual', () => {
+  const lista = [tk(1, 'alta', { orden: 1 }), tk(2, 'alta', { orden: 2 })];
+  assert.deepStrictEqual(ids(reordenarTicket(lista, 1, null).lista, 'alta'), [2, 1]);
+  assert.strictEqual(reordenarTicket(lista, 2, null).lista, lista);
+  assert.strictEqual(reordenarTicket(lista, 1, 2).lista, lista);
+  assert.strictEqual(reordenarTicket(lista, 1, 1).lista, lista);
+});
+
+test('reordenarTicket: tickets sin orden van al final por creadoEn e id', () => {
+  const lista = [tk(1, 'alta', { creadoEn: T1 }), tk(2, 'alta'), tk(3, 'alta', { orden: 5 })];
+  assert.deepStrictEqual(ids(reordenarTicket(lista, 1, 2).lista, 'alta'), [3, 1, 2]);
+});
+
+test('reordenarTicket: 404 inexistente y 400 otra prioridad', () => {
+  const lista = [tk(1, 'alta'), tk(2, 'baja')];
+  falla(() => reordenarTicket(lista, 9, null), 404);
+  falla(() => reordenarTicket(lista, 1, 9), 404);
+  falla(() => reordenarTicket(lista, 1, 2), 400, /misma prioridad/);
+});
+
+test('destacarTicket: cambia solo destacado, valida booleano y 404', () => {
+  const lista = [tk(1, 'alta', { orden: 3 })];
+  const copia = JSON.parse(JSON.stringify(lista));
+  const { lista: nueva, ticket } = destacarTicket(lista, 1, true);
+  assert.deepStrictEqual(ticket, { ...lista[0], destacado: true });
+  assert.deepStrictEqual(nueva, [ticket]);
+  assert.deepStrictEqual(lista, copia);
+  falla(() => destacarTicket(lista, 1, 'si'), 400, /verdadero o falso/);
+  falla(() => destacarTicket(lista, 9, false), 404);
+});
+
+test('lista vieja sin orden: el nuevo y el que cambia de prioridad quedan últimos; los viejos conservan su orden', () => {
+  const viejos = [tk(2, 'alta', { creadoEn: T1 }), tk(1, 'alta'), tk(3, 'baja', { estado: 'pendiente', destinatarios: ['beto'] })];
+  const copia = JSON.parse(JSON.stringify(viejos));
+  const { lista } = crear(viejos, { prioridad: 'alta' });
+  assert.deepStrictEqual(ids(lista, 'alta'), [1, 2, 4]);
+  lista.slice(0, 3).forEach((t, i) => assert.deepStrictEqual(t.historial, viejos[i].historial));
+  const { lista: l2 } = actualizarTicket(viejos, 3, { prioridad: 'alta' }, 'ana', USUARIOS, T1);
+  assert.deepStrictEqual(ids(l2, 'alta'), [1, 2, 3]);
+  assert.strictEqual(l2[0].actualizadoEn, T0);
+  assert.deepStrictEqual(viejos, copia);
 });
