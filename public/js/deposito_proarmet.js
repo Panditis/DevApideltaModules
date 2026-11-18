@@ -149,9 +149,10 @@
   }
 
   // ── Remito (window.print + @media print sobre #remito; el usuario elige "Guardar como PDF") ──
-  // datos: { numeroMovimiento, fecha, tipo, depOrigenNombre, depDestinoNombre, usuario, descripcion, lineas:[{idProducto, descripcion, cantidad}] }
+  // datos: { numeroMovimiento, fecha, tipo, sentido ('ingreso'|'salida'), depOrigenNombre, depDestinoNombre, usuario, descripcion, lineas:[{idProducto, descripcion, cantidad}] }
   function renderRemito(d) {
     const ls = d.lineas || [];
+    const conUbic = d.sentido === 'ingreso'; // la ubicación solo va en el remito de ingreso, no en el de devolución
     const f = new Date(d.fecha);
     const fh = isNaN(f) ? esc(d.fecha) : f.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
     const firma = (tit, nombre) => `<div class="rm-firma"><h3>${tit}</h3><div class="rm-caja"><span>Firma</span></div>
@@ -161,8 +162,8 @@
         <tr><th>Tipo</th><td>${esc(d.tipo || '-')}</td><th>Responsable</th><td>${esc(d.usuario || '-')}</td></tr>
         <tr><th>Origen</th><td>${esc(d.depOrigenNombre)}</td><th>Destino</th><td>${esc(d.depDestinoNombre)}</td></tr>
         <tr><th>Descripción</th><td colspan="3">${esc(d.descripcion)}</td></tr></table>
-      <table class="rm-items"><thead><tr><th style="width:90px">Código</th><th>Producto</th><th style="width:200px">${esc(d.ubicRotulo || 'Ubicación')}</th><th class="num" style="width:90px">Cantidad</th></tr></thead>
-        <tbody>${ls.map(l => `<tr><td>${esc(l.idProducto)}</td><td>${esc(l.descripcion || '')}</td><td>${esc(ubicaciones.texto(l.idProducto) || 'Sin ubicación')}</td><td class="num">${fmt(l.cantidad)}</td></tr>`).join('')}</tbody></table>
+      <table class="rm-items${conUbic ? ' con-ubic' : ''}"><thead><tr><th style="width:90px">Código</th><th>Producto</th>${conUbic ? `<th style="width:200px">${esc(d.ubicRotulo || 'Ubicación')}</th>` : ''}<th class="num" style="width:90px">Cantidad</th></tr></thead>
+        <tbody>${ls.map(l => `<tr><td>${esc(l.idProducto)}</td><td>${esc(l.descripcion || '')}</td>${conUbic ? `<td>${esc(ubicaciones.texto(l.idProducto) || 'Sin ubicación')}</td>` : ''}<td class="num">${fmt(l.cantidad)}</td></tr>`).join('')}</tbody></table>
       <div class="rm-cierre"><p class="rm-total">Movimiento Nº ${esc(d.numeroMovimiento)} · Total: ${ls.length} línea${ls.length === 1 ? '' : 's'}</p>
       <div class="rm-firmas">${firma('Entrega', d.usuario)}${firma('Recibe', '')}</div></div>`;
   }
@@ -247,7 +248,7 @@
   function remitoDeHist(i) {
     const m = hist && hist[i];
     if (!m) return;
-    imprimirRemito({ ...m, tipo: m.tipoMovimiento || (deps && deps.tipoMovimiento) || '', depOrigenNombre: m.depOrigenNombre || nombreDep(m.depOrigen), depDestinoNombre: m.depDestinoNombre || nombreDep(m.depDestino), ubicRotulo: 'Ubicación actual' });
+    imprimirRemito({ ...m, sentido: m.tipo, tipo: m.tipoMovimiento || (deps && deps.tipoMovimiento) || '', depOrigenNombre: m.depOrigenNombre || nombreDep(m.depOrigen), depDestinoNombre: m.depDestinoNombre || nombreDep(m.depDestino), ubicRotulo: 'Ubicación actual' });
   }
   $('histCuerpo').addEventListener('click', e => {
     const b = e.target.closest('[data-remito]');

@@ -209,7 +209,7 @@
         const nomDep = id => P.nombreDep(id) || `Depósito ${id}`;
         const selU = q('usuario').selectedOptions[0];
         const remito = {
-          numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(), tipo: (P.getDeps() || {}).tipoMovimiento || '',
+          numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(), sentido: preset.key === 'ingreso' ? 'ingreso' : 'salida', tipo: (P.getDeps() || {}).tipoMovimiento || '',
           depOrigenNombre: nomDep(body.depOrigen), depDestinoNombre: nomDep(body.depDestino),
           usuario: selU ? selU.textContent : '', descripcion: body.descripcion,
           lineas: body.lineas.map(l => ({ ...l, descripcion: (catalogo.find(p => p.idProducto === l.idProducto) || {}).descripcion || null })),
