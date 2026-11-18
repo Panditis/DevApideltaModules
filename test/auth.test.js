@@ -205,6 +205,15 @@ test('Redistribución: /api/distribucion/redistribucion exige el módulo distrib
   assert.strictEqual(moduloDeRuta('/api/distribucion/redistribucionX'), null);
 });
 
+test('Redistribución ocultos: GET/POST /ocultos y /ocultos/restablecer exigen el módulo distribucion', () => {
+  for (const ruta of ['/api/distribucion/redistribucion/ocultos', '/api/distribucion/redistribucion/ocultos/restablecer']) {
+    const ref = moduloDeRuta(ruta);
+    assert.strictEqual(ref, 'distribucion', ruta);
+    assert.strictEqual(puedeAcceder({ modulos: ['distribucion'] }, ref), true);
+    assert.strictEqual(puedeAcceder({ modulos: ['compras'] }, ref), false); // el middleware responde 403
+  }
+});
+
 test('moduloDeRuta resuelve Control de Vencimientos (/vencimientos y /api/vencimientos) bajo sucursales', () => {
   assert.strictEqual(moduloDeRuta('/vencimientos'), 'sucursales');
   assert.strictEqual(moduloDeRuta('/api/vencimientos'), 'sucursales');

@@ -11,6 +11,7 @@ const productividad = require('../lib/productividad');
 const { universoLista, universoPesables } = require('../lib/listas_universo');
 const { pesoTokenKg } = require('../lib/producto_carga');
 const { formulasPesables } = require('../lib/formulas_pesables');
+const ocultosLib = require('../lib/redistribucion_ocultos');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
         calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO,
         a8020Vencido } = require('../lib/a8020');
@@ -378,8 +379,12 @@ router.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistrib
 
 // ── Redistribución sucursal → sucursal (docs/specs/redistribucion_sucursales.md) ──
 // Demanda = max(0, S A8020 − stock) por sucursal, sin el disparador min>stock del motor (pedido
-// del usuario 2026-11-16) y, donde la central no alcanza,
+// del usuario 2026-11-16) y, en almacén solo para productos con central en 0 (decisión 2026-11-18),
+// Fact, Restringido y la lista No envasa (global por PLU) => necesidad 0: no reciben, pero sí
+// pueden donar (decisión del usuario 2026-11-18).
 // sugiere traslados desde sucursales de pocas ventas. Solo lectura.
+// central = envasado (pesables f.H); centralGranel = granel de central (f.F, null en almacén), solo
+// informativo: el granel no se descuenta del faltante; el front filtra pesables por ambos (2026-11-18).
 // Clave motor → IdSucursal (sin 6/8/11). Almacén y pesables nombran distinto a Ramallo/San Pedro.
 const REDIST_ALM = { riv: 5, urq: 2, nacion: 3, chaca: 4, pergamino: 10, sanPedro: 7, sucursal9: 9 };
 const REDIST_PES = { riv: 5, urq: 2, nacion: 3, chaca: 4, pergamino: 10, sanpedro: 7, ramallo: 9 };
@@ -404,6 +409,7 @@ async function calcularRedistribucion(dias) {
   const tramosMicro = micro.tramos || [{ hastaS: null, pct: 0.20 }];
   const pisoAbsMicro = micro.pisoAbsoluto != null ? micro.pisoAbsoluto : 1;
   const [alm, pes] = await Promise.all([calcularDistribucionAlmacen(), calcularDistribucionPesables(true)]);
+  const noEnvasa = new Set((leerListasDistrib().noEnvasa || []).map(String));
 
   const filas = [];
   for (const f of alm) {
@@ -413,10 +419,10 @@ async function calcularRedistribucion(dias) {
     for (const [k, id] of Object.entries(REDIST_ALM)) {
       const S = (f.sSuc || {})[k] || 0;
       sucursales[id] = { stock: (f.stkSuc || {})[k] || 0, min: (f.minSuc || {})[k] || 0, S, presencia,
-        necesidad: sinEnvio((f.enviar || {})[k]) || sinEnvio((f.enviarTexto || {})[k]) ? 0 : Math.max(0, S - ((f.stkSuc || {})[k] || 0)),
+        necesidad: noEnvasa.has(String(f.plu)) || sinEnvio((f.enviar || {})[k]) || sinEnvio((f.enviarTexto || {})[k]) ? 0 : Math.max(0, S - ((f.stkSuc || {})[k] || 0)),
         piso: pisoMinimo(S, tramosMicro, pisoAbsMicro) };
     }
-    filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: false, central: f.central,
+    filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: false, central: f.central, centralGranel: null,
       unidad: caja, minimo: Math.max(caja, 1), sucursales });
   }
   for (const f of pes) {
@@ -426,13 +432,16 @@ async function calcularRedistribucion(dias) {
     for (const [k, id] of Object.entries(REDIST_PES)) {
       const S = (f.sLev || {})[k] || 0, stock = Math.max(0, (f.stkSuc || {})[k] || 0);
       sucursales[id] = { stock, min: (f.mins || {})[k] || 0, S,
-        presencia, necesidad: sinEnvio((f.enviar || {})[k]) ? 0 : Math.max(0, S - stock), piso: 0 };
+        presencia, necesidad: noEnvasa.has(String(f.plu)) || sinEnvio((f.enviar || {})[k]) ? 0 : Math.max(0, S - stock), piso: 0 };
     }
-    filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: true, central: f.H,
+    filas.push({ plu: f.plu, nombre: f.nombre, rubro: f.rubro, pesable: true, central: f.H, centralGranel: f.F,
       unidad: bolsa, minimo: Math.max(bolsa, 1), sucursales });
   }
-  // Ventas solo de los candidatos (necesidad > central): el resto no puede tener faltante.
-  const candidatas = filas.filter(f => Object.values(f.sucursales).reduce((a, s) => a + s.necesidad, 0) > Math.max(0, Number(f.central) || 0));
+  // Almacén: solo central en 0 (negativo = 0; decisión del usuario 2026-11-18). Pesables: sin corte por
+  // central; el front filtra con los toggles "0 en granel"/"0 en presentaciones" (2026-11-18).
+  // El filtro va acá y no en redistribuirProducto para no consultar ventas de los descartados.
+  const candidatas = filas.filter(f => (f.pesable || Math.max(0, Number(f.central) || 0) <= 0)
+    && Object.values(f.sucursales).reduce((a, s) => a + s.necesidad, 0) > 0);
   const rango = analisisVentas.rangoUltimosDias(dias);
   const idsCsv = analisisVentas.idsCsvSeguro(candidatas.map(f => f.plu));
   const sucIds = [...new Set([...Object.values(REDIST_ALM), ...Object.values(REDIST_PES)])];
@@ -472,6 +481,34 @@ router.get('/api/distribucion/redistribucion', async (req, res) => {
   try { res.json(await calcularRedistribucion(dias)); }
   catch (err) { console.error('[redistribucion]', err.message); res.status(500).json({ error: err.message }); }
 });
+// Ocultos de Redistribución: compartidos entre usuarios, por sucursal (lib/redistribucion_ocultos.js).
+const OCULTOS_PATH = path.join(DATA_DIR, 'redistribucion_ocultos.json');
+function ocultosRuta(fn) {
+  return async (req, res) => {
+    try { res.json({ ocultos: await fn(req.body || {}, req) }); }
+    catch (err) {
+      if (err.status === 400) return res.status(400).json({ error: err.message });
+      console.error('[redistribucion_ocultos]', err);
+      res.status(500).json({ error: 'No se pudieron guardar/leer los ocultos.' });
+    }
+  };
+}
+function err400(msg) { return Object.assign(new Error(msg), { status: 400 }); }
+router.get('/api/distribucion/redistribucion/ocultos', ocultosRuta(() => ocultosLib.leer(OCULTOS_PATH)));
+router.post('/api/distribucion/redistribucion/ocultos', ocultosRuta((b, req) => {
+  const e = ocultosLib.validarSucursal(b.sucursal) || ocultosLib.validarPlu(b.plu)
+    || (typeof b.oculto === 'boolean' ? null : 'oculto debe ser booleano');
+  if (e) throw err400(e);
+  const usuario = (req.session && req.session.user && req.session.user.usuario) || null;
+  return ocultosLib.modificar(OCULTOS_PATH, m => b.oculto
+    ? ocultosLib.ocultar(m, b.sucursal, b.plu, usuario, new Date().toISOString())
+    : ocultosLib.mostrar(m, b.sucursal, b.plu));
+}));
+router.post('/api/distribucion/redistribucion/ocultos/restablecer', ocultosRuta((b) => {
+  const e = ocultosLib.validarSucursal(b.sucursal);
+  if (e) throw err400(e);
+  return ocultosLib.modificar(OCULTOS_PATH, m => ocultosLib.restablecer(m, b.sucursal));
+}));
 // Export xlsx de la tab "Sin fraccionar": el front manda las filas tal cual las ve (filtro, búsqueda,
 // orden y modo Sala ya aplicados) y acá solo se valida y se arma el libro.
 const SIN_FRAC_XLSX_MAX = 2000;

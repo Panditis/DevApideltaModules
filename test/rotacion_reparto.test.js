@@ -143,3 +143,34 @@ test('invariantes en un caso con varias donantes y receptoras', () => {
   invariantes(p);
   assert.ok(p.cubierto > 0 && p.cubierto <= 1);
 });
+
+test('redistribuirProducto: central nunca sale negativa (-5, -0.004, NaN → 0)', () => {
+  const sucursales = {
+    5: { stock: 0, necesidad: 10, min: 4, S: 10, presencia: 3, piso: 1 },
+    9: { stock: 15, necesidad: 0, min: 4, S: 10, presencia: 3, piso: 1 },
+  };
+  for (const central of [-5, -0.004, 'x', undefined, null]) {
+    const p = redistribuirProducto({ plu: '1', nombre: 'X', rubro: 'Almacen', pesable: false, unidad: 1, minimo: 1,
+      central, sucursales }, { 5: 100, 9: 1 }, cfg);
+    assert.strictEqual(p.central, 0, String(central));
+    assert.strictEqual(p.faltante, 10);
+  }
+});
+
+// ── centralGranel: informativo, null si no es numérico, nunca negativo (2026-11-18) ──
+test('redistribuirProducto: centralGranel 12 → 12; negativo → 0; no numérico → null', () => {
+  // Arrange
+  const sucursales = {
+    5: { stock: 0, necesidad: 10, min: 4, S: 10, presencia: 3, piso: 1 },
+    9: { stock: 15, necesidad: 0, min: 4, S: 10, presencia: 3, piso: 1 },
+  };
+  const casos = [[12, 12], [0, 0], [-3.5, 0], ['abc', null], [undefined, null], [NaN, null], [null, null], [Infinity, null]];
+  for (const [entrada, esperado] of casos) {
+    // Act
+    const p = redistribuirProducto({ plu: '1', nombre: 'X', rubro: 'P', pesable: true, unidad: 1, minimo: 1,
+      central: 0, centralGranel: entrada, sucursales }, { 5: 100, 9: 1 }, cfg);
+    // Assert
+    assert.strictEqual(p.centralGranel, esperado, String(entrada));
+    assert.strictEqual(p.faltante, 10, 'el granel no se descuenta: ' + String(entrada));
+  }
+});
