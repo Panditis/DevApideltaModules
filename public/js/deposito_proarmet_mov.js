@@ -55,7 +55,8 @@
       <div class="mt-3"><label class="lbl" for="${k}-desc">Descripción del movimiento (obligatoria)</label>
         <input id="${k}-desc" type="text" class="ctl w-full" maxlength="120" autocomplete="off" required></div>
       <div id="${k}-error" class="error hidden mt-3" role="alert"></div>
-      <div class="mt-3 flex"><button type="submit" id="${k}-ok" class="btn btn-primario ml-auto" disabled>${preset.ok}</button></div>
+      <div class="mt-3 flex items-center gap-3"><span id="${k}-faltan" class="text-sm text-gris" aria-live="polite"></span>
+        <button type="submit" id="${k}-ok" class="btn btn-primario ml-auto" aria-describedby="${k}-faltan" disabled>${preset.ok}</button></div>
     </form>`;
 
     let avisoUsuarios = ''; // aviso persistente si no hay usuarios: error('') no lo borra
@@ -80,7 +81,7 @@
           <td class="num"><button type="button" class="btn btn-rem" data-quitar aria-label="Quitar ${esc(p.descripcion || id)} del listado">Quitar</button></td></tr>`;
       }).join('')
         : '<tr><td colspan="7"><div class="vacio">Todavía no agregaste productos. Buscá arriba y agregalos.</div></td></tr>';
-      contar();
+      contar(); habilitar();
       if (foco != null) { const i = q('cuerpo').querySelector(`tr[data-id="${foco}"] [data-qty]`); if (i) i.focus(); }
     }
 
@@ -122,7 +123,26 @@
       renderLista(p.idProducto);
     }
 
-    const habilitar = () => { q('ok').disabled = enviando || !catalogo || !usuariosOk; };
+    // Qué falta para poder confirmar (misma regla que armar(), sin mostrar errores): [] = completo.
+    function faltantes() {
+      const { origen, destino } = par(), f = [];
+      if (!origen || !destino) f.push('origen y destino');
+      else if (origen === destino) f.push('origen y destino distintos');
+      else if (!catalogo) f.push('stock del origen');
+      if (!usuariosOk || !q('usuario').value) f.push('usuario');
+      if (!q('desc').value.trim()) f.push('descripción');
+      if (!lista.size) f.push('al menos un producto');
+      else if (catalogo) {
+        const malas = [...lista].filter(([id, c]) => { const p = hallar(id); return !p || !(Number(c) > 0) || Number(c) > Number(p.stockOrigen); }).length;
+        if (malas) f.push(`cantidad válida en ${malas} producto${malas === 1 ? '' : 's'}`);
+      }
+      return f;
+    }
+    function habilitar() {
+      const f = faltantes();
+      q('ok').disabled = enviando || f.length > 0;
+      q('faltan').textContent = f.length ? 'Falta: ' + f.join(', ') : '';
+    }
 
     cargarUsuarios().then(us => {
       q('usuario').innerHTML = '<option value="">Elegí un usuario…</option>'
@@ -141,7 +161,7 @@
     async function cargarCatalogo() {
       const { origen, destino } = par();
       error('');
-      catalogo = null; q('ok').disabled = true; cerrarRes(); q('estado').textContent = '';
+      catalogo = null; habilitar(); cerrarRes(); q('estado').textContent = '';
       const mio = ++pedido;
       if (!origen || !destino) { renderLista(); return; }
       if (origen === destino) { renderLista(); error('El origen y el destino no pueden ser el mismo depósito.'); return; }
@@ -268,7 +288,10 @@
       const id = tr.dataset.id, p = hallar(id); // idProducto es texto (PLU de SIGA): no convertir a número
       lista.set(id, e.target.value);
       if (p && Number(e.target.value) > Number(p.stockOrigen)) e.target.setAttribute('aria-invalid', 'true'); else e.target.removeAttribute('aria-invalid');
+      habilitar();
     });
+    q('desc').addEventListener('input', habilitar);
+    q('usuario').addEventListener('change', habilitar);
     q('cuerpo').addEventListener('click', e => {
       const tr = e.target.closest('tr[data-id]');
       if (!tr || !e.target.closest('[data-quitar]')) return;
