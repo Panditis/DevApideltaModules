@@ -1,6 +1,6 @@
 'use strict';
-// Tab "Ubicaciones": listado de qué va en cada lugar del depósito. No depende del stock: se puede agregar cualquier producto activo.
-// API: GET /api/proarmet/ubicaciones?idDeposito=, POST /ubicacion, PUT|DELETE /ubicacion/:id[?forzar=1], PUT /ubicacion/:id/producto; catálogo: GET /productos?origen=N&destino=N (se ignora el stock).
+// Tab "Ubicaciones": listado de PLUs (sin cantidades) de cada lugar del depósito. No depende del stock: se puede agregar cualquier producto activo.
+// API: GET /api/proarmet/ubicaciones?idDeposito=, POST /ubicacion, PUT|DELETE /ubicacion/:id[?forzar=1], PUT /ubicacion/:id/producto {idProducto}, DELETE /ubicacion/:id/producto/:idProducto; catálogo: GET /productos?origen=N&destino=N (se ignora el stock).
 (() => {
   const P = window.Proarmet;
   const { esc, fmt, norm, api, toast } = P;
@@ -40,9 +40,7 @@
 
   function filaAsignado(p) {
     return `<tr data-prod="${esc(p.idProducto)}"><td class="num">${esc(p.idProducto)}</td><td>${esc(p.descripcion)}</td>
-      <td class="num"><input type="number" class="ctl qty" data-cant min="0" step="any" value="${esc(p.cantidad)}" aria-label="Cantidad de ${esc(p.descripcion)}"></td>
-      <td class="num"><button type="button" class="btn btn-rem" data-guardar aria-label="Guardar cantidad de ${esc(p.descripcion)}">Guardar</button>
-        <button type="button" class="btn btn-rem" data-quitar aria-label="Quitar ${esc(p.descripcion)} de la ubicación">Quitar</button></td></tr>`;
+      <td class="num"><button type="button" class="btn btn-rem" data-quitar aria-label="Quitar ${esc(p.descripcion)} de la ubicación">Quitar</button></td></tr>`;
   }
 
   function renderUbicacion(u) {
@@ -53,12 +51,12 @@
         <button type="button" class="btn-ico" data-alternar aria-expanded="${abierta}" aria-controls="ub-det-${esc(u.id)}" aria-label="${abierta ? 'Contraer' : 'Expandir'} ${esc(u.nombre)}">${abierta ? '▾' : '▸'}</button>
         <div class="grow min-w-0"><div class="font-semibold">${esc(u.nombre)}</div>
           <div class="text-sm text-gris">${esc(u.descripcion) || 'Sin descripción'}</div></div>
-        <span class="text-sm text-gris tabular-nums">${fmt(u.totalProductos)} producto${u.totalProductos === 1 ? '' : 's'} · ${fmt(u.totalUnidades)} unidades</span>
+        <span class="text-sm text-gris tabular-nums">${fmt(u.totalProductos)} producto${u.totalProductos === 1 ? '' : 's'}</span>
         <button type="button" class="btn btn-rem" data-editar>Editar</button>
         <button type="button" class="btn btn-rem" data-eliminar aria-label="Eliminar ${esc(u.nombre)}">Eliminar</button>
       </div>
       <div id="ub-det-${esc(u.id)}" class="${abierta ? '' : 'hidden'} p-3 border-t border-borde">
-        ${prods.length ? `<table class="tabla mb-3">${cabeceraProductos('<th scope="col" class="num" style="width:120px">Cantidad</th><th scope="col" style="width:170px"><span class="sr-only">Acciones</span></th>')}<tbody>${prods.map(filaAsignado).join('')}</tbody></table>`
+        ${prods.length ? `<table class="tabla mb-3">${cabeceraProductos('<th scope="col" style="width:100px"><span class="sr-only">Acciones</span></th>')}<tbody>${prods.map(filaAsignado).join('')}</tbody></table>`
           : '<div class="vacio" style="padding:16px"><b>Sin productos asignados</b>Buscá abajo un producto para agregarlo.</div>'}
         <label class="lbl" for="ub-b-${esc(u.id)}">Agregar producto (PLU o descripción, mínimo ${MIN_CHARS} caracteres)</label>
         <input id="ub-b-${esc(u.id)}" type="search" class="ctl" style="width:320px" data-buscar autocomplete="off" placeholder="Buscar en el catálogo">
@@ -110,8 +108,8 @@
       return r;
     } catch (e) { toast(e.message, true); aviso(e.message); return null; }
   }
-  const asignar = (idUb, idProducto, cantidad, msg) =>
-    escribir(`/api/proarmet/ubicacion/${idUb}/producto`, 'PUT', { idProducto, cantidad }, msg);
+  const agregar = (idUb, idProducto, msg) => escribir(`/api/proarmet/ubicacion/${idUb}/producto`, 'PUT', { idProducto }, msg);
+  const quitar = (idUb, idProducto, msg) => escribir(`/api/proarmet/ubicacion/${idUb}/producto/${encodeURIComponent(idProducto)}`, 'DELETE', null, msg);
 
   // ── Alta / edición ────────────────────────────────────────────────────
   function abrirForm(u) {
@@ -152,20 +150,14 @@
     if (t.length < MIN_CHARS) { ul.classList.add('hidden'); ul.innerHTML = ''; return; }
     ul.classList.remove('hidden');
     if (!catalogo) { ul.innerHTML = '<li class="res-it" aria-disabled="true">Catálogo no disponible. Recargá la pestaña.</li>'; return; }
+    const ub = ubicaciones().find(x => String(x.id) === card.dataset.ub);
+    const ya = new Set(((ub && ub.productos) || []).map(p => String(p.idProducto)));
     const todos = catalogo.filter(p => String(p.idProducto).includes(t) || norm(p.descripcion).includes(t));
     ul.innerHTML = todos.length ? todos.slice(0, MAX_RES).map(p => `<li class="res-it" data-prod="${esc(p.idProducto)}"><span class="num">${esc(p.idProducto)}</span><span class="grow">${esc(p.descripcion)}</span>
-      <input type="number" class="ctl qty" data-cant min="0" step="any" placeholder="Cant." aria-label="Cantidad a agregar de ${esc(p.descripcion)}">
-      <button type="button" class="btn btn-rem" data-agregar>Agregar</button></li>`).join('') + (todos.length > MAX_RES ? `<li class="res-it" aria-disabled="true">Mostrando ${MAX_RES} de ${todos.length}: afiná la búsqueda</li>` : '')
+      ${ya.has(String(p.idProducto)) ? '<span class="text-sm text-gris">Agregado</span>' : '<button type="button" class="btn btn-rem" data-agregar>Agregar</button>'}</li>`).join('') + (todos.length > MAX_RES ? `<li class="res-it" aria-disabled="true">Mostrando ${MAX_RES} de ${todos.length}: afiná la búsqueda</li>` : '')
       : '<li class="res-it" aria-disabled="true">Sin coincidencias</li>';
   }
 
-  // Devuelve la cantidad (> 0, sin tope), o null tras avisar.
-  function leerCant(input) {
-    const n = Number(input.value);
-    if (!(n > 0)) { input.setAttribute('aria-invalid', 'true'); input.focus(); toast('Ingresá una cantidad mayor a 0.', true); return null; }
-    input.removeAttribute('aria-invalid');
-    return n;
-  }
   const enCatalogo = id => (catalogo || []).find(p => String(p.idProducto) === String(id));
 
   // ── Eventos ───────────────────────────────────────────────────────────
@@ -176,17 +168,11 @@
     if (b.hasAttribute('data-alternar')) { abiertas.has(u.id) ? abiertas.delete(u.id) : abiertas.add(u.id); render(); const nb = root.querySelector(`[data-ub="${u.id}"] [data-alternar]`); if (nb) nb.focus(); }
     else if (b.hasAttribute('data-editar')) abrirForm(u);
     else if (b.hasAttribute('data-eliminar')) eliminar(u);
-    else if (b.hasAttribute('data-quitar')) asignar(u.id, fila.dataset.prod, 0, 'Producto quitado de la ubicación');
-    else if (b.hasAttribute('data-guardar')) {
-      const n = Number(fila.querySelector('[data-cant]').value);
-      if (!(n >= 0)) { toast('Cantidad inválida.', true); return; }
-      asignar(u.id, fila.dataset.prod, n, 'Cantidad actualizada');
-    } else if (b.hasAttribute('data-agregar')) {
+    else if (b.hasAttribute('data-quitar')) quitar(u.id, fila.dataset.prod, 'Producto quitado de la ubicación');
+    else if (b.hasAttribute('data-agregar')) {
       const p = enCatalogo(fila.dataset.prod); if (!p) return;
-      const n = leerCant(fila.querySelector('[data-cant]')); if (n == null) return;
-      const actual = ((u.productos || []).find(x => String(x.idProducto) === String(p.idProducto)) || {}).cantidad || 0;
       abiertas.add(u.id);
-      asignar(u.id, p.idProducto, Number(actual) + n, 'Producto agregado a la ubicación');
+      agregar(u.id, p.idProducto, 'Producto agregado a la ubicación');
     }
   });
   root.addEventListener('input', e => {
@@ -194,6 +180,5 @@
   });
   root.addEventListener('keydown', e => {
     if (e.key === 'Escape' && e.target.matches('[data-buscar]')) { e.target.value = ''; resultados(e.target.closest('[data-ub]'), ''); }
-    if (e.key === 'Enter' && e.target.matches('[data-cant]')) { const b = e.target.closest('tr,li').querySelector('button[data-agregar],button[data-guardar]'); if (b) b.click(); }
   });
 })();

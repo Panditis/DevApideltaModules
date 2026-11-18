@@ -54,7 +54,7 @@
         for (const u of (r && r.ubicaciones) || []) for (const pr of u.productos || []) {
           const k = String(pr.idProducto);
           if (!m.has(k)) m.set(k, []);
-          m.get(k).push({ nombre: u.nombre, cantidad: pr.cantidad });
+          m.get(k).push({ nombre: u.nombre });
         }
         ubicMapa = m;
         return r;
@@ -63,8 +63,8 @@
       return p;
     },
     invalidar() { ubicP = null; ubicMapa = new Map(); },
-    // Texto plano "Estante A (12), Pasillo 2 (3)" o '' si el producto no está en ninguna ubicación.
-    texto: id => (ubicMapa.get(String(id)) || []).map(u => `${u.nombre} (${fmt(u.cantidad)})`).join(', '),
+    // Texto plano "Estante A, Pasillo 2" o '' si el producto no está en ninguna ubicación.
+    texto: id => (ubicMapa.get(String(id)) || []).map(u => u.nombre).join(', '),
     html(id) { const t = this.texto(id); return t ? esc(t) : '<span class="text-gris">Sin ubicación</span>'; },
   };
 
