@@ -199,10 +199,124 @@ function renderTabla() {
   iconos();
 }
 
+// ── Resumen de faltantes (prenda × talle) ────────────────────────────────────
+const SIN_TALLE = 'Sin talle';
+const TALLES_LETRA = ['XXS', 'XS', 'S', 'S/M', 'M', 'M/L', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL'];
+
+// Letras por orden de tamaño, luego numéricos ascendentes, luego el resto; "Sin talle" al final.
+function claveTalle(t) {
+  if (t === SIN_TALLE) return [3, 0, t];
+  const i = TALLES_LETRA.indexOf(t);
+  if (i >= 0) return [0, i, t];
+  if (/^\d+([.,]\d+)?(\/\d+)?$/.test(t)) return [1, parseFloat(t.replace(',', '.')) + (t.includes('/') ? 0.5 : 0), t]; // "38/40" va entre 38 y 39
+  return [2, 0, t];
+}
+function compararTalles(a, b) {
+  const [ga, na, sa] = claveTalle(a), [gb, nb, sb] = claveTalle(b);
+  return ga - gb || na - nb || sa.localeCompare(sb, 'es');
+}
+
+// Una fila por persona+prenda con talle asignado: { area, prenda, talle, estado }.
+// Entra todo lo que tenga talle (salvo N/A) y también los faltantes sin talle ("Sin talle").
+function faltantesPlanos() {
+  const filas = [];
+  for (const e of doc.empleados) {
+    for (const p of doc.prendas) {
+      const v = e.prendas[p.id] || {};
+      const talle = (v.talle || '').trim().toUpperCase();
+      if (v.estado === 'na' || (!talle && v.estado !== 'no')) continue;
+      filas.push({ area: e.area, prenda: p.id, talle: talle || SIN_TALLE, estado: v.estado });
+    }
+  }
+  return filas;
+}
+
+function llenarSelect(sel, vacio, valores, etiqueta = v => v) {
+  const el = $(sel);
+  const previo = el.value;
+  el.innerHTML = `<option value="">${vacio}</option>` +
+    valores.map(v => `<option value="${esc(v)}">${esc(etiqueta(v))}</option>`).join('');
+  el.value = valores.includes(previo) ? previo : '';
+}
+
+function renderFaltantes() {
+  const todos = faltantesPlanos();
+  llenarSelect('#r-area', 'Todas', [...new Set(doc.empleados.map(e => e.area))].sort((a, b) => a.localeCompare(b, 'es')));
+  llenarSelect('#r-prenda', 'Todas', doc.prendas.map(p => p.id), id => (doc.prendas.find(p => p.id === id) || {}).nombre);
+  llenarSelect('#r-talle', 'Todos', [...new Set(todos.map(f => f.talle))].sort(compararTalles));
+
+  const area = $('#r-area').value, prenda = $('#r-prenda').value, talle = $('#r-talle').value;
+  const filas = todos.filter(f => (!area || f.area === area) && (!prenda || f.prenda === prenda) && (!talle || f.talle === talle));
+  matrizPrendaTalle('#tabla-faltantes', filas, 'Total', 'No hay personas con talle asignado para ese filtro.', 'asignadas');
+  matrizPrendaTalle('#tabla-faltan', filas.filter(f => f.estado === 'no'), 'Total', 'Sin faltantes con este filtro.', 'faltan');
+
+  renderFiltrosActivos({ area, prenda, talle }, filas);
+
+  // La pestaña avisa cuántas prendas faltan en total, sin importar el filtro.
+  const faltanTotal = todos.filter(f => f.estado === 'no').length;
+  $('#tab-faltantes').innerHTML = `Resumen de faltantes${faltanTotal ? `<span class="tab-badge">${faltanTotal}</span>` : ''}`;
+}
+
+// Resumen de resultados + chips de filtros activos (cada chip se saca con un click).
+const SELECT_FILTRO = { area: '#r-area', prenda: '#r-prenda', talle: '#r-talle' };
+function renderFiltrosActivos(valores, filas) {
+  const faltan = filas.filter(f => f.estado === 'no').length;
+  $('#r-resumen').innerHTML = `${filas.length} asignadas · <span class="crit">${faltan} faltan</span>`;
+
+  const nombres = { area: 'Área', prenda: 'Indumentaria', talle: 'Talle' };
+  const activos = Object.entries(valores).filter(([, v]) => v);
+  $('#r-limpiar').disabled = !activos.length;
+  const caja = $('#r-activos');
+  caja.classList.toggle('hidden', !activos.length);
+  caja.innerHTML = activos.length
+    ? `<span class="rotulo">Filtrando por</span>` + activos.map(([clave, v]) => {
+      const texto = clave === 'prenda' ? ((doc.prendas.find(p => p.id === v) || {}).nombre || v) : v;
+      return `<button type="button" class="filtro-chip" data-quitar="${clave}" title="Quitar este filtro">${nombres[clave]}: ${esc(texto)}<i data-lucide="x"></i></button>`;
+    }).join('')
+    : '';
+  iconos();
+}
+
+// Matriz indumentaria × talle: cada celda es la cantidad de filas (personas) que caen ahí.
+function matrizPrendaTalle(selector, filas, tituloTotal, vacio, unidad) {
+  const tabla = $(selector);
+  $(`[data-chip="${selector}"]`).textContent = filas.length ? `${filas.length} ${unidad}` : '';
+  if (!filas.length) {
+    tabla.innerHTML = `<tbody><tr><td><div class="matriz-vacia"><i data-lucide="search-x"></i><div>${vacio}</div></div></td></tr></tbody>`;
+    iconos();
+    return;
+  }
+  // Transpuesta: un talle por fila, una indumentaria por columna. Pocas columnas → sin scroll horizontal.
+  const talles = [...new Set(filas.map(f => f.talle))].sort(compararTalles);
+  const prendas = doc.prendas.filter(p => filas.some(f => f.prenda === p.id));
+  const porCelda = new Map(); // `${prenda}|${talle}` → n
+  for (const f of filas) porCelda.set(`${f.prenda}|${f.talle}`, (porCelda.get(`${f.prenda}|${f.talle}`) || 0) + 1);
+  const maximo = Math.max(...porCelda.values());
+  // Tinte suave que crece con la cantidad (--i de 0.15 a 1); el número siempre está.
+  const celda = n => (n
+    ? `<td class="num heat" style="--i:${(0.15 + 0.85 * n / maximo).toFixed(2)}">${n}</td>`
+    : '<td class="num cero" aria-label="0">·</td>');
+  const total = n => `<td class="num total">${n}</td>`;
+  tabla.innerHTML = `
+    <thead><tr><th>Talle</th>${prendas.map(p => `<th class="num">${esc(p.nombre)}</th>`).join('')}<th class="num total">${tituloTotal}</th></tr></thead>
+    <tbody>${talles.map(t => `<tr><td class="nombre">${esc(t)}</td>${prendas.map(p => celda(porCelda.get(`${p.id}|${t}`) || 0)).join('')}${total(filas.filter(f => f.talle === t).length)}</tr>`).join('')}</tbody>
+    <tfoot><tr><td>Total</td>${prendas.map(p => total(filas.filter(f => f.prenda === p.id).length)).join('')}${total(filas.length)}</tr></tfoot>`;
+}
+
+function mostrarVista(faltantes) {
+  $('#vista-faltantes').classList.toggle('hidden', !faltantes);
+  $('#vista-planilla').classList.toggle('hidden', faltantes);
+  for (const [id, activa] of [['#tab-planilla', !faltantes], ['#tab-faltantes', faltantes]]) {
+    $(id).classList.toggle('active', activa);
+    $(id).setAttribute('aria-selected', String(activa));
+  }
+}
+
 function render() {
   renderKpis();
   renderSelectoresFiltro();
   renderTabla();
+  renderFaltantes();
 }
 
 // ── Modales ──────────────────────────────────────────────────────────────────
@@ -397,6 +511,19 @@ $('#btn-indumentaria').addEventListener('click', modalIndumentaria);
 for (const sel of ['#f-buscar', '#f-area', '#f-ubicacion', '#f-faltantes', '#f-sin-relevar']) {
   $(sel).addEventListener('input', renderTabla);
 }
+$('#tab-planilla').addEventListener('click', () => mostrarVista(false));
+$('#tab-faltantes').addEventListener('click', () => mostrarVista(true));
+for (const sel of ['#r-area', '#r-prenda', '#r-talle']) $(sel).addEventListener('input', renderFaltantes);
+$('#r-activos').addEventListener('click', ev => {
+  const chip = ev.target.closest('[data-quitar]');
+  if (!chip) return;
+  $(SELECT_FILTRO[chip.dataset.quitar]).value = '';
+  renderFaltantes();
+});
+$('#r-limpiar').addEventListener('click', () => {
+  for (const sel of ['#r-area', '#r-prenda', '#r-talle']) $(sel).value = '';
+  renderFaltantes();
+});
 $('#btn-limpiar').addEventListener('click', () => {
   $('#f-buscar').value = '';
   $('#f-area').value = '';

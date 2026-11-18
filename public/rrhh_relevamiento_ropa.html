@@ -104,6 +104,67 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--area);bo
 .check{display:inline-flex;align-items:center;gap:7px;font-size:.85rem;font-weight:600;color:var(--on-surf);cursor:pointer;user-select:none}
 .check input{width:16px;height:16px;accent-color:var(--area);cursor:pointer}
 
+/* ── Pestañas + resumen de faltantes ─────────────────────────────────────── */
+.tabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--outline)}
+.tab{font-family:inherit;font-size:.88rem;font-weight:700;color:var(--muted);background:none;border:none;border-bottom:3px solid transparent;padding:9px 16px;cursor:pointer;margin-bottom:-1px}
+.tab:hover{color:var(--area-ink)}
+.tab.active{color:var(--area-ink);border-bottom-color:var(--area)}
+.tab-badge{display:inline-block;margin-left:7px;min-width:20px;padding:0 7px;border-radius:999px;background:var(--err);color:#fff;font-size:.72rem;font-weight:700;line-height:20px;text-align:center}
+
+/* Panel de filtros del resumen */
+.filtros-panel{background:#fff;border:1px solid var(--outline);border-radius:15px;padding:20px 24px 22px;margin-bottom:32px}
+.filtros-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid rgba(26,28,24,.08)}
+.filtros-head h2{font-size:1.08rem;font-weight:800;color:var(--area-ink);line-height:1.2}
+.filtros-icono{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:var(--area-soft);color:var(--area-ink);flex-shrink:0}
+.filtros-icono svg{width:20px;height:20px}
+.filtros-resumen{margin-left:auto;font-size:.9rem;font-weight:700;color:var(--on-surf);font-variant-numeric:tabular-nums}
+.filtros-resumen .crit{color:var(--err)}
+.filtros-grid{display:grid;grid-template-columns:repeat(3,minmax(200px,1fr));gap:20px}
+.filtros-grid .field{gap:7px}
+.filtros-grid .field-label{display:flex;align-items:center;gap:7px;font-size:.76rem}
+.filtros-grid .field-label svg{width:15px;height:15px;color:var(--area)}
+.filtros-grid select{width:100%;font-size:.95rem;padding:11px 14px;border-radius:11px;cursor:pointer}
+.filtros-activos{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-top:18px}
+.filtros-activos .rotulo{font-size:.76rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-right:2px}
+.filtro-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 7px 5px 13px;border-radius:999px;background:var(--area-soft);color:var(--area-ink);border:1px solid rgba(64,89,54,.28);font:inherit;font-size:.84rem;font-weight:600;cursor:pointer}
+.filtro-chip:hover{background:rgba(64,89,54,.22)}
+.filtro-chip svg{width:15px;height:15px;padding:1px;border-radius:50%;background:rgba(64,89,54,.18)}
+
+.res-bloque{margin-top:36px}
+.filtros-panel + .res-bloque{margin-top:0}
+.res-head{display:flex;align-items:baseline;gap:14px;margin-bottom:14px}
+.res-head h2{font-size:1.2rem;font-weight:800;color:var(--area-ink)}
+.res-chip{font-size:.9rem;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.res-chip.crit{color:var(--err)}
+
+/* Matriz indumentaria × talle. El tinte (--i de 0 a 1) sólo ayuda a escanear: el número siempre está. */
+.matriz{--heat:var(--area)}
+.matriz.crit{--heat:var(--err)}
+/* Transpuesta: talles en filas, indumentarias en columnas (pocas). Dos tablas lado a lado. */
+.res-par{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px;align-items:start}
+@media (max-width:1100px){.res-par{grid-template-columns:minmax(0,1fr)}}
+.res-par .res-bloque{margin-top:0}
+.matriz{width:100%;min-width:0!important;table-layout:auto}
+.matriz thead th{padding:8px 8px;font-size:.72rem;white-space:normal;line-height:1.2}
+.matriz thead th:first-child,.matriz tbody td:first-child,.matriz tfoot td:first-child{padding-left:16px;text-align:left}
+.matriz tbody td,.matriz tfoot td{padding:4px 8px;line-height:1.3}
+.matriz th.num,.matriz td.num{text-align:center;font-variant-numeric:tabular-nums}
+.matriz th.total,.matriz td.total{min-width:60px}
+.matriz td.num{font-size:.92rem;font-weight:600}
+.matriz td.nombre,.matriz tfoot td:first-child{font-size:.9rem}
+.matriz td.heat{background:color-mix(in srgb,var(--heat) calc(var(--i) * 26%),transparent)}
+.matriz td.cero{color:#9a9c8a;font-weight:400}
+.matriz td.total,.matriz th.total{font-weight:800;background:#f1f4ec;border-left:1px solid var(--outline)}
+.matriz.crit td.total:not(.cero){color:var(--err)}
+.matriz tbody tr:hover td{box-shadow:inset 0 0 0 999px rgba(26,28,24,.045)}
+.matriz tbody td:first-child,.matriz tfoot td:first-child{position:sticky;left:0;z-index:1;background:#fff;font-weight:700}
+.matriz thead th:first-child{position:sticky;left:0;z-index:3;width:80px;text-align:left;padding-left:16px}
+.matriz tfoot td{font-weight:800;background:#f1f4ec;border-top:2px solid var(--outline)}
+.matriz tfoot td:first-child{background:#f1f4ec}
+.res-nota{margin:12px 2px 0;max-width:80ch;font-size:.84rem}
+.matriz-vacia{display:flex;align-items:center;gap:12px;padding:28px 26px;font-size:.95rem;color:var(--muted)}
+.matriz-vacia svg{width:20px;height:20px;opacity:.55;flex-shrink:0}
+
 /* ── Tabla ───────────────────────────────────────────────────────────────── */
 .table-card{background:#fff;border:1px solid var(--outline);border-radius:15px;overflow:hidden}
 .table-scroll{overflow-x:auto}
@@ -240,6 +301,56 @@ tbody td.prenda-cell{text-align:center;border-left:1px solid rgba(26,28,24,.06);
 
   <section class="kpis fade-up" id="kpis" aria-label="Resumen"></section>
 
+  <div class="tabs fade-up" role="tablist">
+    <button class="tab active" id="tab-planilla" type="button" role="tab" aria-selected="true">Planilla</button>
+    <button class="tab" id="tab-faltantes" type="button" role="tab" aria-selected="false">Resumen de faltantes</button>
+  </div>
+
+  <section id="vista-faltantes" class="hidden fade-up">
+    <div class="filtros-panel">
+      <div class="filtros-head">
+        <span class="filtros-icono" aria-hidden="true"><i data-lucide="sliders-horizontal"></i></span>
+        <div>
+          <h2>Filtrar el resumen</h2>
+          <p class="sub">Afecta a las dos tablas a la vez.</p>
+        </div>
+        <span class="filtros-resumen" id="r-resumen" aria-live="polite"></span>
+        <button class="btn" id="r-limpiar" type="button"><i data-lucide="rotate-ccw"></i>Limpiar filtros</button>
+      </div>
+      <div class="filtros-grid">
+        <div class="field">
+          <label class="field-label" for="r-area"><i data-lucide="building-2"></i>Área</label>
+          <select id="r-area"><option value="">Todas</option></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="r-prenda"><i data-lucide="shirt"></i>Indumentaria</label>
+          <select id="r-prenda"><option value="">Todas</option></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="r-talle"><i data-lucide="ruler"></i>Talle</label>
+          <select id="r-talle"><option value="">Todos</option></select>
+        </div>
+      </div>
+      <div class="filtros-activos hidden" id="r-activos"></div>
+    </div>
+    <div class="res-par">
+      <div class="res-bloque">
+        <div class="res-head"><h2>Asignadas</h2><span class="res-chip" data-chip="#tabla-faltantes"></span></div>
+        <div class="table-card">
+          <div class="table-scroll"><table id="tabla-faltantes" class="matriz" style="min-width:0"></table></div>
+        </div>
+      </div>
+
+      <div class="res-bloque">
+        <div class="res-head"><h2>Faltantes</h2><span class="res-chip crit" data-chip="#tabla-faltan"></span></div>
+        <div class="table-card">
+          <div class="table-scroll"><table id="tabla-faltan" class="matriz crit" style="min-width:0"></table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="vista-planilla">
   <div class="toolbar fade-up">
     <div class="field" style="flex:1;min-width:210px">
       <label class="field-label" for="f-buscar">Buscar</label>
@@ -274,6 +385,7 @@ tbody td.prenda-cell{text-align:center;border-left:1px solid rgba(26,28,24,.06);
   </div>
 
   <p class="sub" style="margin-top:12px" id="pie-conteo"></p>
+  </div>
 </div>
 
 <div id="modales"></div>
