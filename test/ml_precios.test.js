@@ -26,7 +26,7 @@ test('parsea la bajada real: solo padres, variantes contadas', () => {
   assert.strictEqual(r.variantesIgnoradas, 17);
   assert.strictEqual(r.total, 23);
   const polen = r.publicaciones.find(p => p.id === 'MLA681472431');
-  assert.deepStrictEqual(polen, { id: 'MLA681472431', titulo: polen.titulo, precio: 58000, precioPromo: null, envio: 'gratis', activa: true, cuotas: 'interes_bajo', stock: 31, iva: 21 });
+  assert.deepStrictEqual(polen, { id: 'MLA681472431', producto: polen.producto, familia: polen.familia, titulo: polen.titulo, precio: 58000, precioPromo: null, envio: 'gratis', activa: true, cuotas: 'interes_bajo', stock: 31, iva: 21 });
   const porId = Object.fromEntries(r.publicaciones.map(p => [p.id, p]));
   assert.strictEqual(porId.MLA617910359.envio, 'comprador');
   assert.strictEqual(porId.MLA618175467.cuotas, 'agregar');

@@ -100,7 +100,25 @@ test('desvincular con codigo null borra el vínculo', async () => {
   await conServidor({ 7: 1000 }, async (base, dir) => {
     await put(`${base}/api/ml-precios/vinculos/MLA1`, { codigo: 7, unidades: 1 });
     const r = await put(`${base}/api/ml-precios/vinculos/MLA1`, { codigo: null });
-    assert.deepStrictEqual(await r.json(), { id: 'MLA1', vinculo: null });
+    assert.deepStrictEqual(await r.json(), { id: 'MLA1', vinculo: null, replicadas: [] });
+    assert.deepStrictEqual(leerJSON(path.join(dir, 'ml_vinculos.json')), {});
+  });
+});
+
+test('vínculo se replica en las publicaciones que comparten producto/agrupador, y se quita en todas', async () => {
+  await conServidor({ 7: 1000 }, async (base, dir) => {
+    guardarJSON(path.join(dir, 'ml_publicaciones.json'), { publicaciones: [
+      { id: 'MLA1', producto: 'U1', familia: 'F1', titulo: 'a', precio: 1, envio: 'nd', cuotas: 'no', activa: true },
+      { id: 'MLA2', producto: 'U1', familia: '', titulo: 'b', precio: 1, envio: 'nd', cuotas: 'no', activa: true },
+      { id: 'MLA3', producto: 'U9', familia: '', titulo: 'c', precio: 1, envio: 'nd', cuotas: 'no', activa: true }] });
+    const r = await put(`${base}/api/ml-precios/vinculos/MLA2`, { codigo: 7, unidades: 2, pesoKg: 1.5 });
+    assert.deepStrictEqual((await r.json()).replicadas, ['MLA1']);
+    const v = leerJSON(path.join(dir, 'ml_vinculos.json'));
+    assert.deepStrictEqual(Object.keys(v).sort(), ['MLA1', 'MLA2']);
+    assert.strictEqual(v.MLA1.pesoKg, 1.5);
+    const c = await (await fetch(`${base}/api/ml-precios/control`)).json();
+    assert.deepStrictEqual(c.filas.map(f => [f.id, f.codigo, f.esPrincipal]).sort(), [['MLA1', 7, true], ['MLA2', 7, false], ['MLA3', null, true]]);
+    await put(`${base}/api/ml-precios/vinculos/MLA1`, { codigo: null });
     assert.deepStrictEqual(leerJSON(path.join(dir, 'ml_vinculos.json')), {});
   });
 });

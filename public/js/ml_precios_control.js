@@ -16,10 +16,11 @@ const NOTA_ESTADO = {
   ok: 'Precio en orden.',
 };
 const COLUMNAS = [
-  { k: 'pub', t: 'Publicación' }, { k: null, t: 'Producto en SIGA' }, { k: 'ml', t: 'Precio ML', num: true },
-  { k: 'esperado', t: 'Esperado', num: true }, { k: 'dif', t: 'Diferencia', num: true }, { k: null, t: 'Estado y qué hacer' },
+  { k: 'pub', t: 'Publicación' }, { k: null, t: 'Producto en SIGA' }, { k: 'ml', t: 'Precio actual (ML)', num: true },
+  { k: 'esperado', t: 'Precio nuevo', num: true }, { k: 'dif', t: 'Diferencia', num: true }, { k: null, t: 'Estado y qué hacer' },
 ];
 
+const abiertos = new Set(); // ids de principales con el desplegable de vinculadas abierto
 let editor = null; // { id, codigo, unidades, peso, cuotas } de la fila que se está vinculando/editando
 let prefs = leerPrefs();
 
@@ -46,13 +47,16 @@ function ordenar(filas) {
   });
 }
 
+// Una fila por grupo (la principal); el grupo se muestra si alguna de sus publicaciones pasa los filtros.
 function filtrar() {
   const q = $('f-buscar').value.trim().toLowerCase();
-  const filas = filasActivas()
+  const pasan = filasActivas()
     .filter(GRUPOS[prefs.grupo] || GRUPOS.pend)
     .filter(f => !q || `${f.id} ${f.titulo} ${f.nombreProducto ?? ''} ${f.codigo ?? ''}`.toLowerCase().includes(q));
-  return ordenar(filas);
+  const ids = new Set(pasan.map(f => f.principal));
+  return ordenar((datos.filas || []).filter(f => f.esPrincipal && ids.has(f.id)));
 }
+const hijasDe = f => (datos.filas || []).filter(x => x.principal === f.id && !x.esPrincipal);
 
 // ── Resumen ──────────────────────────────────────────────────────────────────
 function renderResumen() {
@@ -104,6 +108,16 @@ function accionHtml(f) {
   return `<span class="chip ${chip}">${escHtml(txt)}</span><span class="nota">${escHtml(NOTA_ESTADO[f.estado] || '')}</span>${calc}`;
 }
 
+// Publicaciones con el mismo Número de producto o Agrupador de ML: la principal replica código SIGA, unidades, peso y cuotas.
+function vinculadasHtml(f) {
+  if (!f.hermanas || !f.hermanas.length) return '';
+  if (!f.esPrincipal) return `<div class="pub-meta"><span class="chip chip--gris" title="Usa el vínculo de la principal. Si lo editás, se replica en todas.">Vinculada a ${escHtml(f.principal)}</span></div>`;
+  const hijas = hijasDe(f);
+  const mal = hijas.filter(h => h.estado !== 'ok').length;
+  const abierto = abiertos.has(f.id);
+  return `<div class="pub-meta"><button type="button" class="link-btn" data-act="toggle-grupo" data-id="${escHtml(f.id)}" aria-expanded="${abierto}">${abierto ? '▾' : '▸'} Principal &middot; ${hijas.length} vinculada${hijas.length === 1 ? '' : 's'}${mal ? ` (${mal} para revisar)` : ''}</button></div>`;
+}
+
 function productoHtml(f) {
   if (f.codigo === null || f.codigo === undefined) return '<span class="t-gris">-</span>';
   const id = escHtml(f.id);
@@ -112,7 +126,7 @@ function productoHtml(f) {
     <button type="button" class="link-btn" data-act="editar" data-id="${id}" aria-label="Editar vínculo de ${id}">Editar</button></div>`;
 }
 
-function filaHtml(f) {
+function filaHtml(f, hija = false) {
   const id = escHtml(f.id);
   const idNum = String(f.id).replace(/\D/g, '');
   const meta = [
@@ -123,8 +137,8 @@ function filaHtml(f) {
     num(f.cuotasQty) > 1 ? `<span>${escHtml(f.cuotasQty)} cuotas</span>` : '',
   ].filter(Boolean).join('');
   const promo = f.precioPromo ? '<div class="text-xs t-gris">promo</div>' : '';
-  return `<tr data-id="${id}">
-    <td><div class="pub-titulo" title="${escHtml(f.titulo)}">${escHtml(f.titulo)}</div><div class="pub-meta">${meta}</div></td>
+  return `<tr data-id="${id}"${hija ? ' class="fila-hija"' : ''}>
+    <td><div class="pub-titulo" title="${escHtml(f.titulo)}">${escHtml(f.titulo)}</div><div class="pub-meta">${meta}</div>${vinculadasHtml(f)}</td>
     <td>${productoHtml(f)}</td>
     <td class="num text-right">${num(f.precioMl) === null ? '-' : fmtMoney(f.precioMl)}${promo}</td>
     <td class="num text-right">${num(f.esperado) === null ? '-' : fmtMoney(f.esperado)}</td>
@@ -149,15 +163,23 @@ function editorHtml(f) {
     </div>
     <div class="vinc-prev" id="ed-prev" aria-live="polite">${previewCodigoHtml(editor.codigo)}</div>
     <div id="ed-error" class="error mt-2" role="alert" hidden></div>
+    ${f.hermanas && f.hermanas.length ? `<p class="text-xs t-gris mt-1">Se aplica también a las ${f.hermanas.length} publicaciones vinculadas (mismo producto/agrupador en ML).</p>` : ''}
     <p class="text-xs t-gris mt-1">Si la publicación es un combo de varias unidades del mismo producto, poné cuántas trae (el precio se calcula como carta &times; unidades). Con "Precio SIGA por kg" se calcula como carta &times; peso.</p>
   </td></tr>`;
+}
+
+const editorDe = f => (editor && editor.id === String(f.id) ? editorHtml(f) : '');
+function filaGrupoHtml(f) {
+  const hijas = abiertos.has(f.id) ? hijasDe(f) : [];
+  return filaHtml(f) + editorDe(f) + hijas.map(h => filaHtml(h, true) + editorDe(h)).join('');
 }
 
 function renderTabla() {
   const wrap = $('tabla-wrap');
   const filas = filtrar();
   const todas = datos.filas || [];
-  $('cuenta').textContent = `${fmtInt(filas.length)} de ${fmtInt(todas.length)} publicaciones`;
+  const mostradas = filas.reduce((n, f) => n + 1 + f.hermanas.length, 0);
+  $('cuenta').textContent = `${fmtInt(mostradas)} de ${fmtInt(todas.length)} publicaciones`;
   if (!filas.length) {
     const hayFiltro = prefs.grupo !== 'todas' || $('f-buscar').value.trim();
     const bien = prefs.grupo === 'pend' && !$('f-buscar').value.trim() && todas.length;
@@ -170,7 +192,7 @@ function renderTabla() {
     const sort = orden ? (prefs.dir === 'asc' ? 'ascending' : 'descending') : 'none';
     return `<th scope="col" class="${c.num ? 'num text-right' : ''}"${c.k ? ` aria-sort="${sort}"` : ''}>${c.k ? `<button type="button" class="th-btn" data-orden="${c.k}">${c.t}</button>` : c.t}</th>`;
   };
-  wrap.innerHTML = `<table><thead><tr>${COLUMNAS.map(th).join('')}</tr></thead><tbody>${filas.map(f => filaHtml(f) + (editor && editor.id === String(f.id) ? editorHtml(f) : '')).join('')}</tbody></table>`;
+  wrap.innerHTML = `<table><thead><tr>${COLUMNAS.map(th).join('')}</tr></thead><tbody>${filas.map(filaGrupoHtml).join('')}</tbody></table>`;
 }
 
 function renderControl() {
@@ -293,6 +315,7 @@ const ACCIONES = {
   vincular: id => abrirEditor(id),
   editar: id => abrirEditor(id),
   calc: id => abrirDetalle(id),
+  'toggle-grupo': id => { if (abiertos.has(id)) abiertos.delete(id); else abiertos.add(id); renderTabla(); },
   'cargar-peso': id => { abrirEditor(id); const p = $('ed-peso'); if (p) { p.focus(); p.select(); } },
   copiar: (id, b) => copiarPrecioSugerido(id, b),
   guardar: () => guardarEditor(),

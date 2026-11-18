@@ -31,6 +31,12 @@ module.exports = function crearRutasMlPrecios(deps) {
     return ml.CONFIG_DEFAULT;
   }
   const leerVinculos = () => leerJSON(VINCULOS_PATH, {});
+  // La publicación y todas las que comparten producto/agrupador con ella en la última bajada: el vínculo se replica en todas.
+  function miembrosDe(id) {
+    const pubs = leerJSON(PUBLICACIONES_PATH, {}).publicaciones || [];
+    const g = ml.agruparPublicaciones(pubs, {}).get(id);
+    return g ? [id, ...g.hermanas] : [id];
+  }
 
   // Códigos ya validados como enteros > 0: se interpolan como literal ('123'), sin texto del usuario.
   async function cartasDe(codigos) {
@@ -75,15 +81,16 @@ module.exports = function crearRutasMlPrecios(deps) {
   async function filasControl(publicaciones, res) {
     const vinculos = leerVinculos();
     const cfg = leerConfig();
+    const grupos = ml.agruparPublicaciones(publicaciones, vinculos);
     let cartas;
     try {
-      cartas = await cartasDe(publicaciones.map(p => vinculos[p.id] && vinculos[p.id].codigo));
+      cartas = await cartasDe(publicaciones.map(p => grupos.get(p.id).vinculo && grupos.get(p.id).vinculo.codigo));
     } catch (e) {
       console.error('[ml-precios] carta de SIGA:', e.message);
       res.status(502).json({ error: 'No se pudo leer la lista de precios de SIGA. Probá de nuevo en unos minutos.' });
       return null;
     }
-    return publicaciones.map(p => ml.armarFila(p, vinculos[p.id] || null, cartas, cfg));
+    return publicaciones.map(p => ml.armarFila(p, grupos.get(p.id).vinculo, cartas, cfg, grupos.get(p.id)));
   }
 
   router.get('/api/ml-precios/control', async (_req, res) => {
@@ -174,9 +181,9 @@ module.exports = function crearRutasMlPrecios(deps) {
     const { codigo, unidades, pesoKg = null, cuotasQty = null } = body;
     if (!/^MLA\d+$/.test(id)) return res.status(400).json({ error: 'ID de publicación inválido.' });
     if (codigo === null) {
-      const { [id]: _quitado, ...resto } = leerVinculos();
-      guardarJSON(VINCULOS_PATH, resto);
-      return res.json({ id, vinculo: null });
+      const quitar = new Set(miembrosDe(id));
+      guardarJSON(VINCULOS_PATH, Object.fromEntries(Object.entries(leerVinculos()).filter(([k]) => !quitar.has(k))));
+      return res.json({ id, vinculo: null, replicadas: [...quitar].filter(k => k !== id) });
     }
     if (!esCodigo(codigo)) return res.status(400).json({ error: 'El código debe ser un entero mayor a 0.' });
     if (!Number.isInteger(unidades) || unidades < 1) return res.status(400).json({ error: 'Las unidades deben ser un entero ≥ 1.' });
@@ -195,15 +202,16 @@ module.exports = function crearRutasMlPrecios(deps) {
       return res.status(502).json({ error: 'No se pudo consultar SIGA para validar el código.' });
     }
     const vinculos = leerVinculos(); // después del await: no pisa un import que haya escrito mientras tanto
-    const previo = vinculos[id];
+    const miembros = miembrosDe(id);
+    const previo = vinculos[id] || vinculos[(ml.agruparPublicaciones(leerJSON(PUBLICACIONES_PATH, {}).publicaciones || [], vinculos).get(id) || {}).principal];
     // Sin la clave pesoKg se conservan peso y pesoEstimado; con pesoKg explícito (número o null) es manual.
     const peso = 'pesoKg' in body ? { pesoKg, pesoEstimado: false }
       : { pesoKg: previo && typeof previo.pesoKg === 'number' ? previo.pesoKg : null, pesoEstimado: !!previo && previo.pesoEstimado === true };
     // precioPorKg: sin la clave se conserva el previo; se guarda solo `true` (false = key ausente).
     const porKg = 'precioPorKg' in body ? body.precioPorKg : !!previo && previo.precioPorKg === true;
     const vinculo = { codigo, unidades, ...peso, cuotasQty, ...(porKg ? { precioPorKg: true } : {}), actualizado: new Date().toISOString() };
-    guardarJSON(VINCULOS_PATH, { ...vinculos, [id]: vinculo });
-    return res.json({ id, vinculo });
+    guardarJSON(VINCULOS_PATH, { ...vinculos, ...Object.fromEntries(miembros.map(k => [k, vinculo])) });
+    return res.json({ id, vinculo, replicadas: miembros.filter(k => k !== id) });
   });
 
   // Carga masiva del cruce PLU SIGA ↔ MLA. Una sola consulta a SIGA y una sola escritura (si hay cambios).
