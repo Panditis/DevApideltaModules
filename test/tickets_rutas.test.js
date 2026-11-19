@@ -935,7 +935,7 @@ test('/tickets sin calendario: meta false, POST /:id/fecha 404 y área libre', a
   } finally { cerrar(ctx); }
 });
 
-test('PUT /areas (Mantenimiento): 200 guarda y meta lo refleja, alta valida contra la lista vigente, 400, 403 y ticket viejo intacto', async () => {
+test('PUT /responsables (Mantenimiento): 200 guarda pares, meta con etiquetas, alta contra etiquetas vigentes, 400, 403 y ticket viejo intacto', async () => {
   const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
   const ctx = await montar({ config: {
     api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
@@ -944,46 +944,79 @@ test('PUT /areas (Mantenimiento): 200 guarda y meta lo refleja, alta valida cont
   const { base } = ctx;
   try {
     let meta = (await pedir(base, 'GET', '/meta')).data;
-    assert.deepStrictEqual(meta.areas, ['Mantenimiento', 'Sistemas']); // sin archivo: semilla
+    assert.deepStrictEqual(meta.areas, ['Mantenimiento', 'Sistemas']); // sin archivo: semilla (legados)
+    assert.deepStrictEqual(meta.responsables, [
+      { usuario: null, area: 'Mantenimiento', etiqueta: 'Mantenimiento' },
+      { usuario: null, area: 'Sistemas', etiqueta: 'Sistemas' },
+    ]);
     assert.strictEqual(meta.puedeConfigurarAreas, true);
     assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' })).status, 201);
 
-    const put = await pedir(base, 'PUT', '/areas', { areas: [' Mantenimiento ', 'Plomería'] });
+    const put = await pedir(base, 'PUT', '/responsables',
+      { responsables: [{ usuario: 'ADRIEL', area: ' Sistema (Soporte) ' }, { usuario: 'beto', area: 'Plomería' }] });
     assert.strictEqual(put.status, 200);
-    assert.deepStrictEqual(put.data, { areas: ['Mantenimiento', 'Plomería'] });
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento_areas.json'), 'utf8')), ['Mantenimiento', 'Plomería']);
+    const esperados = [
+      { usuario: 'Adriel', area: 'Sistema (Soporte)', etiqueta: 'Adriel Sanabria / Sistema (Soporte)' },
+      { usuario: 'beto', area: 'Plomería', etiqueta: 'beto / Plomería' },
+    ];
+    assert.deepStrictEqual(put.data, { responsables: esperados, areas: esperados.map(r => r.etiqueta) });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento_areas.json'), 'utf8')),
+      [{ usuario: 'Adriel', area: 'Sistema (Soporte)' }, { usuario: 'beto', area: 'Plomería' }]);
     meta = (await pedir(base, 'GET', '/meta')).data;
-    assert.deepStrictEqual(meta.areas, ['Mantenimiento', 'Plomería']);
+    assert.deepStrictEqual(meta.responsables, esperados);
+    assert.deepStrictEqual(meta.areas, esperados.map(r => r.etiqueta));
 
-    const quitada = await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' });
-    assert.strictEqual(quitada.status, 400);
-    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 201);
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' })).status, 400); // quitada
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'beto / Plomería' })).status, 201);
     const lista = (await pedir(base, 'GET', '')).data;
     assert.strictEqual(lista.find(t => t.id === 1).area, 'Sistemas'); // el viejo conserva su valor
 
-    const mal = await pedir(base, 'PUT', '/areas', { areas: ['A', 'a'] });
+    const mal = await pedir(base, 'PUT', '/responsables', { responsables: [{ usuario: 'beto', area: 'A' }, { usuario: 'BETO', area: 'a' }] });
     assert.strictEqual(mal.status, 400);
     assert.match(mal.data.error, /repetidos/);
-    assert.strictEqual((await pedir(base, 'PUT', '/areas', {})).status, 400);
+    const inex = await pedir(base, 'PUT', '/responsables', { responsables: [{ usuario: 'nadie', area: 'A' }] });
+    assert.strictEqual(inex.status, 400);
+    assert.match(inex.data.error, /usuario/);
+    assert.strictEqual((await pedir(base, 'PUT', '/responsables', { responsables: ['Sistemas'] })).status, 400); // string legado no
+    assert.strictEqual((await pedir(base, 'PUT', '/responsables', {})).status, 400);
 
     ctx.sesion.permiso = false;
-    const p = await pedir(base, 'PUT', '/areas', { areas: ['X'] });
+    const p = await pedir(base, 'PUT', '/responsables', { responsables: [{ usuario: 'beto', area: 'X' }] });
     assert.strictEqual(p.status, 403);
     assert.match(p.data.error, /responsables/);
     assert.strictEqual((await pedir(base, 'GET', '/meta')).data.puedeConfigurarAreas, false);
-    assert.deepStrictEqual((await pedir(base, 'GET', '/meta')).data.areas, ['Mantenimiento', 'Plomería']);
+    assert.deepStrictEqual((await pedir(base, 'GET', '/meta')).data.areas, esperados.map(r => r.etiqueta));
   } finally { cerrar(ctx); }
 });
 
-test('/tickets sin areaCerrada: PUT /areas 404, meta con áreas fijas y puedeConfigurarAreas false', async () => {
+test('Mantenimiento: archivo con strings legados mezclados se lee como pares sin usuario', async () => {
+  const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
+  const ctx = await montar({ config: {
+    api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
+    areas: AREAS_MANTENIMIENTO, crearSoloGestion: true, areaCerrada: true,
+  } });
+  try {
+    fs.writeFileSync(path.join(ctx.dir, 'mantenimiento_areas.json'), JSON.stringify(['Plomería', { usuario: 'beto', area: 'Gas' }]));
+    const meta = (await pedir(ctx.base, 'GET', '/meta')).data;
+    assert.deepStrictEqual(meta.responsables, [
+      { usuario: null, area: 'Plomería', etiqueta: 'Plomería' },
+      { usuario: 'beto', area: 'Gas', etiqueta: 'beto / Gas' },
+    ]);
+    assert.deepStrictEqual(meta.areas, ['Plomería', 'beto / Gas']);
+    assert.strictEqual((await pedir(ctx.base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 201);
+  } finally { cerrar(ctx); }
+});
+
+test('/tickets sin areaCerrada: PUT /responsables 404, meta con áreas fijas, sin responsables y puedeConfigurarAreas false', async () => {
   const { AREAS } = require('../lib/tickets');
   const ctx = await montar();
   try {
-    const r = await pedir(ctx.base, 'PUT', '/areas', { areas: ['X'] });
+    const r = await pedir(ctx.base, 'PUT', '/responsables', { responsables: [{ usuario: 'beto', area: 'X' }] });
     assert.strictEqual(r.status, 404);
     assert.ok(!fs.existsSync(path.join(ctx.dir, 'tickets_areas.json')));
     const meta = (await pedir(ctx.base, 'GET', '/meta')).data;
     assert.deepStrictEqual(meta.areas, AREAS);
+    assert.strictEqual(meta.responsables, undefined);
     assert.strictEqual(meta.puedeConfigurarAreas, false);
     assert.strictEqual((await pedir(ctx.base, 'POST', '', { ...NUEVO, area: 'Libre' })).status, 201);
   } finally { cerrar(ctx); }
@@ -991,7 +1024,7 @@ test('/tickets sin areaCerrada: PUT /areas 404, meta con áreas fijas y puedeCon
 
 test('Mantenimiento: mantenimiento_areas.json con forma inválida ({}, "x", [], [1]) → meta da la semilla y el alta 201, no 500', async () => {
   const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
-  for (const contenido of [{}, 'x', [], [1]]) {
+  for (const contenido of [{}, 'x', [], [1], [null], [{ area: 'X' }]]) {
     const ctx = await montar({ config: {
       api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
       areas: AREAS_MANTENIMIENTO, crearSoloGestion: true, areaCerrada: true,

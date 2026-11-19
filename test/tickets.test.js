@@ -528,19 +528,39 @@ test('crearTicket: nace con fecha null; areasCerradas rechaza fuera de lista', (
   assert.strictEqual(crear([], { area: 'Libre' }).ticket.area, 'Libre');
 });
 
-test('validarAreas: normaliza, vacío, >30, repetidos sin mayúsculas, largo, no-string y no muta', () => {
-  const { validarAreas } = require('../lib/tickets');
-  const entrada = [' Mantenimiento ', 'Sistemas'];
-  const copia = [...entrada];
-  assert.deepStrictEqual(validarAreas(entrada), ['Mantenimiento', 'Sistemas']);
+test('validarResponsables: normaliza login y área, usuario inexistente, área vacía/larga, repetidos, etiqueta repetida, vacío, >30 y no muta', () => {
+  const { validarResponsables } = require('../lib/tickets');
+  const validos = ['Adriel', 'beto'];
+  const entrada = [{ usuario: 'ADRIEL', area: ' Sistema (Soporte) ' }, { usuario: 'beto', area: 'Plomería' }];
+  const copia = JSON.parse(JSON.stringify(entrada));
+  assert.deepStrictEqual(validarResponsables(entrada, validos),
+    [{ usuario: 'Adriel', area: 'Sistema (Soporte)' }, { usuario: 'beto', area: 'Plomería' }]);
   assert.deepStrictEqual(entrada, copia);
-  falla(() => validarAreas([]), 400);
-  falla(() => validarAreas('Sistemas'), 400);
-  falla(() => validarAreas(undefined), 400);
-  falla(() => validarAreas(Array.from({ length: 31 }, (_, i) => `A${i}`)), 400, /30/);
-  assert.strictEqual(validarAreas(Array.from({ length: 30 }, (_, i) => `A${i}`)).length, 30);
-  falla(() => validarAreas(['Sistemas', 'SISTEMAS ']), 400, /repetidos/);
-  falla(() => validarAreas(['x'.repeat(81)]), 400, /80/);
-  falla(() => validarAreas(['  ']), 400);
-  falla(() => validarAreas([3]), 400, /texto/);
+  falla(() => validarResponsables([{ usuario: 'nadie', area: 'A' }], validos), 400, /usuario/);
+  falla(() => validarResponsables([{ area: 'A' }], validos), 400, /usuario/);
+  falla(() => validarResponsables([{ usuario: 'beto', area: '  ' }], validos), 400, /área/);
+  falla(() => validarResponsables([{ usuario: 'beto', area: 'x'.repeat(81) }], validos), 400, /80/);
+  falla(() => validarResponsables([{ usuario: 'beto', area: 'A' }, { usuario: 'BETO', area: 'a ' }], validos), 400, /repetidos/);
+  const mismos = [{ usuario: 'Adriel', nombre: 'Ana' }, { usuario: 'beto', nombre: 'Ana' }];
+  falla(() => validarResponsables([{ usuario: 'Adriel', area: 'A' }, { usuario: 'beto', area: 'A' }], validos, mismos), 400, /etiqueta/);
+  falla(() => validarResponsables(['Sistemas'], validos), 400);
+  falla(() => validarResponsables([], validos), 400);
+  falla(() => validarResponsables(undefined, validos), 400);
+  const muchos = n => Array.from({ length: n }, (_, i) => ({ usuario: 'beto', area: `A${i}` }));
+  falla(() => validarResponsables(muchos(31), validos), 400, /30/);
+  assert.strictEqual(validarResponsables(muchos(30), validos).length, 30);
+});
+
+test('etiquetaResponsable y normalizarResponsables: con cuenta, sin cuenta y legados', () => {
+  const { etiquetaResponsable, normalizarResponsables } = require('../lib/tickets');
+  const usuarios = [{ usuario: 'Adriel', nombre: 'Adriel' }];
+  assert.strictEqual(etiquetaResponsable({ usuario: 'adriel', area: 'Sistema (Soporte)' }, usuarios), 'Adriel / Sistema (Soporte)');
+  assert.strictEqual(etiquetaResponsable({ usuario: 'gone', area: 'Gas' }, usuarios), 'gone / Gas');
+  assert.strictEqual(etiquetaResponsable('Sistemas', usuarios), 'Sistemas');
+  assert.deepStrictEqual(normalizarResponsables(['Sistemas', { usuario: 'Adriel', area: 'X' }], usuarios), [
+    { usuario: null, area: 'Sistemas', etiqueta: 'Sistemas' },
+    { usuario: 'Adriel', area: 'X', etiqueta: 'Adriel / X' },
+  ]);
+  falla(() => normalizarResponsables({}, usuarios), 400);
+  falla(() => normalizarResponsables([1], usuarios), 400);
 });

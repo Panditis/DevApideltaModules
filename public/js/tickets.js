@@ -1879,9 +1879,9 @@
     const dlg = $('#dlgResp');
     const ui = Responsables.crearUI({
       dlg, el, ico, aviso: mostrarAviso,
-      guardar: areas => enviarJSON('PUT', `${CFG.api}/areas`, { areas }),
-      alGuardar: areas => {
-        estado.meta = { ...estado.meta, areas };
+      guardar: responsables => enviarJSON('PUT', `${CFG.api}/responsables`, { responsables }),
+      alGuardar: ({ responsables, areas }) => {
+        estado.meta = { ...estado.meta, responsables, areas };
         armarSelectArea();
         armarFiltrosDinamicos();
         pintarSeguimiento();
@@ -1890,7 +1890,7 @@
     });
     enlazarDialogo(dlg, () => $('#btnConfigResp').focus());
     $('#btnConfigResp').classList.remove('hidden');
-    $('#btnConfigResp').addEventListener('click', () => ui.abrir(estado.meta.areas));
+    $('#btnConfigResp').addEventListener('click', () => ui.abrir(estado.meta.responsables, estado.meta.usuarios));
   }
 
   async function iniciar() {
