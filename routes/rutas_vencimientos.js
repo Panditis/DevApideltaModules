@@ -1,7 +1,7 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const { semaforo, diasParaVencer, pendiente, estadoSucursal, ofertaEstado, vencidoEstado, baseVencido, vistaLote, validarFecha, hoyLocal } = require('../lib/vencimientos');
+const { semaforo, diasParaVencer, pendiente, estadoSucursal, ofertaEstado, vencidoEstado, baseVencido, vistaLote, SUCURSALES_SIN_OFERTA, esSucursalSinOferta, validarFecha, hoyLocal } = require('../lib/vencimientos');
 const { esSucursalReal } = require('../lib/sucursales_no_reales');
 const { cruzarLote, consultarMovimientos, consultarMovimientosClase, marcarAsignados } = require('../lib/vencimientos_siga');
 const { consultarVentas, calcularVentas } = require('../lib/vencimientos_ventas');
@@ -82,13 +82,13 @@ module.exports = function crearRutasVencimientos(deps) {
       for (const [suc, col] of Object.entries(l.sucursales)) {
         if (!esSucursalReal(suc)) continue;
         columnas.add(Number(suc));
-        sucursales[suc] = { unidades: col.unidades, oferta: col.oferta, vendido: col.vendido, vencido: col.vencido || 0, pendiente: pendiente(col), estado: estadoSucursal(col), ofertasSistema: col.ofertasSistema || [], ofertaEstado: ofertaEstado(col), vencidosSistema: col.vencidosSistema || [], vencidoEstado: vencidoEstado(col), vencidoBase: baseVencido(col), origenSistema: !!col.origenSistema };
+        sucursales[suc] = { unidades: col.unidades, oferta: col.oferta, vendido: col.vendido, vencido: col.vencido || 0, pendiente: pendiente(col), estado: estadoSucursal(col), ofertasSistema: col.ofertasSistema || [], ofertaEstado: ofertaEstado(col), vencidosSistema: col.vencidosSistema || [], vencidoEstado: vencidoEstado(col), vencidoBase: baseVencido(col), devuelto: col.devuelto || 0, origenSistema: !!col.origenSistema };
       }
       const totalUnidades = Object.values(sucursales).reduce((t, c) => t + c.unidades, 0);
       return { id: l.id, idProducto: l.idProducto, nombre: l.nombre || null, codigo: l.codigo || null, vencimiento: l.vencimiento,
         creado: l.creado, dias: diasParaVencer(l.vencimiento, hoy), semaforo: semaforo(l.vencimiento, hoy, umbrales), totalUnidades, sucursales };
     }).sort((a, b) => a.vencimiento.localeCompare(b.vencimiento));
-    return { lotes: filas, sucursales: [...columnas].sort((a, b) => a - b), umbrales, usuario: { idSucursal: ctx.idSucursal, esAdmin: ctx.esAdmin } };
+    return { lotes: filas, sucursales: [...columnas].sort((a, b) => a - b), umbrales, usuario: { idSucursal: ctx.idSucursal, esAdmin: ctx.esAdmin, sinOferta: esSucursalSinOferta(ctx.idSucursal) }, sucursalesSinOferta: [...SUCURSALES_SIN_OFERTA] };
   }));
 
   router.post('/api/vencimientos/lotes', api(async req => {
@@ -117,6 +117,20 @@ module.exports = function crearRutasVencimientos(deps) {
     return store.registrarMovimiento({ idLote: id, idSucursal, tipo: b.tipo, cantidad: enteroPositivo(b.cantidad, 'cantidad'), usuario: ctx.user.usuario });
   }));
 
+  // Sucursales sin oferta (7, 9, 10): anotan lo devuelto a Central; no se cruza con SIGA.
+  router.post('/api/vencimientos/lotes/:id/devuelto-central', api(async req => {
+    const ctx = contexto(req);
+    const b = req.body || {};
+    const id = idLote(req);
+    const idSucursal = sucursalObjetivo(ctx, b.idSucursal, true);
+    return vistaLote(await store.devolverCentral({ idLote: id, idSucursal, cantidad: enteroPositivo(b.cantidad, 'cantidad'), usuario: ctx.user.usuario }));
+  }));
+
+  const exigirConOferta = (clase, idSucursal) => {
+    if (clase === 'oferta' && esSucursalSinOferta(idSucursal)) throw httpError(400, `La sucursal ${idSucursal} no trabaja con ofertas.`);
+  };
+  const nombreClase = (clase, idSucursal) => (clase === 'vencido' && esSucursalSinOferta(idSucursal) ? 'VENCIDO' : CLASES[clase].nombre);
+
   // Movimientos de SIGA (solo lectura) de un producto en la sucursal efectiva, por clase:
   // 'oferta' = PARA OFERTA, 'vencido' = OFERTA VENCIDO. Si SIGA falla: 502 (la UI distingue "no hay" de "falló").
   const CLASES = { oferta: { dias: 'diasMaxOferta', nombre: 'PARA OFERTA' }, vencido: { dias: 'diasMaxVencido', nombre: 'OFERTA VENCIDO' } };
@@ -139,10 +153,11 @@ module.exports = function crearRutasVencimientos(deps) {
     return idSucursal;
   };
 
-  for (const [clase, { dias, nombre }] of Object.entries(CLASES)) {
+  for (const [clase, { dias }] of Object.entries(CLASES)) {
     router.get(`/api/vencimientos/movimientos-${clase}`, api(async req => {
       const ctx = contexto(req);
       const idSucursal = sucursalLectura(ctx, req.query.idSucursal);
+      exigirConOferta(clase, idSucursal);
       const idProducto = enteroPositivo(req.query.idProducto, 'idProducto');
       const [{ config, movimientos }, lotes] = await Promise.all([leerMovimientosSiga(clase, idProducto, idSucursal), store.listarLotes()]);
       return { idSucursal, diasMax: config[dias], movimientos: marcarAsignados(movimientos, lotes, idProducto, idSucursal, clase) };
@@ -153,6 +168,7 @@ module.exports = function crearRutasVencimientos(deps) {
       const b = req.body || {};
       const id = idLote(req);
       const idSucursal = sucursalObjetivo(ctx, b.idSucursal, true);
+      exigirConOferta(clase, idSucursal);
       // Body viejo { numeroMovimiento } = lote de uno.
       const crudos = b.numerosMovimiento !== undefined ? b.numerosMovimiento : (b.numeroMovimiento !== undefined ? [b.numeroMovimiento] : []);
       if (!Array.isArray(crudos) || !crudos.length) throw httpError(400, 'Indicá al menos un movimiento en numerosMovimiento.');
@@ -164,7 +180,7 @@ module.exports = function crearRutasVencimientos(deps) {
       const { movimientos } = await leerMovimientosSiga(clase, lote.idProducto, idSucursal);
       const elegidos = numeros.map(n => {
         const m = movimientos.find(x => x.numeroMovimiento === n);
-        if (!m) throw httpError(400, `El movimiento ${n} no es un ${nombre} de este producto en la sucursal dentro de la ventana.`);
+        if (!m) throw httpError(400, `El movimiento ${n} no es un ${nombreClase(clase, idSucursal)} de este producto en la sucursal dentro de la ventana.`);
         return m;
       });
       // El store vuelve a chequear asignaciones dentro de la cola (409 si alguno es de otro registro; nada se guarda).
@@ -176,6 +192,7 @@ module.exports = function crearRutasVencimientos(deps) {
       const b = req.body || {};
       const id = idLote(req);
       const idSucursal = sucursalObjetivo(ctx, b.idSucursal, true);
+      exigirConOferta(clase, idSucursal);
       return vistaLote(await store.confirmarSistema(clase, { idLote: id, idSucursal, confirmacion: b.confirmacion, usuario: ctx.user.usuario }));
     }));
 
@@ -183,6 +200,7 @@ module.exports = function crearRutasVencimientos(deps) {
       const ctx = contexto(req);
       const id = idLote(req);
       const idSucursal = sucursalObjetivo(ctx, req.query.idSucursal, true);
+      exigirConOferta(clase, idSucursal);
       const q = req.query.numeroMovimiento;
       const numeroMovimiento = q === undefined || q === '' ? undefined : enteroPositivo(q, 'numeroMovimiento');
       return vistaLote(await store.quitarSistema(clase, { idLote: id, idSucursal, numeroMovimiento, usuario: ctx.user.usuario }));
@@ -256,6 +274,7 @@ module.exports = function crearRutasVencimientos(deps) {
     if (!ctx.esAdmin && hayPedida && Number(b.idSucursal) !== ctx.idSucursal) throw httpError(403, 'Solo podés modificar datos de tu sucursal.');
     const idSucursal = sucursalLectura(ctx, b.idSucursal);
     if (!CLASES[b.clase]) throw httpError(400, "clase debe ser 'oferta' o 'vencido'.");
+    exigirConOferta(b.clase, idSucursal);
     const numeroMovimiento = enteroPositivo(b.numeroMovimiento, 'numeroMovimiento');
     const idProducto = enteroPositivo(b.idProducto, 'idProducto');
     const esOferta = b.clase === 'oferta';
@@ -272,7 +291,7 @@ module.exports = function crearRutasVencimientos(deps) {
       throw httpError(502, 'No se pudieron leer los movimientos de SIGA');
     }
     const m = movimientos.find(x => x.numeroMovimiento === numeroMovimiento);
-    if (!m) throw httpError(400, `El movimiento ${numeroMovimiento} no es un ${CLASES[b.clase].nombre} de este producto en la sucursal dentro de la ventana.`);
+    if (!m) throw httpError(400, `El movimiento ${numeroMovimiento} no es un ${nombreClase(b.clase, idSucursal)} de este producto en la sucursal dentro de la ventana.`);
     if (!esOferta && !Number.isSafeInteger(m.cantidad)) throw httpError(400, 'La cantidad del movimiento no es un número entero');
     const vencimiento = vencPedido || String(m.fecha).slice(0, 10);
     // El store chequea asignado/duplicado dentro de la cola (409) y hace alta + asignación en un solo paso.

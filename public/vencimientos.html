@@ -46,8 +46,9 @@
   .btn-sec:hover:not(:disabled) { border-color: var(--v-linea); }
   .btn-tenue { border-color: transparent; color: var(--v-tenue); }
   /* Chips de acción por fila: color = etapa (igual que el Historial). */
-  .acciones { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .acc { --c: #405936; --r: 64,89,54; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 96px; height: 29px; padding: 0 11px; border-radius: 6px; font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; color: var(--c); background: rgba(var(--r),.07); border: 1px solid rgba(var(--r),.45); }
+  .acciones { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; white-space: nowrap; width: max-content; }
+  td:has(> .acciones) { width: 1%; white-space: nowrap; }
+  .acc { flex: 0 0 auto; --c: #405936; --r: 64,89,54; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 96px; height: 29px; padding: 0 11px; border-radius: 6px; font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; color: var(--c); background: rgba(var(--r),.07); border: 1px solid rgba(var(--r),.45); }
   .acc svg { width: 14px; height: 14px; flex: none; }
   .acc-of { --c: #0f5ea8; --r: 15,94,168; }
   .acc-venc { --c: #a4262c; --r: 164,38,44; }
@@ -119,7 +120,7 @@
   .hist-ev { display: grid; grid-template-columns: 120px minmax(0,1fr) 90px 140px; gap: 0 12px; padding: 5px 0 5px 10px; font-size: 12.5px; border-left: 2px solid var(--v-linea); color: #3b3d35; }
   .hist-ev.et { border-left-color: currentColor; font-weight: 600; }
   .hist-ev span:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
-  .et-oferta { color: #0f5ea8; } .et-vencido { color: #a4262c; } .et-vendido { color: #0e700e; } .et-cargado { color: var(--v-tenue); } .et-corregir { color: #8a5d00; }
+  .et-oferta { color: #0f5ea8; } .et-devuelto { color: #6b4fa0; } .et-vencido { color: #a4262c; } .et-vendido { color: #0e700e; } .et-cargado { color: var(--v-tenue); } .et-corregir { color: #8a5d00; }
 </style>
 </head>
 <body class="font-body text-ink">

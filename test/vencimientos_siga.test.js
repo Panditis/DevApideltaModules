@@ -226,3 +226,19 @@ test('consultarMovimientosClase sin idProducto: une Productos/Rubros, TOP, rubro
   assert.ok(!/TOP|Productos p|Rubros|ORDER BY/.test(con.sql));
   assert.strictEqual(con.inputs.producto, '10');
 });
+
+test('consultarMovimientosClase sucursal sin oferta: vencido lee tipoNoVendido con magnitud neta; oferta no consulta', async () => {
+  const { consultarMovimientosClase } = require('../lib/vencimientos_siga');
+  const inputs = {}; let sql = ''; let consultas = 0;
+  const filas = [{ NumeroMovimiento: 5, Fecha: '2029-12-30', Tipo: 'VENCIDO', Cantidad: 4, Entra: 0, Sale: 4 }];
+  const getPool = async () => ({ request() { const r = { input(k, v) { inputs[k] = v; return r; }, async query(q) { consultas++; sql = q; return { recordset: filas }; } }; return r; } });
+  const config = { ...CFG, tipoOfertaVencida: 'OFERTA VENCIDO', diasMaxVencido: 5, diasMaxOferta: 5 };
+  const r = await consultarMovimientosClase(getPool, { clase: 'vencido', idSucursal: 7, config, hoy: HOY });
+  assert.strictEqual(inputs.tipoMovimientoSql, 'VENCIDO');
+  assert.doesNotMatch(sql, /HAVING/);
+  assert.deepStrictEqual(r.map(m => [m.numeroMovimiento, m.cantidad, m.asimetrico]), [[5, 4, false]]);
+  assert.deepStrictEqual(await consultarMovimientosClase(getPool, { clase: 'oferta', idSucursal: 10, config, hoy: HOY }), []);
+  assert.strictEqual(consultas, 1);
+  await consultarMovimientosClase(getPool, { clase: 'vencido', idSucursal: 3, config, hoy: HOY });
+  assert.strictEqual(inputs.tipoMovimientoSql, 'OFERTAVENCIDO');
+});

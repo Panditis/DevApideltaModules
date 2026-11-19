@@ -7,11 +7,11 @@ const fmtFecha = iso => { const [y, m, d] = String(iso).split('-'); return d ? `
 const fmtFechaHora = iso => { const t = new Date(iso); return isNaN(t) ? String(iso) : t.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); };
 
 const SEMAFORO = { rojo: 'Rojo', amarillo: 'Amarillo', verde: 'Verde' };
-const TIPO_MOV = { alta: 'Alta', correccion: 'Corrección', oferta: 'Oferta', vendido: 'Vendido', vencido: 'Vencido', 'oferta-sistema': 'A oferta', 'oferta-sistema-quitada': 'Quitado de oferta', 'oferta-confirmacion': 'Cantidades confirmadas', 'vencido-sistema': 'A vencido', 'vencido-sistema-quitada': 'Quitado de vencido' };
+const TIPO_MOV = { alta: 'Alta', correccion: 'Corrección', oferta: 'Oferta', vendido: 'Vendido', vencido: 'Vencido', 'oferta-sistema': 'A oferta', 'oferta-sistema-quitada': 'Quitado de oferta', 'oferta-confirmacion': 'Cantidades confirmadas', 'vencido-sistema': 'A vencido', 'vencido-sistema-quitada': 'Quitado de vencido', 'devuelto-central': 'Devuelto a Central' };
 // Dos escalones con el mismo flujo: oferta (base = cargadas) y vencido (base = total en oferta).
 const CLASES = {
   oferta: { sis: 'ofertasSistema', est: 'ofertaEstado', ruta: 'oferta', mov: 'movimientos-oferta', titulo: 'Pasar a oferta', hecho: 'Movimientos asignados a oferta', cmpAttr: 'data-cmp', vacio: d => `Sin movimientos PARA OFERTA en los últimos ${d} días. Hacelo primero en SIGA.` },
-  vencido: { sis: 'vencidosSistema', est: 'vencidoEstado', ruta: 'vencido', mov: 'movimientos-vencido', titulo: 'Vencido', hecho: 'Movimientos asignados a vencido', cmpAttr: 'data-cmpv', vacio: d => `Sin movimientos OFERTA VENCIDO en los últimos ${d} días. Hacelo primero en SIGA.` },
+  vencido: { sis: 'vencidosSistema', est: 'vencidoEstado', ruta: 'vencido', mov: 'movimientos-vencido', titulo: 'Vencido', hecho: 'Movimientos asignados a vencido', cmpAttr: 'data-cmpv', vacio: d => `Sin movimientos ${esSinOferta() ? '' : 'OFERTA '}VENCIDO en los últimos ${d} días. Hacelo primero en SIGA.` },
 };
 const MIN_BUSQUEDA = 2;
 const DEBOUNCE_MS = 300;
@@ -28,6 +28,9 @@ async function api(url, opciones) {
   return cuerpo;
 }
 
+// Sucursales sin ofertas (7, 9, 10): el server manda usuario.sinOferta; en lugar de oferta se cargan devoluciones a Central.
+function esSinOferta() { return !!(estado.datos && estado.datos.usuario && estado.datos.usuario.sinOferta); }
+const devueltoDe = c => Number(c.devuelto || 0);
 const nombreSuc = id => estado.nombres[id] || `Suc. ${id}`;
 const signo = n => (n > 0 ? '+' : '−') + fmtNum(Math.abs(n));
 const movsDe = (c, k) => (Array.isArray(c[CLASES[k].sis]) ? c[CLASES[k].sis] : []);
@@ -39,7 +42,7 @@ const vencidosDe = c => movsDe(c, 'vencido');
 const baseVencido = c => (c.vencidoBase !== null && c.vencidoBase !== undefined && Number.isFinite(Number(c.vencidoBase)) ? Number(c.vencidoBase) : (ofertasDe(c).length ? totalOfertas(c) : Number(c.unidades || 0)));
 const baseDe = (c, k) => (k === 'vencido' ? baseVencido(c) : Number(c.unidades || 0));
 const rotuloBaseVencido = c => (ofertasDe(c).length ? 'En oferta' : 'Cargadas');
-const pendienteDe = c => Math.max(0, Number(c.unidades || 0) - Number(c.vendido || 0) - Number(c.vencido || 0) - totalDe(c, 'vencido'));
+const pendienteDe = c => Math.max(0, Number(c.unidades || 0) - Number(c.vendido || 0) - Number(c.vencido || 0) - totalDe(c, 'vencido') - Number(c.devuelto || 0));
 // Registro (lote + sucursal) cerrado: ya pasó a vencido o está todo vendido. No se lista; queda en el historial.
 const estaCerrado = c => vencidosDe(c).length > 0 || pendienteDe(c) <= 0;
 // Listas filtradas aparte: estado.datos.lotes queda completo (el historial resuelve PLU/producto contra él).
@@ -193,7 +196,7 @@ $('fOtrasTexto').addEventListener('input', renderOtras);
 // ── Avisos y huérfanos ────────────────────────────────────────────────────────
 // Lotes de la sucursal activa sin movimiento PARA OFERTA asignado, con pendiente y cerca de vencer (regla en el cliente).
 function lotesSinOferta() {
-  if (!estado.datos) return [];
+  if (!estado.datos || esSinOferta()) return [];
   resolverSucursal();
   const suc = String(estado.miSucursal || ''), tope = diasAviso();
   return estado.datos.lotes.filter(l => { const c = l.sucursales[suc]; return activoEn(l, suc) && !ofertasDe(c).length && l.dias <= tope; })
@@ -393,6 +396,10 @@ function celdaSistema(l, c, k, atenuado, tip) {
   if (atenuado) return `<td class="cel-off" aria-disabled="true" title="${esc(`${tip}\n${det.join('\n')}`)}"><div class="cel-of"><s><span class="sr-only">En oferta: </span><strong class="cel-on">${total}</strong><span class="sr-only"> (reemplazado por el total vencido)</span></s><span class="est-dim">${estadoCel(l, c, k, true)}</span></div></td>`;
   return `<td title="${esc(det.join('\n'))}"><div class="cel-of"><strong class="cel-on">${total}</strong>${estadoCel(l, c, k)}</div><span class="sr-only">Total sistema. Movimientos: ${esc(det.join('; '))}</span></td>`;
 }
+function celdaDevuelto(c) {
+  const d = devueltoDe(c);
+  return d > 0 ? `<td class="num">${fmtNum(d)}</td>` : '<td class="text-gris">—</td>';
+}
 function celdaOferta(l, c) {
   if (!ofertasDe(c).length) return '<td class="text-gris">—</td>';
   return celdaSistema(l, c, 'oferta', vencidosDe(c).length > 0, 'La oferta ya no rige: el valor real es el total vencido');
@@ -404,8 +411,8 @@ function celdaVencido(l, c) {
 }
 
 // Etapa actual del registro: vencido > oferta > cargado. Resalta su celda (con texto oculto y title, no solo color).
-const etapaDe = c => (vencidosDe(c).length ? 'vencido' : ofertasDe(c).length ? 'oferta' : 'cargado');
-const NOMBRE_ETAPA = { cargado: 'Cargado', oferta: 'En oferta', vencido: 'Vencido' };
+const etapaDe = c => (vencidosDe(c).length ? 'vencido' : esSinOferta() && devueltoDe(c) > 0 ? 'devuelto' : ofertasDe(c).length ? 'oferta' : 'cargado');
+const NOMBRE_ETAPA = { cargado: 'Cargado', oferta: 'En oferta', devuelto: 'Devuelto a Central', vencido: 'Vencido' };
 function conEtapa(html, c, etapa) {
   if (etapaDe(c) !== etapa) return html;
   const nombre = `Etapa actual: ${NOMBRE_ETAPA[etapa]}`;
@@ -420,14 +427,14 @@ function conEtapa(html, c, etapa) {
 
 function celdaAcciones(l, c, pend) {
   const nom = esc(l.nombre || l.idProducto), id = esc(l.id), cerrado = pend === 0;
-  const sinOferta = !ofertasDe(c).length;
+  const sinOferta = !ofertasDe(c).length, noOferta = esSinOferta();
   const sinPend = 'Sin unidades pendientes';
   const bt = (attr, cls, icono, txt, off, tipOk) => { const tip = off ? sinPend : tipOk; return `<button type="button" class="acc ${cls}" ${attr}="${id}" ${off ? 'disabled' : ''}${tip ? ` title="${esc(tip)}"` : ''} aria-label="${txt} de ${nom}${tip ? ` (${esc(tip)})` : ''}">${icono}<span>${txt}</span></button>`; };
   const svg = p => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
   const iTag = svg('<path d="M2 8.5V2.5h6l6 6-5.5 5.5z"/><circle cx="5.2" cy="5.2" r=".9" fill="currentColor"/>');
   const iVenc = svg('<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M6 9l4 3.5M10 9l-4 3.5"/>');
   const iOk = svg('<path d="M3 8.5l3.2 3.2L13 4.8"/>');
-  return `<td><div class="acciones">${bt('data-of', 'acc-of', iTag, sinOferta ? 'Pasar a oferta' : 'Agregar movimiento', cerrado)}${bt('data-vencido', 'acc-venc', iVenc, 'Vencido', cerrado, sinOferta ? 'Pasar directo a vencido, sin oferta' : '')}${bt('data-vendido', 'acc-vend', iOk, 'Vendido', cerrado, 'Marcar todo como vendido')}<button type="button" class="acc acc-mas" data-menu="${id}" aria-haspopup="menu" aria-expanded="false" aria-controls="menuFila" aria-label="Más acciones de ${nom}" title="Más acciones">⋯</button></div></td>`;
+  return `<td><div class="acciones">${noOferta ? bt('data-devuelto', 'acc-of', iTag, 'Devuelto a Central', cerrado, 'Cargar unidades devueltas a Central') : bt('data-of', 'acc-of', iTag, sinOferta ? 'Pasar a oferta' : 'Agregar movimiento', cerrado)}${bt('data-vencido', 'acc-venc', iVenc, 'Vencido', cerrado, sinOferta && !noOferta ? 'Pasar directo a vencido, sin oferta' : '')}${bt('data-vendido', 'acc-vend', iOk, 'Vendido', cerrado, 'Marcar todo como vendido')}<button type="button" class="acc acc-mas" data-menu="${id}" aria-haspopup="menu" aria-expanded="false" aria-controls="menuFila" aria-label="Más acciones de ${nom}" title="Más acciones">⋯</button></div></td>`;
 }
 
 // Menú "⋯": una sola lista flotante (position fixed, no la recorta el scroll de la tabla).
@@ -473,7 +480,7 @@ window.addEventListener('resize', () => cerrarMenu());
 window.addEventListener('scroll', () => cerrarMenu(), true);
 
 function renderMisLotes() {
-  const suc = String(estado.miSucursal);
+  const suc = String(estado.miSucursal), noOf = esSinOferta();
   const lotes = estado.datos.lotes.filter(l => activoEn(l, suc) && (!estado.filtroLote || l.id === estado.filtroLote));
   $('miaMsg').innerHTML = lotes.length ? '' : '<div class="msg-vacio">No hay vencimientos activos</div>';
   if (!lotes.length) { $('tablaMia').innerHTML = ''; return; }
@@ -481,15 +488,15 @@ function renderMisLotes() {
     const c = l.sucursales[suc], pend = pendienteDe(c), alerta = loteAlerta(l);
     return `<tr class="${alerta ? 'alerta' : ''}"${alerta ? ' title="Falta pasar a oferta"' : ''}><td>${celdaProductoPlu(l, l.idProducto)}</td>
       <td class="whitespace-nowrap">${pillSemaforo(l)}${esc(fmtFecha(l.vencimiento))}<span class="sub">${esc(textoDias(l.dias))}</span></td>
-      ${conEtapa(celdaCargado(c), c, 'cargado')}${conEtapa(celdaOferta(l, c), c, 'oferta')}<td class="num">${fmtNum(c.vendido)}</td>${conEtapa(celdaVencido(l, c), c, 'vencido')}${celdasVentas(l)}${celdaAcciones(l, c, pend)}</tr>`;
+      ${conEtapa(celdaCargado(c), c, 'cargado')}${noOf ? conEtapa(celdaDevuelto(c), c, 'devuelto') : conEtapa(celdaOferta(l, c), c, 'oferta')}<td class="num">${fmtNum(c.vendido)}</td>${conEtapa(celdaVencido(l, c), c, 'vencido')}${celdasVentas(l)}${celdaAcciones(l, c, pend)}</tr>`;
   }).join('');
-  $('tablaMia').innerHTML = `<thead><tr><th>Producto</th><th>Vence</th><th class="num" title="Unidades cargadas del lote en esta sucursal">Cargado</th><th title="Total de los movimientos PARA OFERTA de SIGA asignados a este registro">En oferta</th><th class="num">Vendido</th><th title="Total de los movimientos OFERTA VENCIDO de SIGA asignados a este registro">Vencido</th><th class="num" title="Unidades vendidas del producto en esta sucursal desde que se cargó el lote (conteo automático de ventas)">Vendidas desde carga</th><th class="num" title="Ventas promedio por mes del producto en esta sucursal, últimos 12 meses">Prom. mensual (12 m)</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>${filas}</tbody>`;
+  $('tablaMia').innerHTML = `<thead><tr><th>Producto</th><th>Vence</th><th class="num" title="Unidades cargadas del lote en esta sucursal">Cargado</th>${noOf ? '<th class="num" title="Unidades devueltas a Central">Devuelto a Central</th>' : '<th title="Total de los movimientos PARA OFERTA de SIGA asignados a este registro">En oferta</th>'}<th class="num">Vendido</th><th title="Total de los movimientos ${noOf ? '' : 'OFERTA '}VENCIDO de SIGA asignados a este registro">Vencido</th><th class="num" title="Unidades vendidas del producto en esta sucursal desde que se cargó el lote (conteo automático de ventas)">Vendidas desde carga</th><th class="num" title="Ventas promedio por mes del producto en esta sucursal, últimos 12 meses">Prom. mensual (12 m)</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>${filas}</tbody>`;
 }
 
 // Historial: un registro (idLote) por fila desplegable; la línea de tiempo lista todos sus movimientos.
-const ETAPA_TXT = { cargado: 'Cargado', oferta: 'En oferta', vencido: 'Vencido', vendido: 'Vendido' };
+const ETAPA_TXT = { cargado: 'Cargado', oferta: 'En oferta', devuelto: 'Devuelto a Central', vencido: 'Vencido', vendido: 'Vendido' };
 // Movimientos que cambian de etapa -> clase de color.
-const ETAPA_DE_TIPO = { 'oferta-sistema': 'oferta', oferta: 'oferta', 'vencido-sistema': 'vencido', vencido: 'vencido', vendido: 'vendido' };
+const ETAPA_DE_TIPO = { 'devuelto-central': 'devuelto', 'oferta-sistema': 'oferta', oferta: 'oferta', 'vencido-sistema': 'vencido', vencido: 'vencido', vendido: 'vendido' };
 const QUITADA = { 'oferta-sistema-quitada': 'oferta', 'vencido-sistema-quitada': 'vencido' };
 const TIPOS_CON_MOV = ['oferta-sistema', 'oferta-sistema-quitada', 'vencido-sistema', 'vencido-sistema-quitada'];
 const tiempo = m => { const t = new Date(m.fecha).getTime(); return isNaN(t) ? 0 : t; };
@@ -577,6 +584,7 @@ async function cargarHistorial() {
 // Acciones por fila: corregir unidades (modal de cantidad), marcar vendido (confirmación en mQuit) y pasar a oferta/vencido (modal propio).
 const ACCIONES = {
   unidades: { titulo: 'Corregir unidades', label: 'Unidades correctas', min: 0 },
+  devuelto: { titulo: 'Devuelto a Central', label: 'Unidades devueltas', min: 1, ruta: 'devuelto-central', campo: 'cantidad', ok: 'Devuelto a Central registrado' },
 };
 const loteDe = id => estado.datos.lotes.find(l => l.id === id);
 const colDe = lote => lote.sucursales[String(estado.miSucursal)];
@@ -588,20 +596,26 @@ function abrirAccion(lote, accion) {
   $('mAccT').textContent = a.titulo;
   $('accLbl').textContent = a.label;
   input.min = a.min;
-  input.value = col.unidades; $('mAccSub').textContent = `${lote.nombre || lote.idProducto} · hoy ${fmtNum(col.unidades)} unidades`; input.removeAttribute('max');
+  if (accion === 'devuelto') {
+    const pend = pendienteDe(col);
+    input.value = ''; input.max = pend;
+    $('mAccSub').textContent = `${lote.nombre || lote.idProducto} · pendiente ${fmtNum(pend)} unidades`;
+  } else {
+    input.value = col.unidades; $('mAccSub').textContent = `${lote.nombre || lote.idProducto} · hoy ${fmtNum(col.unidades)} unidades`; input.removeAttribute('max');
+  }
   mostrarError('accError', ''); abrirModal('mAcc', 'accCant'); input.select();
 }
 
 const alAccionar = e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
-  const dato = ['of', 'vendido', 'vencido', 'corregir', 'quitar', 'cmp', 'cmpv'].find(k => b.dataset[k] !== undefined);
+  const dato = ['of', 'devuelto', 'vendido', 'vencido', 'corregir', 'quitar', 'cmp', 'cmpv'].find(k => b.dataset[k] !== undefined);
   if (!dato) return;
   const lote = loteDe(b.dataset[dato]); if (!lote) return;
   if (dato === 'of' || dato === 'vencido') return abrirOferta(lote, dato === 'of' ? 'oferta' : 'vencido');
   if (dato === 'cmp' || dato === 'cmpv') return abrirCmp(lote, [], dato === 'cmp' ? 'oferta' : 'vencido');
   if (dato === 'quitar') return abrirQuitar(lote, b.dataset.mov, 'oferta');
   if (dato === 'vendido') return abrirVendido(lote);
-  abrirAccion(lote, 'unidades');
+  abrirAccion(lote, dato === 'devuelto' ? 'devuelto' : 'unidades');
 };
 $('tablaMia').addEventListener('click', alAccionar);
 $('menuFila').addEventListener('click', alAccionar);
@@ -610,8 +624,15 @@ $('mAcc').querySelector('form').addEventListener('submit', async e => {
   e.preventDefault();
   const { lote, accion } = estado.loteAcc, a = ACCIONES[accion], raw = $('accCant').value.trim();
   if (!/^\d+$/.test(raw) || Number(raw) < a.min) return mostrarError('accError', a.min ? 'Ingresá un entero mayor a 0.' : 'Ingresá un entero mayor o igual a 0.');
-  const idSucursal = idSucursalAdmin();
-  const ok = await enviar('accOk', 'accError', () => api(`/api/vencimientos/lotes/${encodeURIComponent(lote.id)}/unidades`, { method: 'PUT', body: { unidades: Number(raw), idSucursal } }));
+  const idSucursal = idSucursalAdmin(), base = `/api/vencimientos/lotes/${encodeURIComponent(lote.id)}`;
+  if (a.ruta) {
+    const pend = pendienteDe(colDe(lote));
+    if (Number(raw) > pend) return mostrarError('accError', `Ingresá un entero entre 1 y ${fmtNum(pend)}.`);
+    const okD = await enviar('accOk', 'accError', () => api(`${base}/${a.ruta}`, { method: 'POST', body: { [a.campo]: Number(raw), idSucursal } }));
+    if (okD) { cerrarModal('mAcc'); avisoExito((await cargarLotes()) ? 'Pasó al historial' : a.ok); }
+    return;
+  }
+  const ok = await enviar('accOk', 'accError', () => api(`${base}/unidades`, { method: 'PUT', body: { unidades: Number(raw), idSucursal } }));
   if (ok) { cerrarModal('mAcc'); if (await cargarLotes()) avisoExito('Pasó al historial'); }
 });
 
@@ -630,7 +651,7 @@ function abrirOferta(lote, clase) {
 }
 // Movimiento asimétrico (+entra ≠ −cantidad): solo avisa; si el backend no manda los campos, no muestra nada.
 const ICONO_ASIM = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8 15 14H1L8 1.8z"/><path d="M8 6.5v3.2M8 11.8v.1"/></svg>';
-const esAsim = m => !!m && m.asimetrico === true && Number.isFinite(Number(m.entra));
+const esAsim = m => !esSinOferta() && !!m && m.asimetrico === true && Number.isFinite(Number(m.entra));
 const textoAsim = m => `+${fmtNum(m.entra)} / −${fmtNum(m.cantidad)}`;
 const marcaAsim = (m, corto) => esAsim(m) ? `<span class="asim" title="${esc(`El movimiento tiene líneas positivas y negativas distintas. Se toma solo lo negativo (${fmtNum(m.cantidad)}).`)}">${ICONO_ASIM}${corto ? 'Asimétrico' : `Asimétrico: ${esc(textoAsim(m))}`}</span>` : '';
 const asimPorNumero = n => (estado.ofMovs || []).find(m => String(m.numeroMovimiento) === String(n));
@@ -659,7 +680,7 @@ async function cargarOferta() {
     const movs = Array.isArray(r.movimientos) ? r.movimientos : [];
     estado.ofMovs = movs;
     estado.ofSel = new Set([...estado.ofSel].filter(n => movs.some(m => String(m.numeroMovimiento) === n && !m.asignadoA)));
-    if (k === 'vencido') { $('ofInfo').textContent = `Movimientos OFERTA VENCIDO de tu sucursal en los últimos ${fmtNum(r.diasMax)} días`; $('ofInfo').hidden = false; }
+    if (k === 'vencido') { $('ofInfo').textContent = `Movimientos ${esSinOferta() ? '' : 'OFERTA '}VENCIDO de tu sucursal en los últimos ${fmtNum(r.diasMax)} días`; $('ofInfo').hidden = false; }
     actualizarResumenOferta();
     if (!movs.length) { $('ofCuerpo').innerHTML = `<div class="msg-vacio">${esc(CLASES[k].vacio(fmtNum(r.diasMax)))}</div>`; return; }
     $('ofCuerpo').innerHTML = `<table><thead><tr><th><span class="sr-only">Seleccionar</span></th><th>Mov. N°</th><th>Fecha</th><th class="num">Cantidad (sistema)</th><th>Estado</th><th></th></tr></thead><tbody>${movs.map(m => {

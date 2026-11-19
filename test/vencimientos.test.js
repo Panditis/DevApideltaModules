@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { crearStore, ofertaEstado, vencidoEstado, vistaLote, semaforo, validarUmbrales, estadoSucursal, pendiente, UMBRALES_DEFAULT } = require('../lib/vencimientos');
+const { crearStore, ofertaEstado, vencidoEstado, vistaLote, semaforo, validarUmbrales, estadoSucursal, pendiente, UMBRALES_DEFAULT, baseVencido, esSucursalSinOferta } = require('../lib/vencimientos');
 
 function nuevoStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'venc-'));
@@ -402,4 +402,28 @@ test('eliminarRegistro: quita solo esa sucursal; última sucursal borra el lote;
   assert.strictEqual((await store.eliminarRegistro({ idLote: l.id, idSucursal: 2 })).loteEliminado, true);
   assert.deepStrictEqual(await store.listarLotes(), []);
   await assert.rejects(store.eliminarRegistro({ idLote: l.id, idSucursal: 2 }), e => e.status === 404);
+});
+
+test('devolverCentral: sucursal sin oferta, pendiente baja, excede, rechazo con oferta, cierre en 0', async () => {
+  const { store } = nuevoStore();
+  const lote = await store.altaLote({ ...ALTA, idSucursal: 7, unidades: 10 });
+  await store.altaLote({ ...ALTA, idSucursal: 1 });
+  const l1 = await store.devolverCentral({ idLote: lote.id, idSucursal: 7, cantidad: 4, usuario: 'ana' });
+  const c = l1.sucursales['7'];
+  assert.strictEqual(c.devuelto, 4);
+  assert.strictEqual(pendiente(c), 6);
+  assert.strictEqual(baseVencido(c), 10);
+  assert.deepStrictEqual({ ...c.movimientos.at(-1), fecha: undefined }, { tipo: 'devuelto-central', cantidad: 4, usuario: 'ana', fecha: undefined });
+  await assert.rejects(store.devolverCentral({ idLote: lote.id, idSucursal: 7, cantidad: 7, usuario: 'ana' }), /supera el pendiente/);
+  await assert.rejects(store.devolverCentral({ idLote: lote.id, idSucursal: 1, cantidad: 1, usuario: 'ana' }), /no usa devoluciones/);
+  await assert.rejects(store.corregirUnidades({ idLote: lote.id, idSucursal: 7, unidades: 3, usuario: 'ana' }), /devuelto/);
+  const l2 = await store.devolverCentral({ idLote: lote.id, idSucursal: 7, cantidad: 6, usuario: 'ana' });
+  assert.strictEqual(estadoSucursal(l2.sucursales['7']), 'cerrado');
+  assert.ok(esSucursalSinOferta('9') && !esSucursalSinOferta(1));
+});
+
+test('baseVencido con devuelto: sin oferta = unidades (devuelto no resta); con oferta usa la suma', () => {
+  assert.strictEqual(baseVencido({ unidades: 10, devuelto: 3 }), 10);
+  assert.strictEqual(baseVencido({ unidades: 10 }), 10);
+  assert.strictEqual(baseVencido({ unidades: 10, devuelto: 3, ofertasSistema: [{ cantidad: 8 }] }), 8);
 });
