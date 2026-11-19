@@ -27,7 +27,7 @@ test('ventanas 7/15/30, 40 días fuera, vencido con pendiente 0 no cuenta, ficti
   assert.ok(!JSON.stringify(r).includes('"idSucursal":6'));
 });
 
-test('vencidos sin resolver, atrasados, unidades registradas y pendientes de decisión', () => {
+test('vencidos sin resolver, unidades registradas y pendientes de decisión', () => {
   const r = armarCentroControl([
     lote(1, '2026-11-01', { 2: col({ vendido: 4 }) }), // 18 días atraso, pendiente 6 -> atrasado vencido
     lote(2, '2026-11-15', { 2: col() }),               // 4 días, no atrasado
@@ -35,7 +35,6 @@ test('vencidos sin resolver, atrasados, unidades registradas y pendientes de dec
     lote(4, '2026-10-01', { 1: col({ vencido: 2, vendido: 8, vencidosSistema: [{ numeroMovimiento: 5, fecha: '2026-10-02', cantidad: 1 }], origenSistema: true }) }),
   ], CONFIG, HOY, null);
   assert.deepStrictEqual(r.vencidos.lotes.map(l => [l.plu, l.diasAtraso, l.unidades]), [['1', 18, 6], ['2', 4, 10]]);
-  assert.deepStrictEqual(r.atrasados.map(a => [a.plu, a.tipo, a.dias, a.falta]), [['1', 'OFERTA VENCIDO', 18, 'Asignar'], ['3', 'PARA OFERTA', 18, 'Cerrar']]);
   assert.deepStrictEqual(r.vencidos.unidadesRegistradas.map(u => [u.idSucursal, u.unidades]), [[1, 3], [2, 0]]);
   assert.deepStrictEqual(r.pendientes.map(p => [p.plu, p.tipo, p.estado, p.origenSistema]), [['3', 'Oferta', null, false], ['4', 'Vencido', null, true]]);
   assert.strictEqual(r.vencidos.lotes[0].nombre, 'Sucursal 2');
@@ -76,7 +75,7 @@ test('tendencia: 6 meses hasta el actual con vencidos manuales y de SIGA', () =>
 
 test('sin datos: bloques vacíos', () => {
   const r = armarCentroControl([], CONFIG, HOY, {});
-  assert.deepStrictEqual([r.ranking, r.vencidos.lotes, r.topProductos, r.pendientes, r.atrasados], [[], [], [], [], []]);
+  assert.deepStrictEqual([r.ranking, r.vencidos.lotes, r.topProductos, r.pendientes], [[], [], [], []]);
   assert.strictEqual(r.tendencia.length, 6);
   assert.strictEqual(r.kpis.lotesActivos, 0);
 });
@@ -173,10 +172,24 @@ test('lotes sin vencimiento (null, vacío, inválido): no lanza, fuera de próxi
   assert.strictEqual(sf.length, 4);
   assert.ok(sf.every(e => e.limite === null && e.diasParaLimite === null && e.diasMaxOferta === null && e.estado === 'en-plazo' && e.diasVencido === null));
   assert.deepStrictEqual(r.enOferta.filter(e => Number(e.plu) < 10), base.enOferta);
-  // Lo que no depende de la fecha sigue contando: activos, merma/top por unidades vencidas y oferta sin cerrar.
+  // Lo que no depende de la fecha sigue contando: activos y merma/top por unidades vencidas.
   assert.strictEqual(r.kpis.lotesActivos, base.kpis.lotesActivos + 4);
   assert.deepStrictEqual(r.topProductos.map(p => p.plu).sort(), ['10', '11', '12', '13']);
-  assert.ok(['10', '11', '12', '13'].every(plu => r.atrasados.some(a => a.plu === plu && a.falta === 'Cerrar')));
+});
+
+test('sin bloque atrasados: la clave no existe y kpis/vencidos/enOferta no dependen de diasMax*', () => {
+  const of = [{ numeroMovimiento: 1, fecha: '2026-11-01T09:00:00', cantidad: 3 }];
+  const lotes = [
+    lote(1, '2026-11-01', { 2: col({ vendido: 4 }) }),
+    lote(3, '2026-12-30', { 1: col({ ofertasSistema: of }) }),
+  ];
+  const r = armarCentroControl(lotes, CONFIG, HOY, null);
+  assert.ok(!('atrasados' in r));
+  const otra = armarCentroControl(lotes, { ...CONFIG, diasMaxOferta: 1, diasMaxVencido: 1 }, HOY, null);
+  assert.deepStrictEqual([otra.kpis, otra.vencidos, otra.enOferta], [r.kpis, r.vencidos, r.enOferta]);
+  assert.deepStrictEqual(r.vencidos.lotes.map(l => [l.plu, l.diasAtraso]), [['1', 18]]);
+  assert.deepStrictEqual(r.enOferta.map(e => [e.plu, e.estado]), [['3', 'en-plazo']]);
+  assert.strictEqual(r.kpis.vencidosSinResolver, 1);
 });
 
 test('proximos.lotes: regresión, lote con vencimiento null no rompe el orden', () => {
@@ -215,4 +228,45 @@ test('cortes: proximos.lotes a 3000 por sucursal conservando los más próximos;
   const r3 = armarCentroControl(ofertas, CONFIG, HOY, {});
   assert.strictEqual(r3.enOferta.length, 500);
   assert.ok(r3.enOferta.every(o => o.estado === 'atrasada' && o.diasEnOferta === 18));
+});
+
+test('sucursales sin oferta: vencidosSistema (VENCIDO) suma en vencidos/merma/ranking/pendientes; devueltos solo 7/9/10', () => {
+  const dev = (cantidad, fecha, usuario = 'ana') => ({ tipo: 'devuelto-central', cantidad, usuario, fecha: `${fecha}T10:00:00.000Z` });
+  const alta = { tipo: 'alta', unidades: 10, fecha: '2026-11-01T10:00:00.000Z' };
+  const r = armarCentroControl([
+    lote(1, '2026-12-30', {
+      1: col({ vendido: 2, devuelto: 3 }), // con oferta: no entra en devueltos aunque tenga devuelto
+      7: col({ vendido: 4, devuelto: 3, movimientos: [alta, dev(1, '2026-11-10'), dev(2, '2026-11-15', 'beto')], vencidosSistema: [{ numeroMovimiento: 8, fecha: '2026-11-12', cantidad: 1 }] }),
+    }),
+    lote(2, '2026-11-01', { 7: col({ devuelto: 5, movimientos: [alta, dev(5, '2026-11-18')] }) }),
+    lote(3, '2026-12-30', { 9: col() }),
+  ], CONFIG, HOY, null);
+  const de = (lista, id) => lista.find(x => x.idSucursal === id);
+  assert.strictEqual(de(r.vencidos.unidadesRegistradas, 7).unidades, 1);
+  assert.strictEqual(de(r.ranking, 7).unidadesVencidas, 1);
+  assert.deepStrictEqual([de(r.merma, 7).vendido, de(r.merma, 7).vencido], [4, 1]);
+  assert.deepStrictEqual(r.topProductos, [{ producto: 'Prod 1', plu: '1', unidades: 1 }]);
+  assert.strictEqual(r.tendencia.at(-1).unidades, 1);
+  assert.deepStrictEqual(r.pendientes.map(p => [p.idSucursal, p.tipo]), [[7, 'Vencido']]);
+  assert.deepStrictEqual(r.devueltos.porSucursal, [
+    { idSucursal: 7, nombre: 'Sucursal 7', unidades: 8, movimientos: 3, ultimaFecha: '2026-11-18' },
+    { idSucursal: 9, nombre: 'Sucursal 9', unidades: 0, movimientos: 0, ultimaFecha: null },
+  ]);
+  assert.strictEqual(r.devueltos.total, 8);
+  assert.deepStrictEqual(r.devueltos.recientes.map(d => [d.plu, d.fecha, d.cantidad, d.usuario, d.pendiente]),
+    [['2', '2026-11-18', 5, 'ana', 5], ['1', '2026-11-15', 2, 'beto', 2], ['1', '2026-11-10', 1, 'ana', 2]]);
+  assert.deepStrictEqual(Object.keys(r.devueltos.recientes[0]), ['idSucursal', 'nombre', 'producto', 'plu', 'vencimiento', 'fecha', 'cantidad', 'usuario', 'pendiente']);
+  assert.ok(r.devueltos.recientes.every(d => d.idSucursal !== 1));
+});
+
+test('devueltos: col.devuelto como respaldo sin movimientos y tope 500 en recientes', () => {
+  const movs = Array.from({ length: 600 }, (_, i) => ({ tipo: 'devuelto-central', cantidad: 1, usuario: 'u', fecha: `2026-${String(1 + (i % 10)).padStart(2, '0')}-01T10:00:00.000Z` }));
+  const r = armarCentroControl([
+    lote(1, '2027-06-01', { 10: col({ unidades: 1000, devuelto: 600, movimientos: movs }) }),
+    lote(2, '2027-06-01', { 7: col({ devuelto: 4, movimientos: [] }) }),
+  ], CONFIG, HOY, null);
+  assert.strictEqual(r.devueltos.recientes.length, 500);
+  assert.strictEqual(r.devueltos.recientes[0].fecha, '2026-10-01');
+  assert.deepStrictEqual(r.devueltos.porSucursal.map(d => [d.idSucursal, d.unidades, d.movimientos]), [[7, 4, 0], [10, 600, 600]]);
+  assert.strictEqual(r.devueltos.total, 604);
 });

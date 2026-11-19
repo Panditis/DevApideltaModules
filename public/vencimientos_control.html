@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
   .card { background: #fff; border: 1px solid rgba(26,28,24,.16); border-radius: 12px; display: flex; flex-direction: column; min-width: 0; }
+  .card[hidden] { display: none; }
   .card-h { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px 8px; }
   .card-h .ico { flex: none; width: 30px; height: 30px; border-radius: 8px; background: #e9efe4; color: #405936; display: grid; place-items: center; }
   .card-h .ico svg { width: 17px; height: 17px; }
@@ -202,6 +203,26 @@
         <p class="hint" id="hintOfe"></p>
       </div>
       <div class="card-b" id="bOfe" aria-live="polite"></div>
+    </section>
+
+    <section class="card col-span-12" id="secDev" aria-labelledby="hDev" hidden>
+      <header class="card-h">
+        <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg></span>
+        <div class="min-w-0"><h2 id="hDev">Devuelto a Central</h2><p class="sub">Unidades devueltas por las sucursales sin oferta, con movimientos de vencido.</p></div>
+        <span class="cnt" id="cDev"></span>
+      </header>
+      <div class="tools">
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="buscar" style="flex:1 1 260px;max-width:420px">
+            <label for="qDev" class="sr-only">Buscar producto, PLU o usuario</label>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="qDev" type="search" placeholder="Buscar producto, PLU o usuario" autocomplete="off">
+          </div>
+          <div class="chips" role="group" aria-label="Filtrar por sucursal" id="chipsDev"></div>
+        </div>
+        <p class="hint" id="hintDev"></p>
+      </div>
+      <div class="card-b" id="bDev" aria-live="polite"></div>
     </section>
 
   </div>

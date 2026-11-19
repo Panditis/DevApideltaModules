@@ -28,6 +28,8 @@ const ICO_CHEV =SVG('<path d="m9 18 6-6-6-6"/>');
 
 let DATA = null;
 let FILTRO_OFE = 'todos';
+let FILTRO_DEV = 'todas';
+const DEV_N = 20;
 const SORT = {}; // id de tabla -> { k, d } (d: 1 asc, -1 desc)
 
 // ---------- piezas comunes ----------
@@ -198,6 +200,39 @@ const CARDS = {
         { t: 'Estado', k: 'est', val: r => (ESTADO[r.estado] || [0, 0, 0, 9])[3], td: r => { const e = ESTADO[r.estado]; return e ? pill(e[0], e[1], txtEstado(r)) : '—'; } },
       ];
       return tabla('ofe', cols, filas, { row: r => (r.estado === 'vencida' ? ' class="row-venc"' : '') });
+    },
+  },
+
+  // Devuelto a Central: sucursales sin oferta (devueltos). Sin `devueltos` o sin sucursales, la tarjeta se oculta.
+  dev: {
+    body: 'bDev',
+    render(d) {
+      const dv = d.devueltos;
+      const suc = arr(dv && dv.porSucursal);
+      $('secDev').hidden = !dv || !suc.length;
+      if ($('secDev').hidden) return '';
+      if (FILTRO_DEV !== 'todas' && !suc.some(s => String(s.idSucursal) === FILTRO_DEV)) FILTRO_DEV = 'todas';
+      $('cDev').textContent = `${nf(dv.total)} ${num(dv.total) === 1 ? 'unidad devuelta' : 'unidades devueltas'}`;
+      $('chipsDev').innerHTML = `<button type="button" class="chip" data-suc-dev="todas" aria-pressed="${FILTRO_DEV === 'todas'}">Todas</button>`
+        + suc.map(s => `<button type="button" class="chip" data-suc-dev="${esc(s.idSucursal)}" aria-pressed="${FILTRO_DEV === String(s.idSucursal)}">${esc(nombreSuc(s))} · ${nf(s.unidades)} u · ${nf(s.movimientos)} mov.${s.ultimaFecha ? ` · últ. ${fmtFecha(s.ultimaFecha)}` : ''}</button>`).join('');
+      const todos = arr(dv.recientes);
+      const q = norm($('qDev').value.trim());
+      const base = todos.filter(r => (FILTRO_DEV === 'todas' || String(r.idSucursal) === FILTRO_DEV) && (!q || norm(r.producto).includes(q) || norm(r.plu).includes(q) || norm(r.usuario).includes(q)));
+      const filas = base.slice(0, DEV_N);
+      $('hintDev').textContent = base.length > DEV_N ? `Últimas ${DEV_N} de ${nf(base.length)} devoluciones. Filtrá por sucursal o buscá para ver otras.` : '';
+      if (!todos.length) return msg('Sin devoluciones a Central registradas.');
+      if (!base.length) return msg('Sin resultados', 'Probá con otra sucursal, otra parte del nombre, el PLU o el usuario.');
+      const cols = [
+        { t: 'Fecha', k: 'fec', val: r => r.fecha || '', td: r => fmtFecha(r.fecha) },
+        { t: 'Sucursal', k: 'suc', val: nombreSuc, td: r => esc(nombreSuc(r)) },
+        { t: 'Producto', k: 'prod', val: r => r.producto || '', td: celdaProd },
+        { t: 'Vence', k: 'venc', val: r => r.vencimiento || '', td: r => fmtFecha(r.vencimiento) },
+        { t: 'Cantidad devuelta', k: 'can', num: 1, val: r => num(r.cantidad), td: r => `<strong>${nf(r.cantidad)}</strong>` },
+        { t: 'Usuario', k: 'usu', val: r => r.usuario || '', td: r => esc(r.usuario || '—') },
+        { t: 'Pendiente restante', k: 'pen', num: 1, val: r => num(r.pendiente), td: r => nf(r.pendiente) },
+      ];
+      SORT.dev = SORT.dev || { k: 'fec', d: -1 };
+      return tabla('dev', cols, filas);
     },
   },
 
@@ -392,6 +427,13 @@ $('chipsOfe').addEventListener('click', ev => {
   FILTRO_OFE = b.dataset.estado;
   document.querySelectorAll('#chipsOfe .chip').forEach(c => c.setAttribute('aria-pressed', String(c === b)));
   if (DATA) pintarCard('ofe');
+});
+$('qDev').addEventListener('input', debounce(() => { if (DATA) pintarCard('dev'); }));
+$('chipsDev').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-suc-dev]');
+  if (!b) return;
+  FILTRO_DEV = b.dataset.sucDev;
+  if (DATA) pintarCard('dev');
 });
 $('btnActualizar').addEventListener('click', cargar);
 $('btnLogout').addEventListener('click', async () => {

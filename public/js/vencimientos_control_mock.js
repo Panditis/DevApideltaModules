@@ -45,7 +45,6 @@ window.VENCIMIENTOS_CONTROL_MOCK = {
     { idSucursal: 2, nombre: 'Norte', unidadesVencidas: 65, lotesSinResolver: 3 },
     { idSucursal: 1, nombre: 'Centro', unidadesVencidas: 40, lotesSinResolver: 1 },
   ],
-  atrasados: [{ idSucursal: 1, nombre: 'Centro', producto: 'Jamón cocido', plu: '3300', tipo: 'PARA OFERTA', dias: 12, falta: 'Asignar' }],
   cumplimiento: { diasLimite: 7, porSucursal: [
     { idSucursal: 1, nombre: 'Centro', ultimaActividad: '2026-11-18', diasSinActividad: 1 },
     { idSucursal: 2, nombre: 'Norte', ultimaActividad: '2026-11-05', diasSinActividad: 14 },
@@ -72,6 +71,24 @@ window.VENCIMIENTOS_CONTROL_MOCK = {
     { idSucursal: 3, nombre: 'Sur', producto: 'Salchichón primavera', plu: '3412', fechaOferta: '2026-11-11', diasEnOferta: 8, diasMaxOferta: 9, unidadesOferta: 12, pendiente: 5, estado: 'por-vencer-plazo', vence: '2026-11-23', limite: '2026-11-20', diasParaLimite: 1 },
     { idSucursal: 4, nombre: 'Oeste', producto: 'Crema de leche', plu: '2105', fechaOferta: null, diasEnOferta: 0, diasMaxOferta: null, unidadesOferta: 10, pendiente: 10, estado: 'en-plazo', vence: '2026-12-15', limite: '2026-12-12', diasParaLimite: 23 },
   ],
+  // Sucursales sin oferta (7, 9, 10): devuelven a Central con movimiento de vencido. fecha desc.
+  devueltos: {
+    total: 95,
+    porSucursal: [
+      { idSucursal: 7, nombre: 'Sucursal 7', unidades: 44, movimientos: 3, ultimaFecha: '2026-11-18' },
+      { idSucursal: 9, nombre: 'Sucursal 9', unidades: 30, movimientos: 2, ultimaFecha: '2026-11-17' },
+      { idSucursal: 10, nombre: 'Sucursal 10', unidades: 21, movimientos: 2, ultimaFecha: '2026-11-12' },
+    ],
+    recientes: [
+      { idSucursal: 7, nombre: 'Sucursal 7', producto: 'Yogur natural 1 L', plu: '1042', vencimiento: '2026-11-21', fecha: '2026-11-18', cantidad: 24, usuario: 'mgomez', pendiente: 0 },
+      { idSucursal: 9, nombre: 'Sucursal 9', producto: 'Queso cremoso', plu: '2210', vencimiento: '2026-11-25', fecha: '2026-11-17', cantidad: 18, usuario: 'lperez', pendiente: 6 },
+      { idSucursal: 7, nombre: 'Sucursal 7', producto: 'Leche entera 1 L', plu: '1001', vencimiento: '2026-11-20', fecha: '2026-11-16', cantidad: 12, usuario: 'mgomez', pendiente: 0 },
+      { idSucursal: 9, nombre: 'Sucursal 9', producto: 'Manteca', plu: '2300', vencimiento: '2026-11-22', fecha: '2026-11-14', cantidad: 12, usuario: 'lperez', pendiente: 3 },
+      { idSucursal: 10, nombre: 'Sucursal 10', producto: 'Jamón cocido', plu: '3300', vencimiento: '2026-11-19', fecha: '2026-11-12', cantidad: 15, usuario: 'rdiaz', pendiente: 0 },
+      { idSucursal: 7, nombre: 'Sucursal 7', producto: 'Crema de leche', plu: '2105', vencimiento: '2026-11-15', fecha: '2026-11-10', cantidad: 8, usuario: 'mgomez', pendiente: 0 },
+      { idSucursal: 10, nombre: 'Sucursal 10', producto: 'Dulce de leche', plu: '4001', vencimiento: '2026-11-10', fecha: '2026-11-08', cantidad: 6, usuario: 'rdiaz', pendiente: 2 },
+    ],
+  },
   tendencia: [
     { mes: '2026-06', unidades: 30 }, { mes: '2026-07', unidades: 45 }, { mes: '2026-08', unidades: 38 },
     { mes: '2026-09', unidades: 60 }, { mes: '2026-10', unidades: 52 }, { mes: '2026-11', unidades: 25 },
