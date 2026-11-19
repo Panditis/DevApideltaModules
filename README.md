@@ -137,6 +137,8 @@ Documentación interna en [`docs/`](docs/).
 **¿Querés verlo funcionando con tus propios datos?**
 Coordiná una demostración y lo probamos sobre tu Siga.
 
+**Contacto:** [adrsanabria.it@gmail.com](mailto:adrsanabria.it@gmail.com)
+
 <sub>Apidelta SubSystem · Subsistema operativo sobre Siga</sub>
 
 </div>
