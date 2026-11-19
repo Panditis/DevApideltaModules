@@ -1,200 +1,142 @@
 <div align="center">
 
-# 🐼 Apidelta SubSystem · `dev`
+# Apidelta SubSystem
 
-### Subsistema web operativo sobre el ERP **Siga** 🐼
+### Todo lo que tu ERP Siga no te muestra, en un solo panel.
 
-Blanco y negro, como un panda. Pedidos, producción, planificación, compras y distribución — todo en un solo hub local.
+Producción, compras, distribución, precios y control de sucursales sobre tus propios datos de Siga. Sin migrar nada. Sin cambiar cómo facturás.
 
-<br>
-
-![Node](https://img.shields.io/badge/Node.js-000000?style=for-the-badge&logo=node.js&logoColor=white)
-![Express](https://img.shields.io/badge/Express_5-000000?style=for-the-badge&logo=express&logoColor=white)
-![SQL Server](https://img.shields.io/badge/SQL_Server_2022-FFFFFF?style=for-the-badge&logo=microsoftsqlserver&logoColor=black)
-![Python](https://img.shields.io/badge/Python-FFFFFF?style=for-the-badge&logo=python&logoColor=black)
-
-![Status](https://img.shields.io/badge/estado-activo-000000?style=flat-square)
-![Versión](https://img.shields.io/badge/versión-1.0.0-000000?style=flat-square)
-![Licencia](https://img.shields.io/badge/uso-interno-555555?style=flat-square)
-![Tema](https://img.shields.io/badge/🐼-blanco_y_negro-000000?style=flat-square)
+![Node.js](https://img.shields.io/badge/Node.js-Express_5-1e1e1e?style=flat-square&logo=node.js&logoColor=white)
+![SQL Server](https://img.shields.io/badge/SQL_Server-lee_tu_Siga-405936?style=flat-square&logo=microsoftsqlserver&logoColor=white)
+![Instalación](https://img.shields.io/badge/instalación-en_tu_red-FFCC00?style=flat-square&labelColor=1e1e1e)
+![Acceso](https://img.shields.io/badge/acceso-por_usuario_y_módulo-405936?style=flat-square)
 
 </div>
 
 ---
 
-```
-🐼 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 🐼
-   "Como un panda: simple por fuera, todo músculo por dentro."
-🐼 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 🐼
-```
+## El problema
 
+Siga registra todo, pero responder preguntas del día a día todavía se hace a mano:
 
-## ◼️ ¿Qué es?
+- ¿Qué producimos hoy y con qué stock de granel?
+- ¿Cuánto mandar a cada sucursal para que no se quiebre ni sobre?
+- ¿A qué proveedor hay que pedirle ya, y cuánto tarda en entregar?
+- ¿Mis precios de Mercado Libre y Tienda Nube siguen alineados con la lista de Siga?
+- ¿Qué sucursal se quedó con mercadería por vencer?
 
-**Apidelta SubSystem** es una capa web local montada sobre el ERP **Siga** (SQL Server 2022, ~548 tablas). Sirve un **hub de operaciones** (`inicio.html`) desde un único servidor **Express** que expone cada módulo de negocio como una ruta y una API REST.
+Hoy eso significa planillas de Excel, exportaciones y recuentos manuales.
 
-Pensado para correr en red interna. Negro sobre blanco, sin ruido.
+## La solución
 
----
+**Apidelta SubSystem** se conecta a tu base de Siga y la convierte en pantallas de trabajo listas para usar. Lee tus datos reales, calcula lo que hay que decidir y deja el resultado a un clic: en pantalla o en un Excel.
 
-## ◻️ Módulos 🐼
-
-| 🐼 | Módulo | Ruta | Qué hace |
-|:--:|--------|------|----------|
-| ◼️ | **A8020 Calculado** | `/distribucion/a8020` | Análisis ABC 80/20 por sucursal: clasificación, mínimos y días de operación. |
-| ◻️ | **Pedidos** | `/pedidos` | Pedidos pendientes de Siga: clientes, productos y resumen por localidad. |
-| ◼️ | **Planificación** | `/planificacion` | Producción a partir de demanda, stock y sugerencias. |
-| ◻️ | **Producción** | `/produccion` | Órdenes del día, granel y seguimiento de fabricación. |
-| ◼️ | **Compras** | `/compras` | Consumo, urgencias y cobertura de insumos. |
-| ◻️ | **Compras Carlos** | `/consumo` | Consumo vs stock del proveedor Carlos: cobertura y reposición. |
-| ◼️ | **Distribución y Fraccionado** | `/distribucion` | Almacén, pesables, envasado y registro de producción fraccionada. |
-| ◻️ | **Cotizador** | `/cotizador` | Cálculo de cotizaciones de productos. |
-| ◼️ | **Ventas por Hora** | `/ventas-hora` | Dashboard de horas pico por sucursal con filtro de fechas. |
+| | |
+|---|---|
+| **Sobre tu sistema actual** | Se monta encima de Siga. No lo reemplaza ni te obliga a migrar. |
+| **Corre en tu red** | Se instala en un servidor propio. Tus datos no salen de tu empresa. |
+| **Cada quien ve lo suyo** | Usuarios con sesión y permisos por módulo. |
+| **Se adapta a tu operación** | Se construye módulo a módulo, a partir de cómo trabajás. |
 
 ---
 
-## ◼️ Arquitectura 🐼
+## Qué podés hacer
 
-```
-                          🐼  NAVEGADOR  🐼
-                                 │
-                  ┌──────────────┴──────────────┐
-                  │      inicio.html (hub)       │
-                  │   Tailwind · Lucide · SPA    │
-                  └──────────────┬──────────────┘
-                                 │  fetch /api/*
-                  ┌──────────────┴──────────────┐
-                  │        server.js             │
-                  │   Express 5 · ~80 rutas      │
-                  │   multer · xlsx · mssql      │
-                  └──────────────┬──────────────┘
-                                 │  msnodesqlv8 (Windows Auth)
-                  ┌──────────────┴──────────────┐
-                  │   SQL Server 2022 · "Siga"   │
-                  │   ~548 tablas · ERP completo │
-                  └─────────────────────────────┘
-```
+### Producción y distribución
+| Módulo | Lo que resuelve |
+|---|---|
+| **Planificación** | Qué producir según demanda, stock y sugerencias, con reserva de mercadería. |
+| **Producción** | Órdenes del día, granel y seguimiento de fabricación. |
+| **Productividad** | Lo planificado contra lo producido, y el ritmo por persona en producción y fraccionado. |
+| **Distribución** | Reparto a sucursales: almacén, pesables y envasado, con registro de lo fraccionado. |
+| **Análisis ABC 80/20** | Qué productos importan en cada sucursal, con mínimos y días de operación. |
+| **Fraccionado externo** | Costo de mano de obra por paquete y pedido listo en PDF para tercerizar. |
 
-- **Multi-server por rama git (worktrees):** `dev` (puerto **8081**) y `produccion`. Diferenciación vía `config.json` + scripts batch.
-- **Deploy:** `publicar.bat` → `publicar-APLICAR.bat` (con confirmación de seguridad).
-- **Datos runtime:** carpeta `data/` (untracked).
+### Compras
+| Módulo | Lo que resuelve |
+|---|---|
+| **Compras** | Pedidos a proveedores con stock y cobertura en central y sucursales, seguimiento de entrega y tablero OTIF. |
+| **Importar a SIGA** | Convierte el pedido en comprobante de Siga, sin volver a cargarlo. |
+| **Insumos** | Stock, consumo mensual estimado y cuánto dura lo que hay. |
+| **Precios de proveedores** | Compara listas (PDF, URL o carga manual) contra tus costos de Siga. |
 
----
+### Precios y venta online
+| Módulo | Lo que resuelve |
+|---|---|
+| **Armado de precios** | Costos, márgenes, precio final y simulador por producto, con el costeo del fraccionado. |
+| **Cotizador mayorista** | Publica la lista mayorista con vista previa de cambios e historial de versiones. |
+| **Control Mercado Libre** | Detecta publicaciones con precio distinto al esperado según Siga, márgenes y gastos de ML. |
+| **Control Tienda Nube** | Compara tu catálogo y exporta un CSV listo para reimportar con los precios corregidos. |
+| **Histórico de precios** | El precio de cada producto, día por día, descargable en Excel. |
 
-## ◻️ Stack técnico
+### Finanzas y control
+| Módulo | Lo que resuelve |
+|---|---|
+| **Cuentas corrientes** | Deuda viva por cliente, antigüedad y detalle de comprobantes. |
+| **Cruce bancario** | Empareja cada movimiento del banco con su ticket de Siga por importe y hora. |
+| **Cruce de terminales** | Asigna cada comprobante de Payway y QR a su sucursal. |
+| **Análisis de ventas** | Ticket promedio, días y horas pico, top de productos y comparativa entre sucursales. |
+| **Ventas por hora** | Horas pico por sucursal en un rango de fechas. |
 
-```
-┌─ Runtime ─────────────────────────────────────────────┐
-│  Node.js · Express 5.2          → server.js            │
-│  msnodesqlv8 + mssql            → SQL Server 2022      │
-│  multer                         → upload de archivos   │
-│  xlsx                           → export/import Excel  │
-├─ Frontend ────────────────────────────────────────────┤
-│  HTML + Tailwind (CDN)          → cada módulo          │
-│  Lucide icons · Chart.js        → UI / dashboards      │
-├─ Scripts auxiliares (Python) ─────────────────────────┤
-│  generar_catalogo · importar_distribucion             │
-│  export_etiquetas · export_ventas_casa_central        │
-└────────────────────────────────────────────────────────┘
-```
+### Sucursales y equipo
+| Módulo | Lo que resuelve |
+|---|---|
+| **Vencimientos** | Flujo de oferta y vencido con movimientos de stock en Siga. |
+| **Carteles de pesables** | Carteles de precio listos para imprimir. |
+| **Mantenimiento** | Pedidos de mantenimiento con calendario y responsables. |
+| **Tickets** | Pedidos de cambios al sistema con seguimiento por estado. |
+| **RRHH** | Relevamiento de ropa de trabajo y análisis de CV. |
 
----
-
-## ◼️ Estructura 🐼
-
-```
-dev/
-├── 🐼 server.js                      Backend Express (~80 rutas)
-├── 🐼 inicio.html                    Hub / centro de operaciones
-├── config.json                       Puerto, umbrales, grupos granel
-├── package.json
-│
-├── ▸ Módulos (HTML)
-│   ├── apidelta_produccion_dev.html  Producción
-│   ├── planificacion.html
-│   ├── distribucion.html  · distribucion.js
-│   ├── carga-produccion.html
-│   ├── pedidos_web.html
-│   ├── dashboard_compras.html
-│   ├── dashboard_consumo.html
-│   ├── cotizador.html
-│   ├── ventas_hora.html
-│   └── a8020.html  · a8020.js
-│
-├── ▸ Lógica (JS)
-│   ├── pesables.js
-│   └── listas_universo.js
-│
-├── ▸ test/                           Tests y validadores
-│   ├── *.test.js                     Suite de node:test (npm test)
-│   ├── validar_almacen.js            Paridad del motor vs fixture golden
-│   ├── validar_racionamiento.js      Piso mínimo y racionamiento por prioridad
-│   ├── validar_ranking.js            Scores de ranking A8020
-│   ├── validar_paridad_entornos.js   Diff dev(8081) vs producción(8080)
-│   └── validar_paridad_config.js     Helpers de diff de configuración
-│
-├── ▸ Scripts (Python)
-│   ├── generar_catalogo.py
-│   ├── importar_distribucion.py
-│   ├── export_etiquetas_necesarias.py
-│   └── export_ventas_casa_central.py
-│
-└── data/                             Datos runtime (untracked)
-```
+> Más de 25 módulos hoy, y la lista sigue creciendo.
 
 ---
 
-## ◻️ Puesta en marcha
+## Por qué funciona
+
+**Menos horas en planillas.** Lo que se armaba a mano con exportaciones ahora sale del propio sistema, y cuando hace falta, se baja a Excel.
+
+**Decisiones con datos del día.** Todo se calcula sobre la base viva de Siga, no sobre una copia vieja.
+
+**Un solo lugar.** Un panel de inicio con tarjetas por módulo. Cada usuario ve solo las que tiene permitidas.
+
+**Hecho para escritorio.** Tablas densas y legibles, pensadas para quien trabaja con números todo el día.
+
+**Probado.** El sistema tiene una suite de más de 3.300 pruebas automáticas y validadores de paridad entre entornos, para que cada actualización llegue sin sorpresas.
+
+---
+
+## Cómo se implementa
+
+1. **Relevamiento.** Vemos cómo trabajás hoy y qué decisiones se toman a mano.
+2. **Conexión.** Se instala en tu red y se conecta a tu base de Siga.
+3. **Módulos a medida.** Se activan los que necesitás y se ajustan a tu operación.
+4. **Usuarios y permisos.** Cada persona accede a lo que le corresponde.
+5. **Evolución.** Los pedidos de cambio entran por el módulo de tickets y se priorizan.
+
+**Requisitos:** Windows, Node.js y acceso a la base de Siga en SQL Server.
+
+---
+
+## Para el equipo técnico
 
 ```bash
-# 1. Instalar dependencias
 npm install
-
-# 2. Levantar en modo dev (recarga con nodemon)
-npm run dev          # → http://localhost:8081
-
-# 3. Producción
-npm start
+npm run dev      # desarrollo, puerto 8081
+npm start        # producción
+npm test         # suite de pruebas
 ```
 
-> 🐼 **Requiere** SQL Server 2022 con la base **Siga** accesible vía Windows Auth
-> (`servidorapidelta\sqlstandard`). Ajustá puerto/host en `config.json`.
+Stack: Node.js, Express 5, `mssql` / `msnodesqlv8`, `xlsx` y `multer`. Frontend en HTML con tema compartido y sin dependencia de build. Scripts auxiliares en Python. La configuración vive en `config.json` y `.env` (ver `.env.example`).
 
-En Windows existe acceso directo: `iniciar_servidor_dev.bat`.
-
----
-
-## ◼️ API REST — endpoints destacados
-
-| Grupo | Ejemplos |
-|-------|----------|
-| **Salud / config** | `/api/health` · `/api/config` |
-| **Pedidos** | `/api/pedidos` · `/api/clientes` · `/api/productos` · `/api/resumen` |
-| **Compras** | `/api/compras/consumo` · `/api/compras/urgencias` · `/api/compras/buscar` |
-| **Producción** | `/api/ordenes` · `/api/formulas/:plu` · `/api/stock/granel` · `/api/stock/terminados` |
-| **Distribución** | `/api/distribucion/almacen` · `/api/distribucion/pesables` · `/api/distribucion/a8020` |
-| **Catálogo** | `/api/catalogo` · `/api/catalogo/grupos` · `/api/siga/buscar` |
-
----
-
-## ◻️ Paleta 🐼 (blanco y negro, con un toque de miel)
-
-```
-  ◼️  #000000   Negro          ◻️  #FFFFFF   Blanco
-  ▓   #65684C   Oliva          ░   #BDBDB7   Gris
-                  🍯  #FFCC00   Ámbar (acento)
-```
+Documentación interna en [`docs/`](docs/).
 
 ---
 
 <div align="center">
 
-```
-   🐼        🐼        🐼        🐼        🐼
-   ╲        Apidelta · Subsistema local        ╱
-            Hecho en blanco y negro
-```
+**¿Querés verlo funcionando con tus propios datos?**
+Coordiná una demostración y lo probamos sobre tu Siga.
 
-**Repo:** [`Panditis/DevApideltaModules`](https://github.com/Panditis/DevApideltaModules) · rama `dev`
+<sub>Apidelta SubSystem · Subsistema operativo sobre Siga</sub>
 
 </div>
