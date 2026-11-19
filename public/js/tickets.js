@@ -94,10 +94,13 @@
     bandera: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
     campana: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
     clip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
+    calendario: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
     archivo: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   };
   const ico = (nombre, clase = 'ico') => `<svg class="${clase}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre]}</svg>`;
   const AdjUI = window.TicketsAdjuntos.crearUI({ ico, el }); // public/js/tickets_adjuntos.js
+  const Calendario = window.TicketsCalendario; // public/js/tickets_calendario.js (vista y helpers; solo se usa con meta.calendario)
+  let calendario = null; // instancia de la vista, creada al cargar meta si meta.calendario
 
   const estado = {
     meta: META_RESPALDO, metaOk: false, tickets: [], cargado: false,
@@ -214,6 +217,7 @@
   const esExterno = u => estado.metaOk && !usuarioMeta(u);
   // Espejo de lo que valida el server: estados sólo con 'tickets-gestion'; destinatarios y prioridad también el creador.
   const puedeGestionar = () => estado.meta.puedeGestionar === true;
+  const hayCalendario = () => estado.meta.calendario === true;
   const puedeCrear = () => estado.meta.puedeCrear !== false; // false sólo en Mantenimiento sin permiso de gestión
   const puedeEditarTicket = t => puedeGestionar() || mismoUsuario(t.creadoPor, estado.meta.login);
 
@@ -421,7 +425,10 @@
     }));
     // "Otra" la agrega la pantalla (texto libre): si la lista fija ya la trae, no se repite.
     const areas = m.areas.filter(a => String(a).trim().toLowerCase() !== 'otra').map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
-    $('#fArea').innerHTML = `<option value="">Elegí un área…</option>${areas}<option value="${OTRA}">Otra…</option>`;
+    // Áreas cerradas (meta.areaCerrada): solo las de meta.areas, sin "Otra" ni texto libre.
+    const cerradas = m.areas.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+    $('#fArea').innerHTML = m.areaCerrada ? `<option value="">Elegí un área…</option>${cerradas}`
+      : `<option value="">Elegí un área…</option>${areas}<option value="${OTRA}">Otra…</option>`;
     selectorNuevo = crearSelectorUsuarios($('#fDest'), { id: 'fDest', alCambiar: revalidar });
     pintarArchivosNuevo();
   }
@@ -678,6 +685,10 @@
       + `<span aria-hidden="true">${hechas}/${total}</span></span>`;
   }
 
+  // Fecha del ticket (solo con calendario): chip de solo lectura en tarjeta y fila.
+  const chipFecha = t => (hayCalendario() && t.fecha
+    ? `<span title="Fecha: ${esc(Calendario.formatoFecha(t.fecha))}">${ico('calendario')}${esc(Calendario.formatoFecha(t.fecha))}</span>` : '');
+
   // ── Tablero ─────────────────────────────────────────────────────────────────
   function tarjeta(t) {
     const notas = notasDe(t);
@@ -690,7 +701,7 @@
         <span class="ml-auto" title="Creado el ${esc(fecha(t.creadoEn))}">${esc(haceCuanto(t.creadoEn))}</span></div>
       <div class="tit">${esc(t.tarea)}</div>
       <div class="fila3">${t.area ? `<span class="tag-area" title="${esc(t.area)}">${esc(t.area)}</span>` : ''}
-        <div class="meta">${miniProgreso(t)}${notas ? `<span title="${notas} nota${notas === 1 ? '' : 's'}">${ico('msg')}${notas}</span>` : ''}${pilaAvatares(t.destinatarios)}</div></div>
+        <div class="meta">${chipFecha(t)}${miniProgreso(t)}${notas ? `<span title="${notas} nota${notas === 1 ? '' : 's'}">${ico('msg')}${notas}</span>` : ''}${pilaAvatares(t.destinatarios)}</div></div>
     </article>`;
   }
 
@@ -826,7 +837,7 @@
     const mover = filasMovibles();
     return `<tr data-id="${esc(t.id)}" tabindex="0" draggable="${mover}" class="e-${esc(t.estado)}${nl ? ' no-leido' : ''}">
       <td class="num text-gris pri p-${esc(t.prioridad)}">${mover ? '<span class="grip" aria-hidden="true">⋮⋮</span>' : ''}${estrella(t)}${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span><span class="sr-only">Con novedades: </span>' : ''}${esc(t.id)}</td>
-      <td class="tit font-semibold max-w-[420px] break-words">${esc(t.tarea)}${etapasDe(t).length ? `<div class="mt-1 font-normal">${miniProgreso(t)}</div>` : ''}</td>
+      <td class="tit font-semibold max-w-[420px] break-words">${esc(t.tarea)}${etapasDe(t).length ? `<div class="mt-1 font-normal">${miniProgreso(t)}</div>` : ''}${hayCalendario() && t.fecha ? `<div class="mt-1 font-normal text-xs text-gris inline-flex items-center gap-1">${chipFecha(t)}</div>` : ''}</td>
       <td>${controlPrioridad(t)}</td>
       <td>${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : '—'}</td>
       <td>${pilaAvatares(t.destinatarios)}</td>
@@ -852,18 +863,22 @@
     if (!estado.cargado) return;
     const visibles = ordenar(estado.tickets.filter(pasaFiltrosBase));
     const enVista = visibles.filter(pasaEstado).length;
-    $('#conteo').textContent = `${enVista} de ${estado.tickets.length}`;
-    if (estado.vista === 'lista') pintarLista(visibles); else pintarTablero(visibles);
+    $('#conteo').textContent = `${estado.vista === 'calendario' ? visibles.length : enVista} de ${estado.tickets.length}`;
+    if (estado.vista === 'calendario' && calendario) calendario.pintar(visibles);
+    else if (estado.vista === 'lista') pintarLista(visibles);
+    else pintarTablero(visibles);
   }
   function pintarSeguimiento() { pintarEstados(); pintarVista(); }
   function pintarTodo() { pintarSeguimiento(); if (estado.abierto != null) pintarDetalle(); }
 
   function cambiarVista(v) {
-    estado.vista = v === 'lista' ? 'lista' : 'tablero';
+    estado.vista = v === 'lista' ? 'lista' : (v === 'calendario' && calendario ? 'calendario' : 'tablero');
     try { localStorage.setItem(CLAVE_VISTA, estado.vista); } catch (_) { /* sin storage: la vista no se recuerda */ }
     document.querySelectorAll('[data-vista]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.vista === estado.vista)));
     $('#vistaTablero').classList.toggle('hidden', estado.vista !== 'tablero');
     $('#vistaLista').classList.toggle('hidden', estado.vista !== 'lista');
+    $('#vistaCalendario').classList.toggle('hidden', estado.vista !== 'calendario');
+    $('#estados').classList.toggle('hidden', estado.vista === 'calendario'); // el calendario no filtra por estado
     pintarVista();
   }
 
@@ -962,6 +977,27 @@
     }
   }
 
+  // Fecha del calendario (POST …/fecha, { fecha: 'YYYY-MM-DD' | null }): optimista y, si falla, vuelve atrás y avisa.
+  async function asignarFecha(id, fecha) {
+    const t = buscarTicket(id);
+    if (ocupado(t) || !puedeGestionar() || (t.fecha || null) === fecha) return;
+    reemplazarTicket(t.id, { ...t, fecha });
+    estado.guardando.add(String(t.id));
+    repintarConservando();
+    try {
+      reemplazarTicket(t.id, await enviarJSON('POST', `${CFG.api}/${encodeURIComponent(t.id)}/fecha`, { fecha }));
+      ocultarAviso(avisoActual());
+      mostrarToast(fecha ? `#${t.id} con fecha ${Calendario.formatoFecha(fecha)}.` : `#${t.id} sin fecha.`);
+    } catch (e) {
+      const actual = buscarTicket(t.id);
+      if (actual) reemplazarTicket(t.id, { ...actual, fecha: t.fecha || null });
+      mostrarAviso('error', `No se pudo cambiar la fecha del ticket #${t.id}: ${e.message}`, avisoActual());
+    } finally {
+      estado.guardando.delete(String(t.id));
+      repintarConservando();
+    }
+  }
+
   // Grupo de la prioridad del ticket con `id` movido antes de `antesDe` (null = al final); null si no cambia nada.
   function grupoReordenado(id, antesDe) {
     const t = buscarTicket(id);
@@ -1041,7 +1077,7 @@
   }
   function devolverFoco(id) {
     if (focoPrevio && focoPrevio.isConnected) { focoPrevio.focus(); return; }
-    const vista = estado.vista === 'lista' ? '#cuerpo' : '#tablero';
+    const vista = { lista: '#cuerpo', calendario: '#vistaCalendario' }[estado.vista] || '#tablero';
     if (id != null) document.querySelector(`${vista} [data-id="${CSS.escape(String(id))}"]`)?.focus();
   }
 
@@ -1055,10 +1091,18 @@
     $('#dTitulo').textContent = t.tarea;
     $('#dMeta').innerHTML = `${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : ''}
       <span>Creado por <b class="text-ink font-semibold">${esc(nombreDe(t.creadoPor))}</b> · ${esc(fecha(t.creadoEn))}</span>
-      <span class="inline-flex items-center gap-1">${ico('reloj', 'ico w-3.5 h-3.5')}Actualizado ${esc(haceCuanto(t.actualizadoEn))}</span>`;
+      <span class="inline-flex items-center gap-1">${ico('reloj', 'ico w-3.5 h-3.5')}Actualizado ${esc(haceCuanto(t.actualizadoEn))}</span>${fechaDetalle(t)}`;
     $('#dCuerpo').replaceChildren(seccionDescripcion(t), seccionEtapas(t), seccionDestinatarios(t), seccionNota(t), seccionHistorial(t));
     const foco = focoId ? document.getElementById(focoId) : null;
     if (foco) { foco.focus(); if (foco.dataset.seleccionar) foco.select(); }
+  }
+
+  // Fecha en el detalle (solo con calendario): quien gestiona la edita con un <input type=date> (alternativa por teclado al arrastre).
+  function fechaDetalle(t) {
+    if (!hayCalendario()) return '';
+    if (!puedeGestionar()) return t.fecha ? `<span class="inline-flex items-center gap-1">${ico('calendario', 'ico w-3.5 h-3.5')}Fecha <b class="text-ink font-semibold">${esc(Calendario.formatoFecha(t.fecha))}</b></span>` : '';
+    return `<label class="inline-flex items-center gap-1.5">${ico('calendario', 'ico w-3.5 h-3.5')}Fecha
+      <input type="date" id="dFecha" class="ctl ctl-sm" data-fecha-id="${esc(t.id)}" value="${esc(t.fecha || '')}"${ocupado(t) ? ' disabled' : ''}></label>`;
   }
 
   function seccion(titulo, icono) {
@@ -1775,6 +1819,7 @@
     document.addEventListener('change', e => {
       if (e.target.matches('select[data-estado-id]')) moverEstado(e.target.dataset.estadoId, e.target.value);
       if (e.target.matches('select[data-prioridad-id]')) cambiarPrioridad(e.target.dataset.prioridadId, e.target.value);
+      if (e.target.matches('input[data-fecha-id]')) asignarFecha(e.target.dataset.fechaId, e.target.value || null);
     });
     enlazarDialogo($('#dlgDetalle'), alCerrarDetalle);
     $('#btnAvisos').addEventListener('click', alternarEscritorio);
@@ -1799,6 +1844,14 @@
       $('#btnNuevo').disabled = true;
       $('#btnNuevo').title = 'No disponible: no se pudieron traer los usuarios de SIGA';
     }
+    if (hayCalendario()) {
+      calendario = Calendario.crearUI({
+        raiz: $('#vistaCalendario'), el, ico, rango: p => rango('prioridades', p), etiquetaPrioridad: p => etiqueta('prioridades', p),
+        puedeGestionar, ocupado: id => estado.guardando.has(String(id)), abrir: abrirDetalle, asignar: asignarFecha,
+        alArrastre: en => { if (en) arrastrando = true; else finArrastre(); },
+      });
+      $('#pillCalendario').classList.remove('hidden');
+    }
     // Sin permiso para crear (Mantenimiento): ni botón ni FAB. El server igual responde 403.
     if (!puedeCrear()) $('#btnNuevo').style.display = 'none';
     // Sin SIGA no se sabe el permiso: el aviso de error ya explica qué no se puede hacer.
@@ -1807,8 +1860,10 @@
   }
 
   async function iniciar() {
+    let vistaGuardada = '';
     try {
-      if (localStorage.getItem(CLAVE_VISTA) === 'lista') estado.vista = 'lista';
+      vistaGuardada = localStorage.getItem(CLAVE_VISTA);
+      if (vistaGuardada === 'lista') estado.vista = 'lista';
       prefEscritorio = localStorage.getItem(CLAVE_ESCRITORIO) === '1';
     } catch (_) { /* sin storage: vista default y sin avisos de escritorio */ }
     pintarBotonAvisos();
@@ -1816,6 +1871,7 @@
     pintarCargando();
     enlazarGenerales();
     await cargarMeta();
+    if (vistaGuardada === 'calendario') cambiarVista('calendario');
     pintarYo();
     armarFormulario();
     armarFiltros();

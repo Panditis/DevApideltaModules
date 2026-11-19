@@ -2723,6 +2723,7 @@ app.use(require('./routes/rutas_tickets')({
   usuarios: () => auth.usuariosDelModulo(auth.listarUsuarios(), 'sucursales'),
   pagina: '/sucursales/mantenimiento', api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json',
   permiso: 'mantenimiento-gestion', areas: require('./lib/tickets').AREAS_MANTENIMIENTO, etiqueta: 'mantenimiento',
+  areaCerrada: true, calendario: true, // áreas fijas y fecha por ticket
   crearSoloGestion: true, // sin 'mantenimiento-gestion' sólo se ven y comentan pedidos
 }));
 // Carteles Pesables: precio de la bolsa de los pesables fraccionados por sucursal (SIGA sólo lectura).

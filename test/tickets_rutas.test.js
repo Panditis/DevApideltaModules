@@ -327,16 +327,16 @@ test('instancia de Mantenimiento: datos en mantenimiento.json, sus áreas y su p
     const meta = await pedir(base, 'GET', '/meta');
     assert.strictEqual(meta.status, 200);
     assert.deepStrictEqual(meta.data.areas, AREAS_MANTENIMIENTO);
-    assert.ok(meta.data.areas.includes('Plomería'));
+    assert.deepStrictEqual(meta.data.areas, ['Mantenimiento', 'Sistemas']);
     assert.strictEqual(meta.data.puedeCrear, false);
 
     // Sin permiso de gestión no se da de alta (crearSoloGestion) y no se toca el archivo.
-    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 403);
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' })).status, 403);
     assert.ok(!fs.existsSync(path.join(ctx.dir, 'mantenimiento.json')));
 
     ctx.sesion.permiso = true; // tienePermiso sólo acepta 'mantenimiento-gestion'
     assert.strictEqual((await pedir(base, 'GET', '/meta')).data.puedeCrear, true);
-    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 201);
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' })).status, 201);
     assert.ok(fs.existsSync(path.join(ctx.dir, 'mantenimiento.json')));
     assert.ok(!fs.existsSync(path.join(ctx.dir, 'tickets.json')));
 
@@ -885,5 +885,52 @@ test('POST /reordenar y /:id/destacar: permisos, errores y JSON guardado', async
     const p2 = await pedir(base, 'POST', '/1/destacar', { destacado: false });
     assert.strictEqual(p2.status, 403);
     assert.match(p2.data.error, /destacar/);
+  } finally { cerrar(ctx); }
+});
+
+test('Mantenimiento con areaCerrada y calendario: meta, área fuera de lista 400 y POST /:id/fecha', async () => {
+  const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
+  const ctx = await montar({ config: {
+    api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
+    areas: AREAS_MANTENIMIENTO, crearSoloGestion: true, areaCerrada: true, calendario: true,
+  } });
+  const { base } = ctx;
+  const leer = () => JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento.json'), 'utf8'));
+  try {
+    const meta = (await pedir(base, 'GET', '/meta')).data;
+    assert.strictEqual(meta.areaCerrada, true);
+    assert.strictEqual(meta.calendario, true);
+    const mal = await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' });
+    assert.strictEqual(mal.status, 400);
+    assert.match(mal.data.error, /área/);
+    const ok = await pedir(base, 'POST', '', { ...NUEVO, area: 'Mantenimiento' });
+    assert.strictEqual(ok.status, 201);
+    assert.strictEqual(ok.data.fecha, null);
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' })).status, 201);
+
+    const f = await pedir(base, 'POST', '/1/fecha', { fecha: '2026-12-01' });
+    assert.strictEqual(f.status, 200);
+    assert.strictEqual(f.data.fecha, '2026-12-01');
+    assert.strictEqual(f.data.id, 1);
+    assert.strictEqual(leer()[0].fecha, '2026-12-01');
+    assert.strictEqual((await pedir(base, 'POST', '/1/fecha', { fecha: '2026-02-30' })).status, 400);
+    assert.strictEqual((await pedir(base, 'POST', '/9/fecha', { fecha: null })).status, 404);
+    assert.strictEqual((await pedir(base, 'POST', '/1/fecha', { fecha: null })).data.fecha, null);
+
+    ctx.sesion.permiso = false;
+    const p = await pedir(base, 'POST', '/1/fecha', { fecha: '2026-12-01' });
+    assert.strictEqual(p.status, 403);
+    assert.match(p.data.error, /fechas/);
+  } finally { cerrar(ctx); }
+});
+
+test('/tickets sin calendario: meta false, POST /:id/fecha 404 y área libre', async () => {
+  const ctx = await montar();
+  try {
+    const meta = (await pedir(ctx.base, 'GET', '/meta')).data;
+    assert.strictEqual(meta.areaCerrada, false);
+    assert.strictEqual(meta.calendario, false);
+    assert.strictEqual((await pedir(ctx.base, 'POST', '', { ...NUEVO, area: 'Cualquier cosa' })).status, 201);
+    assert.strictEqual((await pedir(ctx.base, 'POST', '/1/fecha', { fecha: '2026-12-01' })).status, 404);
   } finally { cerrar(ctx); }
 });

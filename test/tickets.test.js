@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  PRIORIDADES, ESTADOS, ESTADOS_ETAPA, AREAS, crearTicket, actualizarTicket, reordenarTicket, destacarTicket,
+  PRIORIDADES, ESTADOS, ESTADOS_ETAPA, AREAS, crearTicket, actualizarTicket, reordenarTicket, destacarTicket, asignarFecha, AREAS_MANTENIMIENTO,
   agregarEtapa, actualizarEtapa, eliminarEtapa, recalcularEstado,
   validarArchivos, agregarAdjuntos, quitarAdjunto, ubicarAdjunto, ocultarRutas, verificarDestino,
 } = require('../lib/tickets');
@@ -29,7 +29,7 @@ test('crearTicket arma el ticket con estado pendiente e historial de creación',
   const { lista, ticket } = crear([], { tarea: '  Arreglar export  ', area: ' Compras ' });
   assert.deepStrictEqual(ticket, {
     id: 1, tarea: 'Arreglar export', prioridad: 'alta', area: 'Compras', descripcion: 'Detalle',
-    destinatarios: ['beto'], estado: 'pendiente', orden: 1, destacado: false, creadoPor: 'ana', creadoEn: T0, actualizadoEn: T0, etapas: [], adjuntos: [],
+    destinatarios: ['beto'], estado: 'pendiente', orden: 1, destacado: false, fecha: null, creadoPor: 'ana', creadoEn: T0, actualizadoEn: T0, etapas: [], adjuntos: [],
     historial: [{ fecha: T0, usuario: 'ana', tipo: 'creado' }],
   });
   assert.deepStrictEqual(lista, [ticket]);
@@ -503,4 +503,27 @@ test('lista vieja sin orden: el nuevo y el que cambia de prioridad quedan últim
   assert.deepStrictEqual(ids(l2, 'alta'), [1, 2, 3]);
   assert.strictEqual(l2[0].actualizadoEn, T0);
   assert.deepStrictEqual(viejos, copia);
+});
+
+test('asignarFecha: válida, null, formato inválido, fecha imposible, 404 y no muta', () => {
+  const lista = [tk(1, 'alta', { orden: 3 })];
+  const copia = JSON.parse(JSON.stringify(lista));
+  const { lista: nueva, ticket } = asignarFecha(lista, 1, '2026-12-01');
+  assert.deepStrictEqual(ticket, { ...lista[0], fecha: '2026-12-01' });
+  assert.deepStrictEqual(nueva, [ticket]);
+  assert.deepStrictEqual(lista, copia);
+  assert.strictEqual(asignarFecha(nueva, 1, null).ticket.fecha, null);
+  for (const mala of ['2026-2-1', '01/12/2026', '2026-12-01T00:00', '', 20261201, undefined]) falla(() => asignarFecha(lista, 1, mala), 400);
+  falla(() => asignarFecha(lista, 1, '2026-02-30'), 400);
+  falla(() => asignarFecha(lista, 1, '2026-13-01'), 400);
+  falla(() => asignarFecha(lista, 9, '2026-12-01'), 404);
+});
+
+test('crearTicket: nace con fecha null; areasCerradas rechaza fuera de lista', () => {
+  assert.deepStrictEqual(AREAS_MANTENIMIENTO, ['Mantenimiento', 'Sistemas']);
+  assert.strictEqual(crear().ticket.fecha, null);
+  const op = { areasCerradas: AREAS_MANTENIMIENTO };
+  falla(() => crearTicket([], { ...BASE, area: 'Plomería' }, 'ana', USUARIOS, T0, op), 400, /área/);
+  for (const area of AREAS_MANTENIMIENTO) assert.strictEqual(crearTicket([], { ...BASE, area }, 'ana', USUARIOS, T0, op).ticket.area, area);
+  assert.strictEqual(crear([], { area: 'Libre' }).ticket.area, 'Libre');
 });

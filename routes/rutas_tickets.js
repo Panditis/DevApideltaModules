@@ -49,6 +49,8 @@ module.exports = function crearRutasTickets(deps) {
     leerJSON, guardarJSON, DATA_DIR, query, tienePermiso, ttlMs = USUARIOS_TTL_MS,
     pagina = '/tickets', api = '/api/tickets', archivo = 'tickets.json', permiso = 'tickets-gestion',
     areas = tickets.AREAS, etiqueta = 'tickets',
+    areaCerrada = false, // true: el área tiene que ser una de `areas` (Mantenimiento)
+    calendario = false, // true: habilita POST /:id/fecha (Mantenimiento)
     crearSoloGestion = false, // true: dar de alta también pide el permiso de gestión (Mantenimiento)
     usuarios: fuenteUsuarios, // () => [{ usuario, nombre }] (sync o async): destinatarios propios en vez de los de SIGA
   } = deps;
@@ -187,6 +189,7 @@ module.exports = function crearRutasTickets(deps) {
   router.get(pagina, (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'tickets.html')));
   router.get('/js/tickets.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets.js')));
   router.get('/js/tickets_adjuntos.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets_adjuntos.js')));
+  router.get('/js/tickets_calendario.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets_calendario.js')));
 
   router.get(api, manejar(() => leerTickets()));
 
@@ -201,6 +204,8 @@ module.exports = function crearRutasTickets(deps) {
       estadosEtapa: tickets.ESTADOS_ETAPA,
       areas,
       usuarios,
+      areaCerrada,
+      calendario,
       soloUsuarios: !!fuenteUsuarios, // true: sólo se eligen cuentas de la lista (sin externos ni nombres libres en la UI)
       yo: yo ? yo.usuario : null,
       yoNombre: user.nombre || user.usuario || null,
@@ -214,7 +219,8 @@ module.exports = function crearRutasTickets(deps) {
     if (crearSoloGestion && !puedeGestionar(req)) throw prohibido('No tenés permiso para crear tickets.');
     const validos = (await listarUsuarios()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
-    const { lista, ticket } = tickets.crearTicket(leerTickets(), req.body, usuarioSesion(req), validos, new Date().toISOString());
+    const { lista, ticket } = tickets.crearTicket(leerTickets(), req.body, usuarioSesion(req), validos, new Date().toISOString(),
+      areaCerrada ? { areasCerradas: areas } : {});
     guardarJSON(TICKETS_PATH, lista);
     return ticket;
   }, 201));
@@ -231,6 +237,15 @@ module.exports = function crearRutasTickets(deps) {
   router.post(`${api}/:id/destacar`, manejar(req => {
     if (!puedeGestionar(req)) throw prohibido('No tenés permiso para destacar tickets.');
     const { lista, ticket } = tickets.destacarTicket(leerTickets(), idValido(req.params.id, 'ticket'), (req.body || {}).destacado);
+    guardarJSON(TICKETS_PATH, lista);
+    return ticket;
+  }));
+
+  router.post(`${api}/:id/fecha`, manejar(req => {
+    if (!calendario) throw Object.assign(new Error('No encontrado.'), { status: 404 });
+    if (!puedeGestionar(req)) throw prohibido('No tenés permiso para asignar fechas.');
+    const fecha = (req.body || {}).fecha;
+    const { lista, ticket } = tickets.asignarFecha(leerTickets(), idValido(req.params.id, 'ticket'), fecha === undefined ? '' : fecha);
     guardarJSON(TICKETS_PATH, lista);
     return ticket;
   }));

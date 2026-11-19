@@ -305,6 +305,33 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 .nota-adj{padding:0 12px}
 .solo-movil{display:none} /* lo muestra el bloque mobile de abajo */
 
+/* ── Calendario (solo con meta.calendario) ─────────────────────────────── */
+.cal{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
+.cal-panel{background:rgba(64,89,54,.055);border-radius:14px;padding:12px 8px 10px;position:sticky;top:76px;transition:background-color 140ms ease,box-shadow 140ms ease}
+.cal-panel-h{padding:0 6px 4px;font-size:13px;font-weight:700;color:var(--ink)}
+.cal-lista{display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 250px);overflow-y:auto;padding:2px 2px 4px}
+.cal-main{background:#fff;border:1px solid var(--borde-s);border-radius:12px;box-shadow:var(--sh-1);overflow:hidden}
+.cal-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--borde-s)}
+.cal-mes{margin-right:auto;font-size:16px;font-weight:700;text-transform:capitalize}
+.cal-sem,.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.cal-dow{padding:8px 10px;font-size:11.5px;font-weight:600;color:var(--gris);background:#fafbf8;border-bottom:1px solid var(--borde-s)}
+.cal-grid{gap:1px;background:var(--borde-s)}
+.cal-dia{display:flex;flex-direction:column;gap:3px;min-width:0;min-height:112px;padding:4px;background:#fff;transition:background-color 140ms ease,box-shadow 140ms ease}
+.cal-dia.fuera{background:#fafbf8}
+.cal-dia.fuera .cal-num{color:#b6b9ad}
+.cal-num{align-self:flex-end;display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 4px;border-radius:999px;font-size:12px;font-weight:600;color:var(--gris);font-variant-numeric:tabular-nums}
+.cal-dia.hoy .cal-num{background:var(--verde);color:#fff}
+.cal-dia.sobre,.cal-panel.sobre{background:rgba(64,89,54,.12);box-shadow:inset 0 0 0 2px rgba(64,89,54,.45)}
+.cal-tk{display:flex;align-items:center;gap:5px;width:100%;min-width:0;padding:3px 6px 3px 9px;border:0;border-radius:6px;font-size:12px;font-weight:600;text-align:left;background:var(--p-bg);color:var(--p-fg);box-shadow:inset 3px 0 0 var(--p);cursor:pointer}
+.cal-tk:hover{filter:brightness(.97)}
+.cal-tk .n{flex:none;font-variant-numeric:tabular-nums;opacity:.75}
+.cal-tk .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-tk[draggable=true]{cursor:grab}
+.cal-tk.cerrado{opacity:.5}
+.cal-tk.cancelado .t{text-decoration:line-through}
+.cal-tk.arrastrando{opacity:.4}
+.cal-tk.guardando{opacity:.6;pointer-events:none}
+
 /* ── Teléfono (≤767px) ─────────────────────────────────────────────────────
    Un solo breakpoint (= md de Tailwind): todo lo mobile vive acá y escritorio queda como arriba.
    Criterios: zona táctil ≥44px, campos a 16px (iOS no hace zoom al enfocar), diálogos a pantalla completa con
@@ -464,6 +491,10 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
   /* Avisos: casi a todo el ancho, por encima del botón flotante */
   #toasts{left:12px;right:12px;bottom:calc(88px + env(safe-area-inset-bottom));max-width:none;align-items:stretch}
   .tst{min-height:44px}
+  .cal{grid-template-columns:minmax(0,1fr)}
+  .cal-panel{position:static}
+  .cal-main{overflow-x:auto}
+  .cal-sem,.cal-grid{min-width:640px}
 }
 /* Sin hover (táctil): que no quede pegado el realce de "hover" ni los controles apagados */
 @media (hover:none){
@@ -521,6 +552,8 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/></svg>Tablero</button>
         <button type="button" class="pill" data-vista="lista" aria-pressed="false">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/></svg>Lista</button>
+        <button type="button" class="pill hidden" id="pillCalendario" data-vista="calendario" aria-pressed="false">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Calendario</button>
       </div>
       <button id="btnNuevo" type="button" class="btn btn-primario">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Nuevo ticket</button>
@@ -551,6 +584,8 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
       </table>
     </div>
   </section>
+
+  <section id="vistaCalendario" class="hidden" aria-label="Calendario de tickets"></section>
 </main>
 
 <!-- Alta de ticket -->
@@ -621,6 +656,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 <div id="toasts" role="status" aria-live="polite"></div>
 
 <script src="/js/tickets_adjuntos.js"></script>
+<script src="/js/tickets_calendario.js"></script>
 <script src="/js/tickets.js"></script>
 </body>
 </html>
