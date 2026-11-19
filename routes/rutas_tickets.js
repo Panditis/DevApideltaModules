@@ -62,7 +62,7 @@ module.exports = function crearRutasTickets(deps) {
   const AREAS_PATH = path.join(DATA_DIR, `${archivo.replace(/\.json$/i, '')}_areas.json`);
   // Con areaCerrada la lista vigente es la del archivo (editable por gestión); sin archivo, la semilla `areas`.
   // Un _areas.json válido pero con otra forma (editado a mano) no rompe nada: se vuelve a la semilla.
-  // Archivo: [{ usuario, area }] (strings legados se aceptan al leer). Devuelve [{ usuario, area, etiqueta }].
+  // Archivo: [{ usuario, area, etiqueta }] (strings legados se aceptan al leer). Devuelve [{ usuario, area, etiqueta }].
   const responsablesVigentes = usuarios => {
     try { return tickets.normalizarResponsables(leerJSON(AREAS_PATH, areas), usuarios); }
     catch { return tickets.normalizarResponsables(areas, usuarios); }
@@ -253,9 +253,9 @@ module.exports = function crearRutasTickets(deps) {
     if (!areaCerrada) throw Object.assign(new Error('No encontrado.'), { status: 404 });
     if (!puedeGestionar(req)) throw prohibido('No tenés permiso para configurar los responsables.');
     const usuarios = await listarUsuarios();
-    const pares = tickets.validarResponsables((req.body || {}).responsables, usuarios.map(u => u.usuario), usuarios);
-    guardarJSON(AREAS_PATH, pares);
-    const responsables = tickets.normalizarResponsables(pares, usuarios);
+    const responsables = tickets.validarResponsables((req.body || {}).responsables, usuarios.map(u => u.usuario), usuarios,
+      responsablesVigentes(usuarios));
+    guardarJSON(AREAS_PATH, responsables);
     return { responsables, areas: responsables.map(r => r.etiqueta) };
   }));
 

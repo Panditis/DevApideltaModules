@@ -961,7 +961,7 @@ test('PUT /responsables (Mantenimiento): 200 guarda pares, meta con etiquetas, a
     ];
     assert.deepStrictEqual(put.data, { responsables: esperados, areas: esperados.map(r => r.etiqueta) });
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento_areas.json'), 'utf8')),
-      [{ usuario: 'Adriel', area: 'Sistema (Soporte)' }, { usuario: 'beto', area: 'Plomería' }]);
+      esperados); // la etiqueta queda guardada junto al par
     meta = (await pedir(base, 'GET', '/meta')).data;
     assert.deepStrictEqual(meta.responsables, esperados);
     assert.deepStrictEqual(meta.areas, esperados.map(r => r.etiqueta));
@@ -1039,4 +1039,45 @@ test('Mantenimiento: mantenimiento_areas.json con forma inválida ({}, "x", [], 
       assert.strictEqual(alta.status, 201, `${caso}: ${JSON.stringify(alta.data)}`);
     } finally { cerrar(ctx); }
   }
+});
+
+test('Mantenimiento: etiqueta guardada junto al par: renombrar o dar de baja la cuenta no la cambia; cambiar el área la recalcula', async () => {
+  const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
+  let cuentas = [{ usuario: 'ana', nombre: 'Ana' }, { usuario: 'beto', nombre: 'Beto' }];
+  const ctx = await montar({ config: {
+    api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
+    areas: AREAS_MANTENIMIENTO, crearSoloGestion: true, areaCerrada: true, usuarios: () => cuentas,
+  } });
+  const { base } = ctx;
+  const archivo = path.join(ctx.dir, 'mantenimiento_areas.json');
+  const disco = () => JSON.parse(fs.readFileSync(archivo, 'utf8'));
+  try {
+    const put = await pedir(base, 'PUT', '/responsables', { responsables: [{ usuario: 'ana', area: 'Gas' }, { usuario: 'beto', area: 'Agua' }] });
+    assert.strictEqual(put.status, 200);
+    assert.deepStrictEqual(disco(), [
+      { usuario: 'ana', area: 'Gas', etiqueta: 'Ana / Gas' },
+      { usuario: 'beto', area: 'Agua', etiqueta: 'Beto / Agua' },
+    ]);
+
+    cuentas = [{ usuario: 'ana', nombre: 'Ana María' }, { usuario: 'beto', nombre: 'Roberto' }]; // renombradas
+    assert.deepStrictEqual((await pedir(base, 'GET', '/meta')).data.areas, ['Ana / Gas', 'Beto / Agua']);
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Ana / Gas' })).status, 201);
+
+    // Mismo par (otro casing) conserva; beto cambia de área → recalcula con el nombre nuevo.
+    const put2 = await pedir(base, 'PUT', '/responsables', { responsables: [{ usuario: 'ANA', area: 'gas' }, { usuario: 'beto', area: 'Luz' }] });
+    assert.strictEqual(put2.status, 200);
+    assert.deepStrictEqual(put2.data.areas, ['Ana / Gas', 'Roberto / Luz']);
+    assert.deepStrictEqual(disco().map(r => r.etiqueta), ['Ana / Gas', 'Roberto / Luz']);
+
+    cuentas = [{ usuario: 'beto', nombre: 'Roberto' }]; // ana dada de baja
+    assert.deepStrictEqual((await pedir(base, 'GET', '/meta')).data.areas, ['Ana / Gas', 'Roberto / Luz']);
+
+    // Pares sin etiqueta (archivos previos) o etiqueta vacía/no-string → se calcula al leer, sin 500.
+    fs.writeFileSync(archivo, JSON.stringify([
+      { usuario: 'beto', area: 'A' }, { usuario: 'beto', area: 'B', etiqueta: '  ' }, { usuario: 'beto', area: 'C', etiqueta: 5 },
+    ]));
+    const meta = await pedir(base, 'GET', '/meta');
+    assert.strictEqual(meta.status, 200);
+    assert.deepStrictEqual(meta.data.areas, ['Roberto / A', 'Roberto / B', 'Roberto / C']);
+  } finally { cerrar(ctx); }
 });

@@ -534,7 +534,7 @@ test('validarResponsables: normaliza login y área, usuario inexistente, área v
   const entrada = [{ usuario: 'ADRIEL', area: ' Sistema (Soporte) ' }, { usuario: 'beto', area: 'Plomería' }];
   const copia = JSON.parse(JSON.stringify(entrada));
   assert.deepStrictEqual(validarResponsables(entrada, validos),
-    [{ usuario: 'Adriel', area: 'Sistema (Soporte)' }, { usuario: 'beto', area: 'Plomería' }]);
+    [{ usuario: 'Adriel', area: 'Sistema (Soporte)', etiqueta: 'Adriel / Sistema (Soporte)' }, { usuario: 'beto', area: 'Plomería', etiqueta: 'beto / Plomería' }]);
   assert.deepStrictEqual(entrada, copia);
   falla(() => validarResponsables([{ usuario: 'nadie', area: 'A' }], validos), 400, /usuario/);
   falla(() => validarResponsables([{ area: 'A' }], validos), 400, /usuario/);
@@ -543,6 +543,12 @@ test('validarResponsables: normaliza login y área, usuario inexistente, área v
   falla(() => validarResponsables([{ usuario: 'beto', area: 'A' }, { usuario: 'BETO', area: 'a ' }], validos), 400, /repetidos/);
   const mismos = [{ usuario: 'Adriel', nombre: 'Ana' }, { usuario: 'beto', nombre: 'Ana' }];
   falla(() => validarResponsables([{ usuario: 'Adriel', area: 'A' }, { usuario: 'beto', area: 'A' }], validos, mismos), 400, /etiqueta/);
+  // previos: mismo usuario+área (sin mayúsculas) conserva la etiqueta guardada; el resto se calcula; repetidas sobre las finales.
+  const previos = [{ usuario: 'Adriel', area: 'A', etiqueta: 'Viejo / A' }, { usuario: null, area: 'B', etiqueta: 'B' }];
+  assert.deepStrictEqual(validarResponsables([{ usuario: 'adriel', area: 'a' }, { usuario: 'beto', area: 'B' }], validos, [], previos)
+    .map(p => p.etiqueta), ['Viejo / A', 'beto / B']);
+  falla(() => validarResponsables([{ usuario: 'Adriel', area: 'A' }, { usuario: 'beto', area: 'A' }], validos,
+    [{ usuario: 'beto', nombre: 'Viejo' }], previos), 400, /etiqueta/);
   falla(() => validarResponsables(['Sistemas'], validos), 400);
   falla(() => validarResponsables([], validos), 400);
   falla(() => validarResponsables(undefined, validos), 400);
@@ -561,6 +567,8 @@ test('etiquetaResponsable y normalizarResponsables: con cuenta, sin cuenta y leg
     { usuario: null, area: 'Sistemas', etiqueta: 'Sistemas' },
     { usuario: 'Adriel', area: 'X', etiqueta: 'Adriel / X' },
   ]);
+  assert.deepStrictEqual(normalizarResponsables([{ usuario: 'Adriel', area: 'X', etiqueta: 'Vieja / X' }, { usuario: 'Adriel', area: 'Y', etiqueta: '' }], usuarios)
+    .map(r => r.etiqueta), ['Vieja / X', 'Adriel / Y']);
   falla(() => normalizarResponsables({}, usuarios), 400);
   falla(() => normalizarResponsables([1], usuarios), 400);
 });
