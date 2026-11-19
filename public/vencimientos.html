@@ -284,7 +284,13 @@
     <h3 class="text-sm font-semibold mb-1">Movimientos PARA OFERTA</h3>
     <div class="mb-3">
       <label class="lbl" for="cfgDiasMaxOferta">Días hacia atrás</label>
-      <input id="cfgDiasMaxOferta" class="campo" type="number" min="1" max="365" step="1" inputmode="numeric">
+      <input id="cfgDiasMaxOferta" class="campo" type="number" min="1" max="365" step="1" inputmode="numeric" aria-describedby="cfgDiasMaxOfertaAyuda">
+      <p id="cfgDiasMaxOfertaAyuda" class="text-xs text-gris mt-1">Ventana de búsqueda de movimientos en SIGA. No es el plazo de cierre de la oferta.</p>
+    </div>
+    <div class="mb-3">
+      <label class="lbl" for="cfgDiasAntesOferta">Días antes del vencimiento para cerrar la oferta</label>
+      <input id="cfgDiasAntesOferta" class="campo" type="number" min="0" max="60" step="1" inputmode="numeric" aria-describedby="cfgDiasAntesOfertaAyuda">
+      <p id="cfgDiasAntesOfertaAyuda" class="text-xs text-gris mt-1">La oferta de un lote debe cerrarse esta cantidad de días antes de su fecha de vencimiento. Se usa en el Centro de control.</p>
     </div>
     <h3 class="text-sm font-semibold mb-1">Movimientos de vencidos</h3>
     <div class="grid grid-cols-2 gap-3 mb-3">

@@ -11,6 +11,11 @@ const fmtFecha = f => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(f || ''); retu
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const MOCK = new URLSearchParams(location.search).get('mock') === '1';
 const TOP_N = 10;
+const DIAS_ANTES_DEFECTO = 3;
+// Regla de cierre: N de reglaOferta.diasAntes (default 3 si falta o no es válido).
+const diasAntesOferta = () => { const n = Number(DATA && DATA.reglaOferta && DATA.reglaOferta.diasAntes); return Number.isInteger(n) && n >= 0 ? n : DIAS_ANTES_DEFECTO; };
+const textoCierre = () => { const n = diasAntesOferta(); return n === 0 ? 'el mismo día del vencimiento' : `${n} ${n === 1 ? 'día' : 'días'} antes del vencimiento`; };
+const ayudaDias = () => `Días que lleva en oferta sobre el plazo total. La oferta debe cerrarse ${textoCierre()}.`;
 const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const SVG = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -46,7 +51,10 @@ function tabla(id, cols, filas, ctx = {}) {
     if (!c.k) return `<th scope="col" class="${c.num ? 'num' : ''}"><span>${esc(c.t)}</span></th>`;
     const activo = col && col.k === c.k;
     const aria = activo ? (st.d === 1 ? 'ascending' : 'descending') : 'none';
-    return `<th scope="col" class="${c.num ? 'num' : ''}" aria-sort="${aria}"><button type="button" class="th-btn" data-sort="${id}" data-k="${c.k}" data-num="${c.num ? 1 : 0}">${esc(c.t)}<span class="ar">${activo && st.d === 1 ? '▲' : '▼'}</span></button></th>`;
+    const tipId = `tip-${id}-${c.k}`;
+    const ayuda = c.ayuda ? ` title="${esc(c.ayuda)}" aria-describedby="${tipId}"` : '';
+    const tip = c.ayuda ? `<span class="tip" role="tooltip" id="${tipId}">${esc(c.ayuda)}</span>` : '';
+    return `<th scope="col" class="${c.num ? 'num' : ''}${c.ayuda ? ' has-tip' : ''}" aria-sort="${aria}"><button type="button" class="th-btn" data-sort="${id}" data-k="${c.k}" data-num="${c.num ? 1 : 0}"${ayuda}>${esc(c.t)}<span class="ar">${activo && st.d === 1 ? '▲' : '▼'}</span></button>${tip}</th>`;
   };
   return `<table><thead><tr>${cols.map(th).join('')}</tr></thead><tbody>${ord.map(r => `<tr${ctx.row ? ctx.row(r) : ''}>${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}"${c.attr ? ` ${c.attr}` : ''}>${c.td(r, ctx)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
@@ -162,12 +170,19 @@ const CARDS = {
       const tono = r => (r.estado === 'vencida' ? 'crit' : (ESTADO[r.estado] || [''])[0] === 'ok' ? '' : (ESTADO[r.estado] || [''])[0]);
       const txtEstado = r => (r.estado === 'vencida' && Number(r.diasVencido) >= 1 ? `Vencida · ${nf(r.diasVencido)} d` : ESTADO[r.estado][2]);
       const dias = r => Number(r.diasEnOferta) || 0;
+      const paraLimite = r => (r.diasParaLimite == null || Number.isNaN(Number(r.diasParaLimite)) ? 1e9 : Number(r.diasParaLimite)); // sin límite, al final
       const cols = [
         { t: 'Sucursal', k: 'suc', val: nombreSuc, td: r => esc(nombreSuc(r)) },
         { t: 'Producto', k: 'prod', val: r => r.producto || '', td: celdaProd },
         { t: 'En oferta desde', k: 'fec', val: r => r.fechaOferta || '', td: r => fmtFecha(r.fechaOferta) },
         { t: 'Vence', k: 'venc', val: r => r.vence || '', td: r => fmtFecha(r.vence) },
-        { t: 'Días', k: 'dias', num: 1, val: dias, td: r => {
+        { t: 'Cerrar antes del', k: 'lim', val: paraLimite, td: r => {
+          const n = r.diasParaLimite == null ? null : Number(r.diasParaLimite);
+          if (n == null || Number.isNaN(n)) return fmtFecha(r.limite);
+          const [cls, txt] = n < 0 ? ['lim--crit', `pasó hace ${nf(-n)} d`] : n === 0 ? ['lim--warn', 'cierra hoy'] : [n <= 2 ? 'lim--warn' : '', `faltan ${nf(n)} d`];
+          return `${fmtFecha(r.limite)}<span class="lim ${cls}">${txt}</span>`;
+        } },
+        { t: 'Días en oferta / plazo', k: 'dias', num: 1, ayuda: ayudaDias(), val: dias, td: r => {
           const mx = Number(r.diasMaxOferta) || 0;
           const pct = r.estado === 'vencida' ? 100 : mx > 0 ? Math.min(100, Math.round((dias(r) / mx) * 100)) : 0;
           return `<span class="nb"><span class="bar"><i class="${tono(r)}" style="width:${pct}%"></i></span><span class="n">${nf(dias(r))}${mx ? ` / ${nf(mx)}` : ''}</span></span>`;
@@ -225,6 +240,7 @@ function pintar(d) {
   const ms = Date.parse(DATA.generado);
   generadoMs = Number.isNaN(ms) ? Date.now() : ms;
   pintarGenerado();
+  $('subOfe').textContent = `Tiempo en oferta frente al plazo (se cierra ${textoCierre()}) y unidades pendientes.`;
   Object.keys(CARDS).forEach(pintarCard);
   if (MODAL.id != null) pintarModal(); // modal abierto: refresca con datos nuevos (sucursal, ventana, búsqueda y orden se conservan)
 }

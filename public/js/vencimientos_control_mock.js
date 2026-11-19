@@ -2,6 +2,7 @@
 // cuando el endpoint real responda con esta forma. Todas las listas pueden venir vacías.
 window.VENCIMIENTOS_CONTROL_MOCK = {
   generado: new Date().toISOString(),
+  reglaOferta: { diasAntes: 3 },
   kpis: { lotesActivos: 84, unidadesRiesgo: 132, vencidosSinResolver: 6, sinLote: 11, sucursalesSinCarga: 2 },
   proximos: {
     porSucursal: [
@@ -59,15 +60,15 @@ window.VENCIMIENTOS_CONTROL_MOCK = {
     { idSucursal: 2, nombre: 'Norte', producto: 'Manteca', plu: '2300', tipo: 'Vencido', estado: null, origenSistema: false },
   ],
   enOferta: [
-    { idSucursal: 2, nombre: 'Norte', producto: 'Leche entera 1 L', plu: '1001', fechaOferta: '2026-11-02', diasEnOferta: 17, diasMaxOferta: 10, unidadesOferta: 24, pendiente: 12, estado: 'vencida', diasVencido: 4, vence: '2026-11-15' },
-    { idSucursal: 3, nombre: 'Sur', producto: 'Dulce de leche', plu: '4001', fechaOferta: '2026-11-06', diasEnOferta: 13, diasMaxOferta: 10, unidadesOferta: 20, pendiente: 14, estado: 'vencida', diasVencido: null, vence: null },
-    { idSucursal: 1, nombre: 'Centro', producto: 'Jamón cocido', plu: '3300', fechaOferta: '2026-11-04', diasEnOferta: 15, diasMaxOferta: 10, unidadesOferta: 30, pendiente: 18, estado: 'atrasada' },
-    { idSucursal: 2, nombre: 'Norte', producto: 'Yogur natural 1 L', plu: '1042', fechaOferta: '2026-11-12', diasEnOferta: 7, diasMaxOferta: 10, unidadesOferta: 48, pendiente: 20, estado: 'por-vencer-plazo' },
-    { idSucursal: 3, nombre: 'Sur', producto: 'Queso cremoso', plu: '2210', fechaOferta: '2026-11-17', diasEnOferta: 2, diasMaxOferta: 10, unidadesOferta: 24, pendiente: 22, estado: 'en-plazo' },
-    { idSucursal: 1, nombre: 'Centro', producto: 'Leche entera 1 L', plu: '1001', fechaOferta: '2026-11-15', diasEnOferta: 4, diasMaxOferta: 10, unidadesOferta: 60, pendiente: 35, estado: 'en-plazo' },
-    { idSucursal: 2, nombre: 'Norte', producto: 'Manteca', plu: '2300', fechaOferta: '2026-11-01', diasEnOferta: 18, diasMaxOferta: 10, unidadesOferta: 16, pendiente: 9, estado: 'atrasada' },
-    { idSucursal: 3, nombre: 'Sur', producto: 'Salchichón primavera', plu: '3412', fechaOferta: '2026-11-11', diasEnOferta: 8, diasMaxOferta: 10, unidadesOferta: 12, pendiente: 5, estado: 'por-vencer-plazo' },
-    { idSucursal: 4, nombre: 'Oeste', producto: 'Crema de leche', plu: '2105', fechaOferta: null, diasEnOferta: 0, diasMaxOferta: 10, unidadesOferta: 10, pendiente: 10, estado: 'en-plazo' },
+    { idSucursal: 2, nombre: 'Norte', producto: 'Leche entera 1 L', plu: '1001', fechaOferta: '2026-11-02', diasEnOferta: 17, diasMaxOferta: 10, unidadesOferta: 24, pendiente: 12, estado: 'vencida', diasVencido: 4, vence: '2026-11-15', limite: '2026-11-12', diasParaLimite: -7 },
+    { idSucursal: 3, nombre: 'Sur', producto: 'Dulce de leche', plu: '4001', fechaOferta: '2026-11-06', diasEnOferta: 13, diasMaxOferta: null, unidadesOferta: 20, pendiente: 14, estado: 'vencida', diasVencido: null, vence: null, limite: null, diasParaLimite: null },
+    { idSucursal: 1, nombre: 'Centro', producto: 'Jamón cocido', plu: '3300', fechaOferta: '2026-11-04', diasEnOferta: 15, diasMaxOferta: 14, unidadesOferta: 30, pendiente: 18, estado: 'atrasada', vence: '2026-11-21', limite: '2026-11-18', diasParaLimite: -1 },
+    { idSucursal: 2, nombre: 'Norte', producto: 'Yogur natural 1 L', plu: '1042', fechaOferta: '2026-11-12', diasEnOferta: 7, diasMaxOferta: 9, unidadesOferta: 48, pendiente: 20, estado: 'por-vencer-plazo', vence: '2026-11-24', limite: '2026-11-21', diasParaLimite: 2 },
+    { idSucursal: 3, nombre: 'Sur', producto: 'Queso cremoso', plu: '2210', fechaOferta: '2026-11-17', diasEnOferta: 2, diasMaxOferta: 20, unidadesOferta: 24, pendiente: 22, estado: 'en-plazo', vence: '2026-12-10', limite: '2026-12-07', diasParaLimite: 18 },
+    { idSucursal: 1, nombre: 'Centro', producto: 'Leche entera 1 L', plu: '1001', fechaOferta: '2026-11-05', diasEnOferta: 14, diasMaxOferta: 52, unidadesOferta: 60, pendiente: 35, estado: 'en-plazo', vence: '2026-12-30', limite: '2026-12-27', diasParaLimite: 38 },
+    { idSucursal: 2, nombre: 'Norte', producto: 'Manteca', plu: '2300', fechaOferta: '2026-11-12', diasEnOferta: 7, diasMaxOferta: 5, unidadesOferta: 16, pendiente: 9, estado: 'atrasada', vence: '2026-11-20', limite: '2026-11-17', diasParaLimite: -2 },
+    { idSucursal: 3, nombre: 'Sur', producto: 'Salchichón primavera', plu: '3412', fechaOferta: '2026-11-11', diasEnOferta: 8, diasMaxOferta: 9, unidadesOferta: 12, pendiente: 5, estado: 'por-vencer-plazo', vence: '2026-11-23', limite: '2026-11-20', diasParaLimite: 1 },
+    { idSucursal: 4, nombre: 'Oeste', producto: 'Crema de leche', plu: '2105', fechaOferta: null, diasEnOferta: 0, diasMaxOferta: null, unidadesOferta: 10, pendiente: 10, estado: 'en-plazo', vence: '2026-12-15', limite: '2026-12-12', diasParaLimite: 23 },
   ],
   tendencia: [
     { mes: '2026-06', unidades: 30 }, { mes: '2026-07', unidades: 45 }, { mes: '2026-08', unidades: 38 },

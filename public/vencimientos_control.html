@@ -36,6 +36,11 @@
   .th-btn:hover { background: #ecf0e7; color: #242423; }
   .th-btn:focus-visible { outline: 2px solid #405936; outline-offset: -2px; }
   th.num > span, th.num .th-btn { justify-content: flex-end; text-align: right; }
+  .lim { display: block; font-size: 11.5px; font-weight: 600; color: #5c5f52; }
+  .lim--crit { color: #a4262c; } .lim--warn { color: #8a5d00; }
+  .has-tip { position: sticky; }
+  .tip { display: none; position: absolute; top: 100%; right: 0; z-index: 2; width: 240px; padding: 8px 10px; background: #242423; color: #fff; font-size: 12px; font-weight: 500; line-height: 1.35; white-space: normal; text-align: left; border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.25); pointer-events: none; }
+  .has-tip:hover .tip, .has-tip:focus-within .tip { display: block; }
   .ar { font-size: 9px; opacity: 0; }
   th[aria-sort="ascending"] .ar, th[aria-sort="descending"] .ar { opacity: 1; color: #405936; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -176,7 +181,7 @@
     <section class="card col-span-12" aria-labelledby="hOfe">
       <header class="card-h">
         <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg></span>
-        <div class="min-w-0"><h2 id="hOfe">Productos en oferta</h2><p class="sub">Tiempo en oferta frente al plazo máximo y unidades pendientes.</p></div>
+        <div class="min-w-0"><h2 id="hOfe">Productos en oferta</h2><p class="sub" id="subOfe">Tiempo en oferta frente al plazo y unidades pendientes.</p></div>
         <span class="cnt" id="cOfe"></span>
       </header>
       <div class="tools">

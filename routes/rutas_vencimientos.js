@@ -317,8 +317,8 @@ module.exports = function crearRutasVencimientos(deps) {
     const b = req.body || {};
     // Compatibilidad: { rojo, amarillo } plano sigue valiendo como umbrales.
     const umbrales = b.umbrales || (b.rojo !== undefined || b.amarillo !== undefined ? { rojo: b.rojo, amarillo: b.amarillo } : undefined);
-    const { tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias, diasMaxOferta, tipoOfertaVencida, diasMaxVencido } = b;
-    return store.guardarConfig({ umbrales, tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias, diasMaxOferta, tipoOfertaVencida, diasMaxVencido });
+    const { tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias, diasMaxOferta, tipoOfertaVencida, diasMaxVencido, diasAntesVencimientoOferta } = b;
+    return store.guardarConfig({ umbrales, tipoOferta, tipoNoVendido, depositoMovimientos, diasAviso, margenDias, diasMaxOferta, tipoOfertaVencida, diasMaxVencido, diasAntesVencimientoOferta });
   }));
 
   // Cruce de solo lectura contra SIGA. Si SIGA falla, 200 con cruceDisponible:false: el listado sigue andando.

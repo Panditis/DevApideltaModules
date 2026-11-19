@@ -287,6 +287,16 @@ test('config vencidos: defaults, validación 1..365 y texto, parcial', async () 
   assert.strictEqual((await store.guardarConfig({ margenDias: 3 })).diasMaxVencido, 30);
 });
 
+test('config diasAntesVencimientoOferta: default 3 con config vieja, 0..60 entero, parcial', async () => {
+  const { store } = nuevoStore();
+  assert.strictEqual((await store.guardarConfig({ margenDias: 2 })).diasAntesVencimientoOferta, 3);
+  for (const v of [-1, 61, 'x', 1.5]) assert.throws(() => store.guardarConfig({ diasAntesVencimientoOferta: v }), e => e.status === 400 && /diasAntesVencimientoOferta/.test(e.message));
+  assert.strictEqual((await store.guardarConfig({ diasAntesVencimientoOferta: 0 })).diasAntesVencimientoOferta, 0);
+  const c = await store.guardarConfig({ diasAntesVencimientoOferta: 5 });
+  assert.deepStrictEqual([c.diasAntesVencimientoOferta, c.diasMaxOferta, c.margenDias], [5, 10, 2]);
+  assert.strictEqual((await store.guardarConfig({ diasMaxVencido: 20 })).diasAntesVencimientoOferta, 5);
+});
+
 test('vencidoEstado: base = total oferta; lote viejo; vista sin decisión; pendiente', () => {
   const o = n => ({ numeroMovimiento: n, cantidad: 5 });
   assert.strictEqual(vencidoEstado({ unidades: 20 }), null, 'lote viejo');

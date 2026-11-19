@@ -56,6 +56,7 @@ function validarConfigCliente(c) {
   if (c.depositoMovimientos !== undefined && !esEnteroPositivo(c.depositoMovimientos)) return 'El depósito tiene que ser un entero mayor a 0.';
   if (c.diasMaxOferta !== undefined && !(/^\d+$/.test(String(c.diasMaxOferta).trim()) && Number(c.diasMaxOferta) >= 1 && Number(c.diasMaxOferta) <= 365)) return 'Los días máximos para movimientos PARA OFERTA tienen que ser un entero entre 1 y 365.';
   if (c.diasMaxVencido !== undefined && !(/^\d+$/.test(String(c.diasMaxVencido).trim()) && Number(c.diasMaxVencido) >= 1 && Number(c.diasMaxVencido) <= 365)) return 'Los días máximos para movimientos de vencidos tienen que ser un entero entre 1 y 365.';
+  if (c.diasAntesVencimientoOferta !== undefined && !(/^\d+$/.test(String(c.diasAntesVencimientoOferta).trim()) && Number(c.diasAntesVencimientoOferta) <= 60)) return 'Los días antes del vencimiento para cerrar la oferta tienen que ser un entero entre 0 y 60.';
   for (const k of ['diasAviso', 'margenDias']) if (c[k] !== undefined && !/^\d+$/.test(String(c[k]).trim())) return 'Los días de aviso y margen tienen que ser enteros mayores o iguales a 0.';
   return '';
 }
@@ -302,7 +303,7 @@ $('mDel').querySelector('form').addEventListener('submit', async e => {
 });
 
 // ── Configuración (solo admin) ─────────────────────────────────────────────────────
-const CAMPOS_CFG = { diasMaxOferta: 'cfgDiasMaxOferta', diasMaxVencido: 'cfgDiasMaxVencido', tipoOfertaVencida: 'cfgOfertaVencida', tipoOferta: 'cfgOferta', tipoNoVendido: 'cfgNoVendido', depositoMovimientos: 'cfgDeposito', diasAviso: 'cfgDiasAviso', margenDias: 'cfgMargen' };
+const CAMPOS_CFG = { diasMaxOferta: 'cfgDiasMaxOferta', diasAntesVencimientoOferta: 'cfgDiasAntesOferta', diasMaxVencido: 'cfgDiasMaxVencido', tipoOfertaVencida: 'cfgOfertaVencida', tipoOferta: 'cfgOferta', tipoNoVendido: 'cfgNoVendido', depositoMovimientos: 'cfgDeposito', diasAviso: 'cfgDiasAviso', margenDias: 'cfgMargen' };
 function avisoExito(msg) {
   const a = $('avisoGlobal'); a.textContent = msg; a.hidden = false;
   clearTimeout(avisoExito.t); avisoExito.t = setTimeout(() => { a.hidden = true; }, 5000);
@@ -329,7 +330,7 @@ $('mUmb').querySelector('form').addEventListener('submit', async e => {
   Object.entries(CAMPOS_CFG).forEach(([k, id]) => { const v = $(id).value.trim(); if (v !== '') extra[k] = v; });
   const errCfg = validarConfigCliente(extra);
   if (errCfg) return mostrarError('umbError', errCfg);
-  ['depositoMovimientos', 'diasAviso', 'margenDias', 'diasMaxOferta', 'diasMaxVencido'].forEach(k => { if (extra[k] !== undefined) extra[k] = Number(extra[k]); });
+  ['depositoMovimientos', 'diasAviso', 'margenDias', 'diasMaxOferta', 'diasMaxVencido', 'diasAntesVencimientoOferta'].forEach(k => { if (extra[k] !== undefined) extra[k] = Number(extra[k]); });
   const bodyCfg = { umbrales: { rojo: Number(rojo), amarillo: Number(amarillo) }, ...extra };
   const ok = await enviar('umbOk', 'umbError', () => api('/api/vencimientos/config', { method: 'PUT', body: bodyCfg }));
   if (!ok) return;

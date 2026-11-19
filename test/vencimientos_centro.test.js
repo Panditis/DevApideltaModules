@@ -81,26 +81,47 @@ test('sin datos: bloques vacíos', () => {
   assert.strictEqual(r.kpis.lotesActivos, 0);
 });
 
-test('enOferta: en plazo, por vencer, atrasada; ficticia, pendiente 0 y vencido SIGA fuera', () => {
+test('enOferta: límite = vence - 3; estado por límite; ficticia, pendiente 0 y vencido SIGA fuera', () => {
   const of = fecha => [{ numeroMovimiento: 1, fecha: `${fecha}T09:00:00`, cantidad: 4 }];
   const r = armarCentroControl([
-    lote(1, '2026-12-30', { 1: col({ ofertasSistema: of('2026-11-17') }) }),
-    lote(2, '2026-12-30', { 2: col({ ofertasSistema: of('2026-11-10') }) }),
-    lote(3, '2026-12-30', { 3: col({ ofertasSistema: of('2026-11-01') }) }),
+    lote(1, '2026-12-30', { 1: col({ ofertasSistema: of('2026-11-17') }) }), // límite 12-27, en plazo
+    lote(2, '2026-11-23', { 2: col({ ofertasSistema: of('2026-11-18') }) }), // límite mañana: por vencer
+    lote(3, '2026-11-21', { 3: col({ ofertasSistema: of('2026-11-15') }) }), // límite ayer: atrasada con 4 días en oferta
     lote(4, '2026-12-30', { 6: col({ ofertasSistema: of('2026-11-01') }) }),
     lote(5, '2026-12-30', { 1: col({ vendido: 10, ofertasSistema: of('2026-11-01') }) }),
     lote(6, '2026-12-30', { 1: col({ ofertasSistema: of('2026-11-01'), vencidosSistema: [{ fecha: '2026-11-15', cantidad: 2 }] }) }),
+    lote(7, '2026-12-30', { 1: col({ ofertasSistema: of('2026-11-01') }) }), // 18 días en oferta pero vence lejos: en plazo
+    lote(8, '2026-11-21', { 2: col({ ofertasSistema: of('2026-11-19') }) }), // iniciada pasado el límite: plazo 0
+    lote(9, '', { 2: col({ ofertasSistema: of('2026-11-01') }) }),         // sin vencimiento: sin límite, en plazo (no usa config)
+    lote(10, '2026-11-23', { 2: col({ ofertasSistema: [{ numeroMovimiento: 1, cantidad: 1 }] }) }), // sin fechaOferta: límite sí, plazo null
   ], CONFIG, HOY, null);
-  assert.deepStrictEqual(r.enOferta.map(e => [e.plu, e.estado, e.diasEnOferta]), [['3', 'atrasada', 18], ['2', 'por-vencer-plazo', 9], ['1', 'en-plazo', 2]]);
-  assert.deepStrictEqual(r.enOferta[2], { idSucursal: 1, nombre: 'Sucursal 1', producto: 'Prod 1', plu: '1', vence: '2026-12-30', diasVencido: null,
-    fechaOferta: '2026-11-17', diasEnOferta: 2, diasMaxOferta: 10, unidadesOferta: 4, pendiente: 10, estado: 'en-plazo' });
-  assert.ok(r.atrasados.some(a => a.plu === '3'));
+  assert.deepStrictEqual(r.enOferta.map(e => [e.plu, e.estado, e.limite, e.diasParaLimite, e.diasMaxOferta, e.diasEnOferta]), [
+    ['3', 'atrasada', '2026-11-18', -1, 3, 4],
+    ['8', 'atrasada', '2026-11-18', -1, 0, 0],
+    ['2', 'por-vencer-plazo', '2026-11-20', 1, 2, 1],
+    ['10', 'por-vencer-plazo', '2026-11-20', 1, null, null],
+    ['1', 'en-plazo', '2026-12-27', 38, 40, 2],
+    ['7', 'en-plazo', '2026-12-27', 38, 56, 18],
+    ['9', 'en-plazo', null, null, null, 18],
+  ]);
+  assert.deepStrictEqual(r.enOferta.find(e => e.plu === '1'), { idSucursal: 1, nombre: 'Sucursal 1', producto: 'Prod 1', plu: '1', vence: '2026-12-30', limite: '2026-12-27', diasParaLimite: 38,
+    diasVencido: null, fechaOferta: '2026-11-17', diasEnOferta: 2, diasMaxOferta: 40, unidadesOferta: 4, pendiente: 10, estado: 'en-plazo' });
+});
+
+test('enOferta: diasAntesVencimientoOferta configurable (5 y 0) y reglaOferta', () => {
+  const of = [{ numeroMovimiento: 1, fecha: '2026-11-15T09:00:00', cantidad: 1 }];
+  const lotes = [lote(1, '2026-11-30', { 1: col({ ofertasSistema: of }) })];
+  const r5 = armarCentroControl(lotes, { ...CONFIG, diasAntesVencimientoOferta: 5 }, HOY, null);
+  assert.deepStrictEqual([r5.reglaOferta, r5.enOferta[0].limite, r5.enOferta[0].diasParaLimite, r5.enOferta[0].diasMaxOferta], [{ diasAntes: 5 }, '2026-11-25', 6, 10]);
+  const r0 = armarCentroControl(lotes, { ...CONFIG, diasAntesVencimientoOferta: 0 }, HOY, null);
+  assert.deepStrictEqual([r0.reglaOferta, r0.enOferta[0].limite], [{ diasAntes: 0 }, '2026-11-30']);
+  assert.deepStrictEqual(armarCentroControl([], CONFIG, HOY, null).reglaOferta, { diasAntes: 3 });
 });
 
 test('enOferta: vencidas con oferta abierta entran primero; sin oferta, con OFERTA VENCIDO o pendiente 0 fuera', () => {
   const of = fecha => [{ numeroMovimiento: 1, fecha: `${fecha}T09:00:00`, cantidad: 4 }];
   const r = armarCentroControl([
-    lote(1, '2026-12-30', { 1: col({ ofertasSistema: of('2026-11-01') }) }),           // atrasada
+    lote(1, '2026-11-21', { 1: col({ ofertasSistema: of('2026-11-01') }) }),           // atrasada (límite 11-18)
     lote(2, '2026-11-17', { 1: col({ ofertasSistema: of('2026-11-15') }) }),           // vencida hace 2
     lote(3, '2026-11-14', { 1: col({ ofertasSistema: of('2026-11-01') }) }),           // vencida hace 5 y > diasMaxOferta
     lote(4, '2026-11-14', { 1: col() }),                                               // sin oferta
@@ -108,7 +129,7 @@ test('enOferta: vencidas con oferta abierta entran primero; sin oferta, con OFER
     lote(6, '2026-11-14', { 1: col({ vendido: 10, ofertasSistema: of('2026-11-01') }) }),
   ], CONFIG, HOY, null);
   assert.deepStrictEqual(r.enOferta.map(e => [e.plu, e.estado, e.diasVencido, e.vence]),
-    [['3', 'vencida', 5, '2026-11-14'], ['2', 'vencida', 2, '2026-11-17'], ['1', 'atrasada', null, '2026-12-30']]);
+    [['3', 'vencida', 5, '2026-11-14'], ['2', 'vencida', 2, '2026-11-17'], ['1', 'atrasada', null, '2026-11-21']]);
 });
 
 test('enOferta sin datos: []', () => {
@@ -131,6 +152,36 @@ test('proximos.lotes: orden por fecha y producto; fuera ficticias, pendiente 0 y
     { idSucursal: 1, producto: 'Aaa', plu: '3', fecha: '2026-12-01', dias: 12, unidadesCargadas: 10, pendiente: 10 },
     { idSucursal: 1, producto: 'Prod 1', plu: '1', fecha: '2026-12-01', dias: 12, unidadesCargadas: 10, pendiente: 7 },
   ]);
+});
+
+test('lotes sin vencimiento (null, vacío, inválido): no lanza, fuera de próximos y ventanas; el resto idéntico', () => {
+  const of = [{ numeroMovimiento: 1, fecha: '2026-11-01T09:00:00', cantidad: 2 }];
+  const normales = [
+    lote(1, '2026-11-25', { 1: col() }),
+    lote(2, '2026-11-01', { 2: col({ vendido: 4 }) }),
+    lote(3, '2026-11-30', { 1: col({ ofertasSistema: of }) }),
+  ];
+  const sinFecha = ['', null, 'no-es-fecha', undefined].map((v, i) => lote(10 + i, v, { 1: col({ vencido: 1, vendido: 1, ofertasSistema: of }) }));
+  const base = armarCentroControl(normales, CONFIG, HOY, {});
+  const r = armarCentroControl([...normales, ...sinFecha], CONFIG, HOY, {});
+  assert.deepStrictEqual(r.proximos.lotes, base.proximos.lotes);
+  assert.deepStrictEqual(r.proximos.urgentes, base.proximos.urgentes);
+  assert.deepStrictEqual(r.proximos.porSucursal, base.proximos.porSucursal);
+  assert.deepStrictEqual(r.vencidos.lotes, base.vencidos.lotes);
+  assert.strictEqual(r.kpis.unidadesRiesgo, base.kpis.unidadesRiesgo);
+  const sf = r.enOferta.filter(e => Number(e.plu) >= 10);
+  assert.strictEqual(sf.length, 4);
+  assert.ok(sf.every(e => e.limite === null && e.diasParaLimite === null && e.diasMaxOferta === null && e.estado === 'en-plazo' && e.diasVencido === null));
+  assert.deepStrictEqual(r.enOferta.filter(e => Number(e.plu) < 10), base.enOferta);
+  // Lo que no depende de la fecha sigue contando: activos, merma/top por unidades vencidas y oferta sin cerrar.
+  assert.strictEqual(r.kpis.lotesActivos, base.kpis.lotesActivos + 4);
+  assert.deepStrictEqual(r.topProductos.map(p => p.plu).sort(), ['10', '11', '12', '13']);
+  assert.ok(['10', '11', '12', '13'].every(plu => r.atrasados.some(a => a.plu === plu && a.falta === 'Cerrar')));
+});
+
+test('proximos.lotes: regresión, lote con vencimiento null no rompe el orden', () => {
+  const r = armarCentroControl([lote(1, null, { 1: col() }), lote(2, '2026-11-25', { 1: col() })], CONFIG, HOY, {});
+  assert.deepStrictEqual(r.proximos.lotes.map(l => l.plu), ['2']);
 });
 
 test('proximos.lotes sin datos: []', () => {
@@ -160,7 +211,7 @@ test('cortes: proximos.lotes a 3000 por sucursal conservando los más próximos;
   assert.strictEqual(r2.topProductos[0].unidades, 600);
   assert.strictEqual(r2.topProductos[499].unidades, 101);
 
-  const ofertas = Array.from({ length: 600 }, (_, i) => lote(i + 1, '2026-12-30', { 1: col({ ofertasSistema: [{ numeroMovimiento: i, fecha: '2026-11-01', cantidad: 1 }] }) }));
+  const ofertas = Array.from({ length: 600 }, (_, i) => lote(i + 1, '2026-11-21', { 1: col({ ofertasSistema: [{ numeroMovimiento: i, fecha: '2026-11-01', cantidad: 1 }] }) }));
   const r3 = armarCentroControl(ofertas, CONFIG, HOY, {});
   assert.strictEqual(r3.enOferta.length, 500);
   assert.ok(r3.enOferta.every(o => o.estado === 'atrasada' && o.diasEnOferta === 18));

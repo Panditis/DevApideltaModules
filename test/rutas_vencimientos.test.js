@@ -17,7 +17,7 @@ const USUARIOS = {
   ficticia: { id: 5, usuario: 'ficticia', esAdmin: false, idSucursal: 6 },
 };
 
-function armar({ filas = [], falla = false } = {}) {
+function armar({ filas = [], falla = false, tienePermiso } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'venc-rutas-'));
   const store = crearStore({ rutaDatos: path.join(dir, 'v.json'), rutaConfig: path.join(dir, 'c.json') });
   const sql = { query: null, inputs: {} };
@@ -29,7 +29,7 @@ function armar({ filas = [], falla = false } = {}) {
   app.use(express.json());
   app.use((req, _res, next) => { req.session = { user: USUARIOS[req.get('x-user')] }; next(); });
   const cambiosUsuario = [];
-  app.use(crearRutas({ store, getPool, idSucursalDe: u => u.idSucursal || null, actualizarUsuario: (id, c) => cambiosUsuario.push({ id, ...c }) }));
+  app.use(crearRutas({ store, getPool, idSucursalDe: u => u.idSucursal || null, actualizarUsuario: (id, c) => cambiosUsuario.push({ id, ...c }), tienePermiso }));
   let server;
   const pedir = async (user, metodo, ruta, body) => {
     if (!server) server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
@@ -258,7 +258,7 @@ test('config de cruce: defaults, PUT admin valida, diasAviso sigue al rojo', asy
   const a = armar();
   try {
     const d = (await a.pedir('ana', 'GET', '/api/vencimientos/config')).body;
-    assert.deepStrictEqual(d, { umbrales: { rojo: 15, amarillo: 45 }, tipoOferta: 'PARA OFERTA', tipoNoVendido: 'VENCIDO', depositoMovimientos: 1, margenDias: 7, diasMaxOferta: 10, tipoOfertaVencida: 'OFERTA VENCIDO', diasMaxVencido: 10, diasAviso: 15 });
+    assert.deepStrictEqual(d, { umbrales: { rojo: 15, amarillo: 45 }, tipoOferta: 'PARA OFERTA', tipoNoVendido: 'VENCIDO', depositoMovimientos: 1, margenDias: 7, diasMaxOferta: 10, tipoOfertaVencida: 'OFERTA VENCIDO', diasMaxVencido: 10, diasAntesVencimientoOferta: 3, diasAviso: 15 });
     assert.strictEqual((await a.pedir('ana', 'PUT', '/api/vencimientos/config', { diasAviso: 3 })).status, 403);
     for (const malo of [{ diasAviso: -1 }, { depositoMovimientos: 0 }, { tipoOferta: '  ' }, { tipoNoVendido: 'x'.repeat(51) }, {}]) {
       assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', malo)).status, 400, JSON.stringify(malo));
@@ -552,6 +552,9 @@ test('vencido: GET movimientos, POST sin oferta 400, confirmación, PUT, DELETE,
     assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxVencido: 0 })).status, 400);
     const cf = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxVencido: 20, tipoOfertaVencida: 'OFERTA VENCIDO' });
     assert.deepStrictEqual([cf.body.diasMaxVencido, cf.body.tipoOfertaVencida], [20, 'OFERTA VENCIDO']);
+    assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: 61 })).status, 400);
+    const cd = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: 5 });
+    assert.deepStrictEqual([cd.body.diasAntesVencimientoOferta, cd.body.diasMaxVencido], [5, 20]);
   } finally { a.cerrar(); }
 });
 
@@ -812,5 +815,51 @@ test('centro-control: sucursalesSiga filtra inactivas y 6/8/11; usa sus nombres'
     const r = await a.pedir('admin', '/api/vencimientos/centro-control');
     assert.deepStrictEqual([...new Set(a.cuenta.sucursalesConsultadas)].sort(), [1, 2]);
     assert.deepStrictEqual(r.body.sinLote.porSucursal.map(s => [s.idSucursal, s.nombre]), [[1, 'Centro'], [2, 'Norte']]);
+  } finally { a.cerrar(); }
+});
+
+// --- diasAntesVencimientoOferta: config y centro de control end-to-end ---
+const masDias = (f, n) => new Date(Date.parse(`${f}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+
+test('config diasAntesVencimientoOferta: GET default 3, PUT valida 0..60 enteros y guardado parcial no pisa', async () => {
+  const a = armar();
+  try {
+    assert.strictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/config')).body.diasAntesVencimientoOferta, 3);
+    for (const malo of [61, -1, 2.5, 'abc']) {
+      const r = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: malo });
+      assert.strictEqual(r.status, 400, `valor ${malo}`);
+    }
+    assert.strictEqual((await a.pedir('ana', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: 5 })).status, 403);
+    await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxOferta: 20, tipoOferta: 'OFERTA X' });
+    const ok = await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: 0 });
+    assert.strictEqual(ok.status, 200);
+    const g = (await a.pedir('ana', 'GET', '/api/vencimientos/config')).body;
+    assert.deepStrictEqual([g.diasAntesVencimientoOferta, g.diasMaxOferta, g.tipoOferta, g.umbrales], [0, 20, 'OFERTA X', { rojo: 15, amarillo: 45 }]);
+    await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasMaxOferta: 30 });
+    assert.strictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/config')).body.diasAntesVencimientoOferta, 0, 'otro PUT no lo pisa');
+    assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: '60' })).body.diasAntesVencimientoOferta, 60);
+  } finally { a.cerrar(); }
+});
+
+test('centro-control: reglaOferta.diasAntes sigue la config y enOferta.limite = vence - N', async () => {
+  const fechaOf = masDias(HOY_LOCAL, -2);
+  const vence = masDias(HOY_LOCAL, 10);
+  const a = armar({ filas: [FILA_OF(9, fechaOf, 4)], tienePermiso: u => !!u && u.esAdmin });
+  try {
+    const { body: l } = await a.pedir('ana', 'POST', '/api/vencimientos/lotes', { ...ALTA, vencimiento: vence, unidades: 4 });
+    assert.strictEqual((await a.pedir('ana', 'POST', `/api/vencimientos/lotes/${l.id}/oferta`, { numeroMovimiento: 9, confirmacion: 'ok' })).status, 200);
+    let c = (await a.pedir('admin', 'GET', '/api/vencimientos/centro-control')).body;
+    assert.deepStrictEqual(c.reglaOferta, { diasAntes: 3 });
+    assert.strictEqual(c.enOferta[0].limite, masDias(vence, -3));
+    assert.strictEqual((await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: 5 })).status, 200);
+    c = (await a.pedir('admin', 'GET', '/api/vencimientos/centro-control')).body;
+    assert.deepStrictEqual(c.reglaOferta, { diasAntes: 5 });
+    const f = c.enOferta[0];
+    assert.deepStrictEqual([f.vence, f.limite, f.diasParaLimite, f.fechaOferta, f.diasEnOferta, f.diasMaxOferta, f.estado],
+      [vence, masDias(vence, -5), 5, fechaOf, 2, 7, 'en-plazo']);
+    await a.pedir('admin', 'PUT', '/api/vencimientos/config', { diasAntesVencimientoOferta: 11 });
+    const f2 = (await a.pedir('admin', 'GET', '/api/vencimientos/centro-control')).body.enOferta[0];
+    assert.deepStrictEqual([f2.limite, f2.diasParaLimite, f2.estado], [masDias(vence, -11), -1, 'atrasada']);
+    assert.strictEqual((await a.pedir('ana', 'GET', '/api/vencimientos/centro-control')).status, 403);
   } finally { a.cerrar(); }
 });

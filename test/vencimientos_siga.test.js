@@ -146,7 +146,7 @@ test('config guardada vieja (solo umbrales) → defaults de cruce, diasAviso = r
   const rutaConfig = path.join(dir, 'c.json');
   fs.writeFileSync(rutaConfig, JSON.stringify({ umbrales: { rojo: 10, amarillo: 30 } }));
   const store = crearStore({ rutaDatos: path.join(dir, 'v.json'), rutaConfig });
-  assert.deepStrictEqual(await store.leerConfig(), { umbrales: { rojo: 10, amarillo: 30 }, tipoOferta: 'PARA OFERTA', tipoNoVendido: 'VENCIDO', depositoMovimientos: 1, margenDias: 7, diasMaxOferta: 10, tipoOfertaVencida: 'OFERTA VENCIDO', diasMaxVencido: 10, diasAviso: 10 });
+  assert.deepStrictEqual(await store.leerConfig(), { umbrales: { rojo: 10, amarillo: 30 }, tipoOferta: 'PARA OFERTA', tipoNoVendido: 'VENCIDO', depositoMovimientos: 1, margenDias: 7, diasMaxOferta: 10, tipoOfertaVencida: 'OFERTA VENCIDO', diasMaxVencido: 10, diasAntesVencimientoOferta: 3, diasAviso: 10 });
 });
 
 test('marcarAsignados: busca en los arrays ofertasSistema del mismo producto y sucursal', () => {
