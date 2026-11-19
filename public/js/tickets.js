@@ -95,11 +95,14 @@
     campana: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
     clip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
     calendario: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+    flechaArriba: '<path d="m18 15-6-6-6 6"/>',
+    flechaAbajo: '<path d="m6 9 6 6 6-6"/>',
     archivo: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   };
   const ico = (nombre, clase = 'ico') => `<svg class="${clase}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre]}</svg>`;
   const AdjUI = window.TicketsAdjuntos.crearUI({ ico, el }); // public/js/tickets_adjuntos.js
   const Calendario = window.TicketsCalendario; // public/js/tickets_calendario.js (vista y helpers; solo se usa con meta.calendario)
+  const Responsables = window.TicketsResponsables; // public/js/tickets_responsables.js (modal de responsables, solo con meta.areaCerrada)
   let calendario = null; // instancia de la vista, creada al cargar meta si meta.calendario
 
   const estado = {
@@ -423,14 +426,21 @@
       lab.append(radio, el('span', null, p.etiqueta));
       return lab;
     }));
+    armarSelectArea();
+    selectorNuevo = crearSelectorUsuarios($('#fDest'), { id: 'fDest', alCambiar: revalidar });
+    pintarArchivosNuevo();
+  }
+
+  function armarSelectArea() {
+    const m = estado.meta;
+    const previo = $('#fArea').value;
     // "Otra" la agrega la pantalla (texto libre): si la lista fija ya la trae, no se repite.
     const areas = m.areas.filter(a => String(a).trim().toLowerCase() !== 'otra').map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
     // Áreas cerradas (meta.areaCerrada): solo las de meta.areas, sin "Otra" ni texto libre.
     const cerradas = m.areas.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
-    $('#fArea').innerHTML = m.areaCerrada ? `<option value="">Elegí un área…</option>${cerradas}`
+    $('#fArea').innerHTML = m.areaCerrada ? `<option value="">Elegí un responsable…</option>${cerradas}`
       : `<option value="">Elegí un área…</option>${areas}<option value="${OTRA}">Otra…</option>`;
-    selectorNuevo = crearSelectorUsuarios($('#fDest'), { id: 'fDest', alCambiar: revalidar });
-    pintarArchivosNuevo();
+    $('#fArea').value = previo; // si ya no existe (responsable quitado), queda en blanco
   }
 
   // ── Adjuntos del alta (descripción) ─────────────────────────────────────────
@@ -485,7 +495,7 @@
     else if (d.tarea.length > MAX_TAREA) errores.push({ campo: '#fTarea', msg: `La tarea no puede pasar de ${MAX_TAREA} caracteres.` });
     if (!estado.meta.prioridades.some(p => p.valor === d.prioridad)) errores.push({ campo: null, msg: 'Elegí una prioridad.' });
     if ($('#fArea').value === OTRA && !d.area) errores.push({ campo: '#fAreaOtra', msg: 'Elegiste «Otra»: escribí el área de trabajo.' });
-    else if (!d.area) errores.push({ campo: '#fArea', msg: 'Elegí el área de trabajo.' });
+    else if (!d.area) errores.push({ campo: '#fArea', msg: estado.meta.areaCerrada ? 'Elegí el responsable.' : 'Elegí el área de trabajo.' });
     if (d.descripcion.length > MAX_DESC) errores.push({ campo: '#fDesc', msg: `La descripción no puede pasar de ${MAX_DESC} caracteres.` });
     if (!d.destinatarios.length) errores.push({ campo: 'dest', msg: 'Elegí al menos un destinatario.' });
     return errores;
@@ -571,7 +581,7 @@
   function armarFiltrosDinamicos() {
     const ordenar = v => [...new Set(v.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'es'));
     const areas = ordenar([...estado.meta.areas, ...estado.tickets.map(t => t.area)]);
-    rellenarSelect('#flArea', areas.map(a => [a, a]), 'Todas las áreas');
+    rellenarSelect('#flArea', areas.map(a => [a, a]), estado.meta.areaCerrada ? 'Todos los responsables' : 'Todas las áreas');
     const conocidos = (estado.meta.usuarios || []).map(u => u.usuario);
     const extra = estado.tickets.flatMap(t => comoLista(t.destinatarios))
       .reduce((acc, u) => ([...conocidos, ...acc].some(c => mismoUsuario(c, u)) ? acc : [...acc, u]), []);
@@ -1859,6 +1869,30 @@
     $('#avisoPermiso').insertAdjacentHTML('afterbegin', ico('candado', 'ico w-3.5 h-3.5'));
   }
 
+  // Mantenimiento (meta.areaCerrada): el campo `area` se muestra como "Responsable". Con areaCerrada false no se toca nada.
+  function aplicarRotulos() {
+    if (!estado.meta.areaCerrada) return;
+    document.querySelector('th[data-col="area"]').textContent = 'Responsable';
+    $('label[for="fArea"]').firstChild.textContent = 'Responsable ';
+    $('#flArea').setAttribute('aria-label', 'Filtrar por responsable');
+    if (!estado.meta.puedeConfigurarAreas || !Responsables) return;
+    const dlg = $('#dlgResp');
+    const ui = Responsables.crearUI({
+      dlg, el, ico, aviso: mostrarAviso,
+      guardar: areas => enviarJSON('PUT', `${CFG.api}/areas`, { areas }),
+      alGuardar: areas => {
+        estado.meta = { ...estado.meta, areas };
+        armarSelectArea();
+        armarFiltrosDinamicos();
+        pintarSeguimiento();
+        mostrarToast('Responsables actualizados.');
+      },
+    });
+    enlazarDialogo(dlg, () => $('#btnConfigResp').focus());
+    $('#btnConfigResp').classList.remove('hidden');
+    $('#btnConfigResp').addEventListener('click', () => ui.abrir(estado.meta.areas));
+  }
+
   async function iniciar() {
     let vistaGuardada = '';
     try {
@@ -1873,6 +1907,7 @@
     await cargarMeta();
     if (vistaGuardada === 'calendario') cambiarVista('calendario');
     pintarYo();
+    aplicarRotulos();
     armarFormulario();
     armarFiltros();
     enlazarFormulario();

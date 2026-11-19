@@ -934,3 +934,76 @@ test('/tickets sin calendario: meta false, POST /:id/fecha 404 y área libre', a
     assert.strictEqual((await pedir(ctx.base, 'POST', '/1/fecha', { fecha: '2026-12-01' })).status, 404);
   } finally { cerrar(ctx); }
 });
+
+test('PUT /areas (Mantenimiento): 200 guarda y meta lo refleja, alta valida contra la lista vigente, 400, 403 y ticket viejo intacto', async () => {
+  const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
+  const ctx = await montar({ config: {
+    api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
+    areas: AREAS_MANTENIMIENTO, crearSoloGestion: true, areaCerrada: true, calendario: true,
+  } });
+  const { base } = ctx;
+  try {
+    let meta = (await pedir(base, 'GET', '/meta')).data;
+    assert.deepStrictEqual(meta.areas, ['Mantenimiento', 'Sistemas']); // sin archivo: semilla
+    assert.strictEqual(meta.puedeConfigurarAreas, true);
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' })).status, 201);
+
+    const put = await pedir(base, 'PUT', '/areas', { areas: [' Mantenimiento ', 'Plomería'] });
+    assert.strictEqual(put.status, 200);
+    assert.deepStrictEqual(put.data, { areas: ['Mantenimiento', 'Plomería'] });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento_areas.json'), 'utf8')), ['Mantenimiento', 'Plomería']);
+    meta = (await pedir(base, 'GET', '/meta')).data;
+    assert.deepStrictEqual(meta.areas, ['Mantenimiento', 'Plomería']);
+
+    const quitada = await pedir(base, 'POST', '', { ...NUEVO, area: 'Sistemas' });
+    assert.strictEqual(quitada.status, 400);
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 201);
+    const lista = (await pedir(base, 'GET', '')).data;
+    assert.strictEqual(lista.find(t => t.id === 1).area, 'Sistemas'); // el viejo conserva su valor
+
+    const mal = await pedir(base, 'PUT', '/areas', { areas: ['A', 'a'] });
+    assert.strictEqual(mal.status, 400);
+    assert.match(mal.data.error, /repetidos/);
+    assert.strictEqual((await pedir(base, 'PUT', '/areas', {})).status, 400);
+
+    ctx.sesion.permiso = false;
+    const p = await pedir(base, 'PUT', '/areas', { areas: ['X'] });
+    assert.strictEqual(p.status, 403);
+    assert.match(p.data.error, /responsables/);
+    assert.strictEqual((await pedir(base, 'GET', '/meta')).data.puedeConfigurarAreas, false);
+    assert.deepStrictEqual((await pedir(base, 'GET', '/meta')).data.areas, ['Mantenimiento', 'Plomería']);
+  } finally { cerrar(ctx); }
+});
+
+test('/tickets sin areaCerrada: PUT /areas 404, meta con áreas fijas y puedeConfigurarAreas false', async () => {
+  const { AREAS } = require('../lib/tickets');
+  const ctx = await montar();
+  try {
+    const r = await pedir(ctx.base, 'PUT', '/areas', { areas: ['X'] });
+    assert.strictEqual(r.status, 404);
+    assert.ok(!fs.existsSync(path.join(ctx.dir, 'tickets_areas.json')));
+    const meta = (await pedir(ctx.base, 'GET', '/meta')).data;
+    assert.deepStrictEqual(meta.areas, AREAS);
+    assert.strictEqual(meta.puedeConfigurarAreas, false);
+    assert.strictEqual((await pedir(ctx.base, 'POST', '', { ...NUEVO, area: 'Libre' })).status, 201);
+  } finally { cerrar(ctx); }
+});
+
+test('Mantenimiento: mantenimiento_areas.json con forma inválida ({}, "x", [], [1]) → meta da la semilla y el alta 201, no 500', async () => {
+  const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
+  for (const contenido of [{}, 'x', [], [1]]) {
+    const ctx = await montar({ config: {
+      api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
+      areas: AREAS_MANTENIMIENTO, crearSoloGestion: true, areaCerrada: true,
+    } });
+    const caso = JSON.stringify(contenido);
+    try {
+      fs.writeFileSync(path.join(ctx.dir, 'mantenimiento_areas.json'), caso);
+      const meta = await pedir(ctx.base, 'GET', '/meta');
+      assert.strictEqual(meta.status, 200, caso);
+      assert.deepStrictEqual(meta.data.areas, AREAS_MANTENIMIENTO, caso);
+      const alta = await pedir(ctx.base, 'POST', '', { ...NUEVO, area: AREAS_MANTENIMIENTO[0] });
+      assert.strictEqual(alta.status, 201, `${caso}: ${JSON.stringify(alta.data)}`);
+    } finally { cerrar(ctx); }
+  }
+});

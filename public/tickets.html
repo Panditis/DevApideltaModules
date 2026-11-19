@@ -186,6 +186,13 @@ dialog{padding:0;border:0;color:var(--ink);background:#fff}
 dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 #dlgNuevo{width:760px;max-width:calc(100vw - 48px);max-height:calc(100vh - 64px);border-radius:16px;box-shadow:var(--sh-3)}
 #dlgNuevo[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
+#dlgResp{width:560px;max-width:calc(100vw - 48px);max-height:calc(100vh - 64px);border-radius:16px;box-shadow:var(--sh-3)}
+#dlgResp[open]{animation:pop 200ms cubic-bezier(.2,.8,.2,1)}
+.resp-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.resp-fila{display:flex;align-items:flex-start;gap:4px}
+.resp-in{width:100%}
+.resp-in[aria-invalid=true]{border-color:var(--crit)}
+.resp-msg{margin-top:2px;font-size:12px;color:var(--crit)}
 #dlgDetalle{margin:0 0 0 auto;width:660px;max-width:100vw;height:100vh;max-height:100vh;border-left:1px solid var(--borde);box-shadow:var(--sh-3)}
 #dlgDetalle[open]{animation:desliza 240ms cubic-bezier(.2,.8,.2,1)}
 @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
@@ -505,7 +512,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 
 @media (prefers-reduced-motion:reduce){
   .tarjeta,.col,.switch input,.switch input::after,.ctl,.sel-u,.et-prog-barra i,.et-acc{transition:none!important}
-  .sk,.tst,#dlgNuevo[open],#dlgDetalle[open]{animation:none!important}
+  .sk,.tst,#dlgNuevo[open],#dlgResp[open],#dlgDetalle[open]{animation:none!important}
   .tarjeta:hover{transform:none}
 }
 </style>
@@ -540,6 +547,8 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
     </div>
     <div id="flPrioridad" class="pills" role="group" aria-label="Filtrar por prioridad"></div>
     <select id="flArea" class="ctl ctl-sm max-w-[170px]" aria-label="Filtrar por área"></select>
+    <button id="btnConfigResp" type="button" class="btn-ico hidden" title="Configurar responsables" aria-label="Configurar responsables">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
     <select id="flDest" class="ctl ctl-sm max-w-[170px]" aria-label="Filtrar por destinatario"></select>
     <label class="switch"><input type="checkbox" id="flMios" role="switch"> Solo asignados a mí</label>
     <label class="switch"><input type="checkbox" id="flPrin" role="switch"> Solo principales <span class="estrella on" aria-hidden="true">★</span></label>
@@ -636,6 +645,31 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
   </form>
 </dialog>
 
+<!-- Configurar responsables (solo Mantenimiento con permiso) -->
+<dialog id="dlgResp" aria-labelledby="rTitulo">
+  <form id="rForm" novalidate class="flex flex-col max-h-[calc(100vh-64px)]">
+    <div class="dlg-cab">
+      <div>
+        <h2 id="rTitulo" class="text-lg font-bold">Configurar responsables</h2>
+        <p class="ayuda mt-0.5">Quitar una opción no cambia los tickets que ya la tienen.</p>
+      </div>
+      <button type="button" class="btn-ico ml-auto" data-cerrar aria-label="Cerrar">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div id="rAviso" class="hidden" role="alert"></div>
+    <div class="px-6 py-5 overflow-y-auto">
+      <ul id="rLista" class="resp-lista"></ul>
+      <div id="rErrores" class="hidden error mt-3" role="alert"></div>
+      <button id="rAgregar" type="button" class="btn mt-3">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Agregar responsable</button>
+    </div>
+    <div class="dlg-pie">
+      <button type="button" class="btn ml-auto" data-cerrar>Cancelar</button>
+      <button id="rGuardar" type="submit" class="btn btn-primario">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Detalle de un ticket: panel lateral -->
 <dialog id="dlgDetalle" aria-labelledby="dTitulo">
   <div class="flex flex-col h-full">
@@ -657,6 +691,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 
 <script src="/js/tickets_adjuntos.js"></script>
 <script src="/js/tickets_calendario.js"></script>
+<script src="/js/tickets_responsables.js"></script>
 <script src="/js/tickets.js"></script>
 </body>
 </html>

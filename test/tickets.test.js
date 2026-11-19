@@ -527,3 +527,20 @@ test('crearTicket: nace con fecha null; areasCerradas rechaza fuera de lista', (
   for (const area of AREAS_MANTENIMIENTO) assert.strictEqual(crearTicket([], { ...BASE, area }, 'ana', USUARIOS, T0, op).ticket.area, area);
   assert.strictEqual(crear([], { area: 'Libre' }).ticket.area, 'Libre');
 });
+
+test('validarAreas: normaliza, vacío, >30, repetidos sin mayúsculas, largo, no-string y no muta', () => {
+  const { validarAreas } = require('../lib/tickets');
+  const entrada = [' Mantenimiento ', 'Sistemas'];
+  const copia = [...entrada];
+  assert.deepStrictEqual(validarAreas(entrada), ['Mantenimiento', 'Sistemas']);
+  assert.deepStrictEqual(entrada, copia);
+  falla(() => validarAreas([]), 400);
+  falla(() => validarAreas('Sistemas'), 400);
+  falla(() => validarAreas(undefined), 400);
+  falla(() => validarAreas(Array.from({ length: 31 }, (_, i) => `A${i}`)), 400, /30/);
+  assert.strictEqual(validarAreas(Array.from({ length: 30 }, (_, i) => `A${i}`)).length, 30);
+  falla(() => validarAreas(['Sistemas', 'SISTEMAS ']), 400, /repetidos/);
+  falla(() => validarAreas(['x'.repeat(81)]), 400, /80/);
+  falla(() => validarAreas(['  ']), 400);
+  falla(() => validarAreas([3]), 400, /texto/);
+});

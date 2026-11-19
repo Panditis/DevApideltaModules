@@ -59,6 +59,14 @@ module.exports = function crearRutasTickets(deps) {
   const DIR_ADJUNTOS = path.join(DATA_DIR, `${archivo.replace(/\.json$/i, '')}_adjuntos`);
   const PERMISO_GESTION = permiso;
 
+  const AREAS_PATH = path.join(DATA_DIR, `${archivo.replace(/\.json$/i, '')}_areas.json`);
+  // Con areaCerrada la lista vigente es la del archivo (editable por gestión); sin archivo, la semilla `areas`.
+  // Un _areas.json válido pero con otra forma (editado a mano) no rompe nada: se vuelve a la semilla.
+  const areasVigentes = () => {
+    if (!areaCerrada) return areas;
+    try { return tickets.validarAreas(leerJSON(AREAS_PATH, areas)); } catch { return areas; }
+  };
+
   const leerTickets = () => leerJSON(TICKETS_PATH, []);
   const usuarioSesion = req => (req.session && req.session.user && req.session.user.usuario) || 'anonimo';
   const userSesion = req => (req.session && req.session.user) || null;
@@ -190,6 +198,7 @@ module.exports = function crearRutasTickets(deps) {
   router.get('/js/tickets.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets.js')));
   router.get('/js/tickets_adjuntos.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets_adjuntos.js')));
   router.get('/js/tickets_calendario.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets_calendario.js')));
+  router.get('/js/tickets_responsables.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets_responsables.js')));
 
   router.get(api, manejar(() => leerTickets()));
 
@@ -202,7 +211,7 @@ module.exports = function crearRutasTickets(deps) {
       prioridades: tickets.PRIORIDADES,
       estados: tickets.ESTADOS,
       estadosEtapa: tickets.ESTADOS_ETAPA,
-      areas,
+      areas: areasVigentes(),
       usuarios,
       areaCerrada,
       calendario,
@@ -212,6 +221,7 @@ module.exports = function crearRutasTickets(deps) {
       login: user.usuario || null,
       puedeGestionar: puedeGestionar(req),
       puedeCrear: !crearSoloGestion || puedeGestionar(req),
+      puedeConfigurarAreas: areaCerrada && puedeGestionar(req),
     };
   }));
 
@@ -220,7 +230,7 @@ module.exports = function crearRutasTickets(deps) {
     const validos = (await listarUsuarios()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
     const { lista, ticket } = tickets.crearTicket(leerTickets(), req.body, usuarioSesion(req), validos, new Date().toISOString(),
-      areaCerrada ? { areasCerradas: areas } : {});
+      areaCerrada ? { areasCerradas: areasVigentes() } : {});
     guardarJSON(TICKETS_PATH, lista);
     return ticket;
   }, 201));
@@ -232,6 +242,15 @@ module.exports = function crearRutasTickets(deps) {
     const { lista } = tickets.reordenarTicket(leerTickets(), idValido(id, 'ticket'), antesDe == null ? null : idValido(antesDe, 'ticket'));
     guardarJSON(TICKETS_PATH, lista);
     return lista;
+  }));
+
+  // Opciones de "Responsable" (campo `area`). Quitar una no toca los tickets que ya la tienen.
+  router.put(`${api}/areas`, manejar(req => {
+    if (!areaCerrada) throw Object.assign(new Error('No encontrado.'), { status: 404 });
+    if (!puedeGestionar(req)) throw prohibido('No tenés permiso para configurar los responsables.');
+    const lista = tickets.validarAreas((req.body || {}).areas);
+    guardarJSON(AREAS_PATH, lista);
+    return { areas: lista };
   }));
 
   router.post(`${api}/:id/destacar`, manejar(req => {
