@@ -59,7 +59,9 @@ function tabla(id, cols, filas, ctx = {}) {
   return `<table><thead><tr>${cols.map(th).join('')}</tr></thead><tbody>${ord.map(r => `<tr${ctx.row ? ctx.row(r) : ''}>${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}"${c.attr ? ` ${c.attr}` : ''}>${c.td(r, ctx)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
 
-const setCount = (id, n, unidad) => { $(id).textContent = n == null ? '' : `${nf(n)} ${unidad}${n === 1 ? '' : 's'}`; };
+// Plural en español: termina en vocal → "s" (producto → productos); en consonante → "es" (sucursal → sucursales, mes → meses).
+const plural = (palabra, n) => (n === 1 ? palabra : palabra + (/[aeiouáéíóú]$/i.test(palabra) ? 's' : 'es'));
+const setCount = (id, n, unidad) => { $(id).textContent = n == null ? '' : `${nf(n)} ${plural(unidad, n)}`; };
 
 // ---------- tarjetas ----------
 const CARDS = {
@@ -75,7 +77,11 @@ const CARDS = {
       const enRango = (r, [, v, ant], f) => Math.max(0, g(r, v, f) - (ant ? g(r, ant, f) : 0));
       const max = {};
       for (const rg of RANGOS) max[rg[0]] = Math.max(0, ...filas.map(r => enRango(r, rg, 'lotes')));
-      const maxTot = Math.max(0, ...filas.map(r => g(r, 'v30', 'lotes')));
+      // Lotes a más de 30 días por sucursal, desde proximos.lotes (si falta, 0).
+      const mas = {};
+      for (const l of arr((d.proximos || {}).lotes)) if (num(l.dias) > 30) mas[l.idSucursal] = (mas[l.idSucursal] || 0) + 1;
+      const nMas = r => mas[r.idSucursal] || 0;
+      const maxMas = Math.max(0, ...filas.map(nMas));
       const btnSuc = r => (r.idSucursal == null ? esc(nombreSuc(r))
         : `<button type="button" class="row-btn" data-suc="${esc(r.idSucursal)}" aria-haspopup="dialog"><span>${esc(nombreSuc(r))}</span><span class="ver">Ver artículos${ICO_CHEV}</span></button>`);
       const cols = [{ t: 'Sucursal', k: 'suc', val: nombreSuc, td: btnSuc }];
@@ -83,7 +89,7 @@ const CARDS = {
         const attr = `data-v="${rg[0]}"`;
         cols.push({ t: `${rg[3]} · lotes`, k: `v${rg[0]}l`, num: 1, attr, val: r => enRango(r, rg, 'lotes'), td: r => celdaBarra(enRango(r, rg, 'lotes'), max[rg[0]], rg[4]) });
       }
-      cols.push({ t: 'Total ≤ 30 d · lotes', k: 'tl', num: 1, cls: 'tot', val: r => g(r, 'v30', 'lotes'), td: r => celdaBarra(g(r, 'v30', 'lotes'), maxTot) });
+      cols.push({ t: '> 30 d · lotes', k: 'masl', num: 1, attr: 'data-v="mas"', val: nMas, td: r => celdaBarra(nMas(r), maxMas) });
       SORT.prox = SORT.prox || { k: 'v7l', d: -1 };
       return tabla('prox', cols, filas, { row: r => (r.idSucursal == null ? '' : ` data-suc="${esc(r.idSucursal)}"`) });
     },

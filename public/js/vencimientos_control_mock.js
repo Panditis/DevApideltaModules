@@ -28,6 +28,8 @@ window.VENCIMIENTOS_CONTROL_MOCK = {
       { idSucursal: 2, producto: 'Manteca', plu: '2300', fecha: '2026-11-30', dias: 11, unidadesCargadas: 40, pendiente: 26 },
       { idSucursal: 2, producto: 'Jamón cocido', plu: '3300', fecha: '2026-12-09', dias: 20, unidadesCargadas: 30, pendiente: 22 },
       { idSucursal: 2, producto: 'Crema de leche', plu: '2105', fecha: '2026-12-17', dias: 28, unidadesCargadas: 24, pendiente: 20 },
+      { idSucursal: 2, producto: 'Aceite de oliva 500 ml', plu: '6100', fecha: '2026-12-24', dias: 35, unidadesCargadas: 12, pendiente: 8 }, // +30 d
+      { idSucursal: 2, producto: 'Fideos secos 500 g', plu: '7100', fecha: '2027-01-10', dias: 52, unidadesCargadas: 40, pendiente: 30 }, // +30 d
     ],
     urgentes: [
       { idSucursal: 1, nombre: 'Centro', producto: 'Yogur natural 1 L', plu: '1042', fecha: '2026-11-21', dias: 2, unidades: 24 },
