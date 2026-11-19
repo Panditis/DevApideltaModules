@@ -367,17 +367,8 @@ function rotFila(r, ids){
     <td class="l nombre" title="${escHtml(tip)}">${escHtml(r.nombre)}${oculto ? ` <span class="rot-oc-tag"${quien ? ` title="${escHtml(quien)}"` : ''}>oculto</span>` : ''}</td>
     <td>${r.centralGranel == null ? '<span class="rot-sin-dato">—</span>' : `${rotDec(r.centralGranel)} kg`}</td>
     <td>${rotCant(r.central, r.pesable)}${r.pesable ? ' kg' : ''}</td>
-    ${ids.map(id => rotCelda(r, id)).join('')}${rot.suc ? `<td class="l rot-dest">${rotDestinos(r)}</td>` : ''}</tr>`;
-  return abierto ? `${fila}<tr class="rot-detalle"><td colspan="${ids.length + 4 + (rot.suc ? 2 : 0)}">${rotDetalle(r)}</td></tr>` : fila;
-}
-
-// A qué sucursales va lo que sale de la filtrada: "Pergamino +14 · Ramallo +2".
-function rotDestinos(r){
-  const porDestino = new Map();
-  (r.movimientos || []).filter(m => String(m.origen) === String(rot.suc))
-    .forEach(m => porDestino.set(String(m.destino), (porDestino.get(String(m.destino)) || 0) + m.cantidad));
-  return [...porDestino].sort((a, b) => b[1] - a[1])
-    .map(([id, q]) => `${escHtml(rotAbrev(rotNombreSuc(id)))} +${rotCant(q, r.pesable)}${r.pesable ? ' kg' : ''}`).join(' · ');
+    ${ids.map(id => rotCelda(r, id)).join('')}</tr>`;
+  return abierto ? `${fila}<tr class="rot-detalle"><td colspan="${ids.length + 4 + (rot.suc ? 1 : 0)}">${rotDetalle(r)}</td></tr>` : fila;
 }
 
 // Texto del estado vacío según qué dejó la lista sin filas.
@@ -420,8 +411,8 @@ function rotTabla(){
   }
   const ids = rotSucIds();  // con sucursal elegida se ven todas; la elegida va resaltada
   const ths = ids.map(id => rotTh(`s:${id}`, rotAbrev(rotNombreSuc(id)), `rot-suc${rot.suc && String(id) === String(rot.suc) ? ' rot-sel' : ''}`, `${rotNombreSuc(id)}: ordenar por stock`)).join('');
-  el.innerHTML = `<table class="rot-table"><colgroup>${rot.suc ? '<col class="c-x">' : ''}<col class="c-c"><col><col class="c-g"><col class="c-n">${ids.map(() => '<col class="c-s">').join('')}${rot.suc ? '<col class="c-d">' : ''}</colgroup>
-    <thead><tr>${rot.suc ? '<th class="rot-x" aria-label="Ocultar"></th>' : ''}${rotTh('plu', 'Código', 'l')}${rotTh('nombre', 'Producto', 'l')}${rotTh('centralGranel', 'Stock / Granel', '', 'Stock / Granel: stock del producto a granel en casa central (kg)')}${rotTh('central', 'Envasado', '', 'Envasado: stock del producto envasado/fraccionado en casa central')}${ths}${rot.suc ? '<th class="l">Destino</th>' : ''}</tr></thead>
+  el.innerHTML = `<table class="rot-table"><colgroup>${rot.suc ? '<col class="c-x">' : ''}<col class="c-c"><col><col class="c-g"><col class="c-n">${ids.map(() => '<col class="c-s">').join('')}</colgroup>
+    <thead><tr>${rot.suc ? '<th class="rot-x" aria-label="Ocultar"></th>' : ''}${rotTh('plu', 'Código', 'l')}${rotTh('nombre', 'Producto', 'l')}${rotTh('centralGranel', 'Stock / Granel', '', 'Stock / Granel: stock del producto a granel en casa central (kg)')}${rotTh('central', 'Envasado', '', 'Envasado: stock del producto envasado/fraccionado en casa central')}${ths}</tr></thead>
     ${filas.map(r => `<tbody class="rot-prod">${rotFila(r, ids)}</tbody>`).join('')}</table>`;
 }
 
