@@ -231,8 +231,9 @@ test('idSucursal: alta válida, ausente e inválida; edición y lectura vía idS
     assert.strictEqual(auth.idSucursalDe({ id: conSuc.id }), 3, 'la sesión lo resuelve releyendo usuarios.json');
 
     const sinSuc = auth.crearUsuario({ usuario: 'tmp_test_suc2', password: 'clave12345' });
-    assert.strictEqual(sinSuc.idSucursal, null);
-    assert.strictEqual(auth.idSucursalDe({ id: sinSuc.id }), null);
+    assert.strictEqual(sinSuc.idSucursal, 1, 'sin sucursal => default 1');
+    assert.strictEqual(auth.idSucursalDe({ id: sinSuc.id }), 1);
+    assert.strictEqual(auth.normalizarIdSucursal(null), auth.SUCURSAL_DEFAULT);
 
     for (const malo of [0, -2, 1.5, 'abc']) {
       assert.throws(() => auth.crearUsuario({ usuario: 'tmp_test_suc3', password: 'clave12345', idSucursal: malo }), /entero mayor a 0/);
@@ -241,10 +242,29 @@ test('idSucursal: alta válida, ausente e inválida; edición y lectura vía idS
 
     assert.strictEqual(auth.actualizarUsuario(sinSuc.id, { idSucursal: 7 }).idSucursal, 7);
     assert.strictEqual(auth.actualizarUsuario(sinSuc.id, { nombre: 'x' }).idSucursal, 7, 'no mandarlo no lo borra');
-    assert.strictEqual(auth.actualizarUsuario(sinSuc.id, { idSucursal: '' }).idSucursal, null, 'vacío lo quita');
+    assert.strictEqual(auth.actualizarUsuario(sinSuc.id, { idSucursal: '' }).idSucursal, 1, 'vacío vuelve al default');
     assert.throws(() => auth.actualizarUsuario(sinSuc.id, { idSucursal: 'x' }), /entero mayor a 0/);
     assert.strictEqual(auth.idSucursalDe(null), null);
   } finally {
     ['tmp_test_suc1', 'tmp_test_suc2', 'tmp_test_suc3'].forEach(borrar);
+  }
+});
+
+test("tienePermiso: 'vencimientos-control' da true con el permiso, false sin él o inactivo; admin siempre", () => {
+  const auth = require('../lib/auth');
+  const borrar = u => { const x = auth.buscarPorUsuario(u); if (x) eliminarUsuario(x.id); };
+  try {
+    const con = crearUsuario({ usuario: 'tmp_test_vctrl1', password: 'clave12345', modulos: ['sucursales', 'vencimientos-control'] });
+    const sin = crearUsuario({ usuario: 'tmp_test_vctrl2', password: 'clave12345', modulos: ['sucursales'] });
+    const adm = crearUsuario({ usuario: 'tmp_test_vctrl3', password: 'clave12345', esAdmin: true });
+    assert.strictEqual(auth.tienePermiso({ id: con.id }, 'vencimientos-control'), true);
+    assert.strictEqual(auth.tienePermiso({ id: sin.id }, 'vencimientos-control'), false);
+    assert.strictEqual(auth.tienePermiso({ id: adm.id }, 'vencimientos-control'), true);
+    assert.strictEqual(auth.tienePermiso(null, 'vencimientos-control'), false);
+    auth.actualizarUsuario(con.id, { activo: false });
+    assert.strictEqual(auth.tienePermiso({ id: con.id }, 'vencimientos-control'), false, 'desactivar rige ya');
+    assert.strictEqual(auth.moduloDeRuta('/vencimientos-control'), 'sucursales');
+  } finally {
+    ['tmp_test_vctrl1', 'tmp_test_vctrl2', 'tmp_test_vctrl3'].forEach(borrar);
   }
 });

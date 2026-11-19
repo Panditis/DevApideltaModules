@@ -261,9 +261,9 @@ body{color:var(--on-surf);font-size:14px;line-height:1.55}
           <input type="text" id="f-nombre" autocomplete="off">
         </div>
         <div class="field">
-          <label for="f-sucursal">Sucursal (Id)</label>
-          <input type="number" id="f-sucursal" min="1" step="1" autocomplete="off">
-          <span class="hint">IdSucursal de SIGA. Vacío si no es una sucursal.</span>
+          <label for="f-sucursal">Sucursal</label>
+          <select id="f-sucursal"></select>
+          <span class="hint">Sucursal que se selecciona por defecto en los módulos con vista por sucursal. Por defecto: 1.</span>
         </div>
         <div class="field">
           <label for="f-password">Contraseña</label>
@@ -469,6 +469,26 @@ function sincronizarModulosSegunAdmin() {
 }
 fAdmin.addEventListener('change', sincronizarModulosSegunAdmin);
 
+const SUCURSALES_FICTICIAS = [6, 8, 11];
+let sucursalesLista = null;
+async function cargarSucursales() {
+  if (sucursalesLista) return sucursalesLista;
+  try {
+    const r = await fetch('/api/sucursales');
+    const d = r.ok ? await r.json() : [];
+    sucursalesLista = (Array.isArray(d) ? d : []).filter(s => !SUCURSALES_FICTICIAS.includes(Number(s.id)));
+  } catch (_) { sucursalesLista = []; }
+  return sucursalesLista;
+}
+async function pintarSelectSucursal(idActual) {
+  const lista = await cargarSucursales();
+  const id = Number(idActual) || 1;
+  const opts = lista.map(s => ({ id: Number(s.id), nombre: s.nombre }));
+  if (!opts.some(o => o.id === id)) opts.unshift({ id, nombre: 'Sucursal ' + id });
+  fSucursal.innerHTML = opts.map(o => `<option value="${o.id}">${esc(o.nombre)} (${o.id})</option>`).join('');
+  fSucursal.value = String(id);
+}
+
 function abrirModal(u) {
   ocultarModalError();
   state.editId = u ? Number(u.id) : null;
@@ -476,7 +496,7 @@ function abrirModal(u) {
   modalTitle.textContent = esNuevo ? 'Nuevo usuario' : 'Editar usuario';
   fUsuario.value = u ? (u.usuario || '') : '';
   fNombre.value = u ? (u.nombre || '') : '';
-  fSucursal.value = u && u.idSucursal ? u.idSucursal : '';
+  pintarSelectSucursal(u && u.idSucursal);
   fPassword.value = '';
   fAdmin.checked = u ? !!u.esAdmin : false;
   fActivo.checked = u ? (u.activo !== false) : true;
@@ -510,7 +530,7 @@ form.addEventListener('submit', async (ev) => {
   const esAdmin = fAdmin.checked;
   const activo = fActivo.checked;
   const modulos = esAdmin ? [] : modulosMarcados();
-  const idSucursal = fSucursal.value.trim() || null;
+  const idSucursal = Number(fSucursal.value) || 1;
 
   if (!usuario) { mostrarModalError('El usuario es obligatorio.'); fUsuario.focus(); return; }
   if (state.editId === null && !password) { mostrarModalError('La contraseña es obligatoria para un usuario nuevo.'); fPassword.focus(); return; }
