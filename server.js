@@ -2730,7 +2730,7 @@ app.use(require('./routes/rutas_carteles_pesables')({ apiRoute, query, LISTA_PRE
 // Control de vencimientos (Sucursales): lotes en data/vencimientos*.json; SIGA solo lectura (búsqueda de productos).
 app.use(require('./routes/rutas_vencimientos')({
   store: require('./lib/vencimientos').crearStore({ rutaDatos: path.join(DATA_DIR, 'vencimientos.json'), rutaConfig: path.join(DATA_DIR, 'vencimientos_config.json') }),
-  idSucursalDe: auth.idSucursalDe, actualizarUsuario: auth.actualizarUsuario, getPool,
+  idSucursalDe: auth.idSucursalDe, actualizarUsuario: auth.actualizarUsuario, getPool, tienePermiso: auth.tienePermiso, sucursalesSiga,
 }));
 
 

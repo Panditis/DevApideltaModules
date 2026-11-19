@@ -16,7 +16,7 @@ const CLASES = {
 const MIN_BUSQUEDA = 2;
 const DEBOUNCE_MS = 300;
 
-const estado = { datos: null, nombres: {}, miSucursal: null, sucursalesLista: [], loteAcc: null, productoElegido: null, tabActiva: 'mia', filtroLote: null, ventas: null, histAbiertos: new Set() };
+const estado = { datos: null, nombres: {}, miSucursal: null,loteAcc: null, productoElegido: null, tabActiva: 'mia', filtroLote: null, ventas: null, histAbiertos: new Set() };
 
 async function api(url, opciones) {
   const init = opciones && opciones.body !== undefined
@@ -115,8 +115,7 @@ async function enviar(botonId, errorId, tarea) {
 async function cargarSucursales() {
   try {
     const lista = await api('/api/sucursales');
-    estado.sucursalesLista = Array.isArray(lista) ? lista : [];
-    estado.nombres = Object.fromEntries(estado.sucursalesLista.map(s => [s.id, s.nombre]));
+    estado.nombres = Object.fromEntries((Array.isArray(lista) ? lista : []).map(s => [s.id, s.nombre]));
   } catch (_) { /* sin nombres: se muestra "Suc. N" */ }
 }
 
@@ -156,6 +155,7 @@ async function cargarLotes() {
   const sucAct = String(estado.miSucursal || '');
   const seCerro = !!antes && estado.datos.lotes.some(l => antes.has(l.id) && l.sucursales[sucAct] && estaCerrado(l.sucursales[sucAct]));
   const { umbrales } = estado.datos;
+  $('btnUmbrales').hidden = !estado.datos.usuario.esAdmin;
   $('umbralesTxt').textContent = `Rojo ≤ ${umbrales.rojo} d · Amarillo ≤ ${umbrales.amarillo} d · Verde > ${umbrales.amarillo} d`;
   renderCarga();
   renderAvisos();
@@ -218,29 +218,20 @@ $('avisosBanda').addEventListener('click', e => {
 // ── Alta ──────────────────────────────────────────────────────────────────────
 let timerBusqueda = null, secBusqueda = 0;
 
-// Sucursal de la carga: la del usuario (texto fijo); solo admin sin sucursal elige.
+// Sucursal de la carga: la del usuario (texto fijo).
 function renderCarga() {
   const { usuario } = estado.datos;
-  const sinSucursal = !usuario.esAdmin && !usuario.idSucursal;
+  const sinSucursal = !usuario.idSucursal;
   $('cargaAviso').innerHTML = sinSucursal ? '<div class="error-box">Tu usuario no tiene sucursal asignada. Pedile al administrador que la configure.</div>' : '';
   $('formAlta').hidden = sinSucursal;
   if (sinSucursal) return;
-  const elige = usuario.esAdmin && !usuario.idSucursal;
-  $('altaSucWrap').hidden = !elige;
-  $('altaSucTxt').hidden = elige;
-  if (elige) $('altaSuc').innerHTML = opcionesSucursal($('altaSuc').value || (estado.sucursalesLista[0] && estado.sucursalesLista[0].id));
-  else $('altaSucTxt').textContent = nombreSuc(usuario.idSucursal);
+  $('altaSucTxt').textContent = nombreSuc(usuario.idSucursal);
 }
 
 function limpiarAlta() {
   estado.productoElegido = null;
   ['altaBuscar', 'altaFecha', 'altaUnid'].forEach(id => { $(id).value = ''; });
   $('altaElegido').textContent = ''; $('altaOpciones').hidden = true;
-}
-
-function opcionesSucursal(seleccionada) {
-  const ids = estado.sucursalesLista.length ? estado.sucursalesLista.map(s => s.id) : (estado.datos ? estado.datos.sucursales : []);
-  return ids.map(id => `<option value="${esc(id)}"${Number(id) === Number(seleccionada) ? ' selected' : ''}>${esc(nombreSuc(id))}</option>`).join('');
 }
 
 async function buscarProductos() {
@@ -283,7 +274,7 @@ $('formAlta').addEventListener('submit', async e => {
   if (!esEnteroPositivo(unid)) return mostrarError('altaError', 'Las unidades tienen que ser un entero mayor a 0.');
   const body = { idProducto: p.idProducto, nombre: p.nombre, codigo: p.codigo, vencimiento: fecha, unidades: Number(unid) };
   const { usuario } = estado.datos;
-  if (usuario.esAdmin) body.idSucursal = Number(usuario.idSucursal || $('altaSuc').value);
+  if (usuario.esAdmin) body.idSucursal = Number(usuario.idSucursal);
   const ok = await enviar('altaOk', 'altaError', () => api('/api/vencimientos/lotes', { method: 'POST', body }));
   if (!ok) return;
   limpiarAlta();
@@ -310,27 +301,19 @@ $('mDel').querySelector('form').addEventListener('submit', async e => {
   if (ok) { cerrarModal('mDel'); await cargarLotes(); }
 });
 
-// ── Configuración (Mi sucursal: todos; resto: admin) ─────────────────────────────────────────────────────
+// ── Configuración (solo admin) ─────────────────────────────────────────────────────
 const CAMPOS_CFG = { diasMaxOferta: 'cfgDiasMaxOferta', diasMaxVencido: 'cfgDiasMaxVencido', tipoOfertaVencida: 'cfgOfertaVencida', tipoOferta: 'cfgOferta', tipoNoVendido: 'cfgNoVendido', depositoMovimientos: 'cfgDeposito', diasAviso: 'cfgDiasAviso', margenDias: 'cfgMargen' };
-const sucActual = () => String(estado.datos.usuario.idSucursal || '');
 function avisoExito(msg) {
   const a = $('avisoGlobal'); a.textContent = msg; a.hidden = false;
   clearTimeout(avisoExito.t); avisoExito.t = setTimeout(() => { a.hidden = true; }, 5000);
 }
-function nombreCfgSuc() {
-  const v = $('cfgMiSucursal').value.trim();
-  $('cfgMiSucNombre').textContent = /^\d+$/.test(v) && estado.nombres[v] ? estado.nombres[v] : '';
-}
-$('cfgMiSucursal').addEventListener('input', nombreCfgSuc);
 $('btnUmbrales').addEventListener('click', async () => {
-  const esAdmin = estado.datos.usuario.esAdmin;
-  $('cfgMiSucursal').value = sucActual(); nombreCfgSuc();
-  $('umbAdmin').hidden = !esAdmin;
+  if (!estado.datos.usuario.esAdmin) return;
+  $('cfgMiSucNombre').textContent = nombreSuc(estado.datos.usuario.idSucursal);
   mostrarError('umbError', '');
-  if (!esAdmin) return abrirModal('mUmb', 'cfgMiSucursal');
   $('umbRojo').value = estado.datos.umbrales.rojo; $('umbAmarillo').value = estado.datos.umbrales.amarillo;
   Object.values(CAMPOS_CFG).forEach(id => { $(id).value = ''; });
-  abrirModal('mUmb', 'cfgMiSucursal');
+  abrirModal('mUmb', 'umbRojo');
   try {
     const cfg = await api('/api/vencimientos/config');
     Object.entries(CAMPOS_CFG).forEach(([k, id]) => { if (cfg[k] !== undefined) $(id).value = cfg[k]; });
@@ -338,53 +321,38 @@ $('btnUmbrales').addEventListener('click', async () => {
 });
 $('mUmb').querySelector('form').addEventListener('submit', async e => {
   e.preventDefault();
-  const esAdmin = estado.datos.usuario.esAdmin;
-  const suc = $('cfgMiSucursal').value.trim();
-  if (suc !== '' && !esEnteroPositivo(suc)) return mostrarError('umbError', 'La sucursal tiene que ser un entero mayor a 0 (o vacío para quitarla).');
-  let bodyCfg = null;
-  if (esAdmin) {
-    const rojo = $('umbRojo').value, amarillo = $('umbAmarillo').value;
-    const err = validarUmbralesCliente(rojo, amarillo);
-    if (err) return mostrarError('umbError', err);
-    const extra = {};
-    Object.entries(CAMPOS_CFG).forEach(([k, id]) => { const v = $(id).value.trim(); if (v !== '') extra[k] = v; });
-    const errCfg = validarConfigCliente(extra);
-    if (errCfg) return mostrarError('umbError', errCfg);
-    ['depositoMovimientos', 'diasAviso', 'margenDias', 'diasMaxOferta', 'diasMaxVencido'].forEach(k => { if (extra[k] !== undefined) extra[k] = Number(extra[k]); });
-    bodyCfg = { umbrales: { rojo: Number(rojo), amarillo: Number(amarillo) }, ...extra };
-  }
-  const cambiaSuc = suc !== sucActual();
-  const ok = await enviar('umbOk', 'umbError', async () => {
-    if (bodyCfg) await api('/api/vencimientos/config', { method: 'PUT', body: bodyCfg });
-    if (cambiaSuc) await api('/api/vencimientos/mi-sucursal', { method: 'PUT', body: { idSucursal: suc === '' ? null : Number(suc) } });
-  });
+  if (!estado.datos.usuario.esAdmin) return;
+  const rojo = $('umbRojo').value, amarillo = $('umbAmarillo').value;
+  const err = validarUmbralesCliente(rojo, amarillo);
+  if (err) return mostrarError('umbError', err);
+  const extra = {};
+  Object.entries(CAMPOS_CFG).forEach(([k, id]) => { const v = $(id).value.trim(); if (v !== '') extra[k] = v; });
+  const errCfg = validarConfigCliente(extra);
+  if (errCfg) return mostrarError('umbError', errCfg);
+  ['depositoMovimientos', 'diasAviso', 'margenDias', 'diasMaxOferta', 'diasMaxVencido'].forEach(k => { if (extra[k] !== undefined) extra[k] = Number(extra[k]); });
+  const bodyCfg = { umbrales: { rojo: Number(rojo), amarillo: Number(amarillo) }, ...extra };
+  const ok = await enviar('umbOk', 'umbError', () => api('/api/vencimientos/config', { method: 'PUT', body: bodyCfg }));
   if (!ok) return;
-  if (cambiaSuc) { estado.miSucursal = null; estado.filtroLote = null; }
   cerrarModal('mUmb');
-  await cargarLotes(); // refresca usuario.idSucursal y re-renderiza Carga / Mi sucursal / Otras
-  avisoExito(cambiaSuc ? (suc === '' ? 'Sucursal quitada.' : `Sucursal asignada: ${nombreSuc(suc)}.`) : 'Configuración guardada.');
+  await cargarLotes(); // refresca umbrales y re-renderiza
+  avisoExito('Configuración guardada.');
 });
 
 // ── Mi sucursal ───────────────────────────────────────────────────────────────
 function renderMia() {
   const { usuario } = estado.datos;
-  const sinSucursal = !usuario.esAdmin && !usuario.idSucursal;
+  const sinSucursal = !usuario.idSucursal;
   $('miaAviso').innerHTML = sinSucursal ? '<div class="error-box">Tu usuario no tiene sucursal asignada. Pedile al administrador que la configure.</div>' : '';
   $('miaContenido').hidden = sinSucursal;
   if (sinSucursal) return;
-  $('miaSelWrap').hidden = !usuario.esAdmin;
   resolverSucursal();
-  if (usuario.esAdmin) $('miaSucursal').innerHTML = opcionesSucursal(estado.miSucursal);
-  if (!estado.miSucursal) { $('miaMsg').innerHTML = '<div class="msg-vacio">No hay sucursales para mostrar.</div>'; return; }
   $('miaTitulo').textContent = nombreSuc(estado.miSucursal);
   renderMisLotes();
 }
 
-// Sucursal activa: la del usuario; el admin la elige en Mi sucursal y el Historial la sigue.
+// Sucursal activa: siempre la preferida del usuario (también admin; se asigna en Administración).
 function resolverSucursal() {
-  const { usuario } = estado.datos;
-  if (!usuario.esAdmin) estado.miSucursal = usuario.idSucursal;
-  else if (!estado.miSucursal) estado.miSucursal = Number(usuario.idSucursal || (estado.sucursalesLista[0] && estado.sucursalesLista[0].id) || estado.datos.sucursales[0]) || null;
+  estado.miSucursal = Number(estado.datos.usuario.idSucursal) || null;
 }
 
 function renderHist() {
@@ -604,7 +572,6 @@ async function cargarHistorial() {
   }
 }
 
-$('miaSucursal').addEventListener('change', () => { estado.miSucursal = Number($('miaSucursal').value); estado.filtroLote = null; renderAvisos(); renderMia(); cargarVentas(); });
 
 // Acciones por fila: corregir unidades (modal de cantidad), marcar vendido (confirmación en mQuit) y pasar a oferta/vencido (modal propio).
 const ACCIONES = {

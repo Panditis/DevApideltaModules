@@ -194,6 +194,28 @@ fetch('/api/session').then(r => r.json()).then(s => {
     document.getElementById('btn-logout').classList.remove('hidden');
     // Atado a este hub (permiso 'solo-sucursales'): sin links al inicio; el server igual redirige '/' acá.
     const m = s.user.modulos || [];
+    // Tile del centro de control: solo admin o permiso 'vencimientos-control'.
+    if (s.user.esAdmin || m.includes('vencimientos-control')) {
+      const li = document.createElement('li');
+      li.setAttribute('role', 'listitem');
+      li.innerHTML = `
+    <a class="tile h-full" href="/vencimientos-control" style="--accent:#8a2f4a;--accent-soft:#f5dde4;--accent-ink:#4a1224" aria-label="Abrir Centro de control de vencimientos">
+      <div class="flex items-start justify-between gap-3">
+        <span class="tile-icon" aria-hidden="true"><i data-lucide="gauge"></i></span>
+        <span class="badge badge-live">Activo</span>
+      </div>
+      <div>
+        <h2 class="tile-title">Centro de control de vencimientos</h2>
+        <p class="tile-desc mt-1">Tablero con próximos vencimientos, vencidos, movimientos sin lote, ranking y alertas de todas las sucursales.</p>
+      </div>
+      <div class="tile-foot">
+        <span class="tile-route">/vencimientos-control</span>
+        <span class="tile-arrow" aria-hidden="true"><i data-lucide="arrow-right"></i></span>
+      </div>
+    </a>`;
+      grid.insertBefore(li, grid.lastElementChild);
+      if (window.lucide) lucide.createIcons();
+    }
     if (!s.user.esAdmin && m.includes('solo-sucursales') && m.includes('sucursales')) {
       document.querySelectorAll('a[href="/"]').forEach(a => { a.removeAttribute('href'); a.style.pointerEvents = 'none'; });
       document.querySelector('.crumbs').hidden = true;

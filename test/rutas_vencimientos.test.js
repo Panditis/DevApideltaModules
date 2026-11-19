@@ -729,3 +729,88 @@ test('sin-lote/alta vencido sin vencimiento ni unidades: vence = fecha del movim
     assert.deepStrictEqual([dup.status, dup.body.error], [409, 'Ya hay un registro de este producto con ese vencimiento en tu sucursal']);
   } finally { a.cerrar(); }
 });
+
+// --- Centro de control ------------------------------------------------------
+// tienePermiso falso: admin o usuario con 'vencimientos-control' en permisos.
+function armarControl({ filas = [], falla = false, sucursales } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'venc-ctrl-'));
+  const store = crearStore({ rutaDatos: path.join(dir, 'v.json'), rutaConfig: path.join(dir, 'c.json') });
+  const cuenta = { queries: 0, sucursalesConsultadas: [] };
+  const getPool = async () => ({ request() {
+    const r = { input(k, v) { if (k === 'sucursal') cuenta.sucursalesConsultadas.push(v); return r; },
+      async query() { cuenta.queries++; if (falla) throw new Error('SIGA caído'); return { recordset: filas }; } };
+    return r;
+  } });
+  const app = express();
+  app.use((req, _res, next) => { req.session = { user: USUARIOS[req.get('x-user')] }; next(); });
+  const tienePermiso = (u, ref) => !!u && (u.esAdmin || (u.permisos || []).includes(ref));
+  const sucursalesSiga = sucursales && (async () => { if (falla) throw new Error('SIGA caído'); return sucursales; });
+  app.use(crearRutas({ store, getPool, idSucursalDe: u => u.idSucursal || null, tienePermiso, sucursalesSiga }));
+  let server;
+  const pedir = async (user, ruta) => {
+    if (!server) server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
+    const res = await fetch(`http://127.0.0.1:${server.address().port}${ruta}`, { headers: { 'x-user': user } });
+    const txt = await res.text();
+    let body = txt; try { body = JSON.parse(txt); } catch (_) { /* html/js */ }
+    return { status: res.status, body, tipo: res.headers.get('content-type') || '' };
+  };
+  return { pedir, cuenta, cerrar: () => { if (server) { server.closeAllConnections(); server.close(); } } };
+}
+USUARIOS.ctrl = { id: 6, usuario: 'ctrl', esAdmin: false, idSucursal: 1, permisos: ['vencimientos-control'] };
+const SUCS = [{ id: 1, nombre: 'Centro', activa: true }, { id: 2, nombre: 'Norte', activa: true }, { id: 3, nombre: 'Cerrada', activa: false },
+  { id: 6, nombre: 'F6', activa: true }, { id: 8, nombre: 'F8', activa: true }, { id: 11, nombre: 'F11', activa: true }];
+const RUTAS_CONTROL = ['/api/vencimientos/centro-control', '/vencimientos-control', '/js/vencimientos_control.js', '/js/vencimientos_control_mock.js'];
+
+test('centro-control: 403 sin permiso en API, página, js y mock; 200 admin y con permiso', async () => {
+  const a = armarControl({ sucursales: SUCS });
+  try {
+    for (const ruta of RUTAS_CONTROL) {
+      assert.strictEqual((await a.pedir('ana', ruta)).status, 403, `ana ${ruta}`);
+      assert.strictEqual((await a.pedir('nadie', ruta)).status, ruta.startsWith('/api') ? 401 : 403, `sin sesión ${ruta}`);
+      for (const u of ['admin', 'ctrl']) assert.strictEqual((await a.pedir(u, ruta)).status, 200, `${u} ${ruta}`);
+    }
+    assert.match((await a.pedir('ctrl', '/vencimientos-control')).body, /vencimientos_control\.js/);
+    assert.match((await a.pedir('ctrl', '/js/vencimientos_control_mock.js')).tipo, /javascript/);
+    const r = await a.pedir('ctrl', '/api/vencimientos/centro-control');
+    assert.strictEqual(r.body.sinLote.disponible, true);
+    assert.strictEqual(r.body.kpis.sinLote, 0);
+  } finally { a.cerrar(); }
+});
+
+test('centro-control: SIGA caído → 200, sinLote.disponible=false y kpis.sinLote=null', async () => {
+  const a = armarControl({ falla: true, sucursales: SUCS });
+  try {
+    const r = await a.pedir('admin', '/api/vencimientos/centro-control');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.sinLote.disponible, false);
+    assert.deepStrictEqual(r.body.sinLote.porSucursal, []);
+    assert.strictEqual(r.body.kpis.sinLote, null);
+  } finally { a.cerrar(); }
+});
+
+test('centro-control: el bloque sin lote se cachea 60 s y no reconsulta SIGA', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2030-01-15T12:00:00Z') });
+  const a = armarControl({ filas: [filaSiga(1, 'PARA OFERTA', 10)], sucursales: SUCS });
+  try {
+    const r1 = await a.pedir('admin', '/api/vencimientos/centro-control');
+    const n = a.cuenta.queries;
+    assert.ok(n > 0);
+    assert.strictEqual(r1.body.kpis.sinLote, 2, 'PARA OFERTA cuenta solo en clase oferta: 1 por sucursal');
+    await a.pedir('admin', '/api/vencimientos/centro-control');
+    t.mock.timers.tick(59 * 1000);
+    await a.pedir('admin', '/api/vencimientos/centro-control');
+    assert.strictEqual(a.cuenta.queries, n, 'dentro de 60 s no reconsulta');
+    t.mock.timers.tick(2 * 1000);
+    await a.pedir('admin', '/api/vencimientos/centro-control');
+    assert.strictEqual(a.cuenta.queries, 2 * n, 'vencida la caché reconsulta');
+  } finally { a.cerrar(); }
+});
+
+test('centro-control: sucursalesSiga filtra inactivas y 6/8/11; usa sus nombres', async () => {
+  const a = armarControl({ sucursales: SUCS });
+  try {
+    const r = await a.pedir('admin', '/api/vencimientos/centro-control');
+    assert.deepStrictEqual([...new Set(a.cuenta.sucursalesConsultadas)].sort(), [1, 2]);
+    assert.deepStrictEqual(r.body.sinLote.porSucursal.map(s => [s.idSucursal, s.nombre]), [[1, 'Centro'], [2, 'Norte']]);
+  } finally { a.cerrar(); }
+});

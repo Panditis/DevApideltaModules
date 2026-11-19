@@ -5,6 +5,8 @@ const { semaforo, diasParaVencer, pendiente, estadoSucursal, ofertaEstado, venci
 const { esSucursalReal } = require('../lib/sucursales_no_reales');
 const { cruzarLote, consultarMovimientos, consultarMovimientosClase, marcarAsignados } = require('../lib/vencimientos_siga');
 const { consultarVentas, calcularVentas } = require('../lib/vencimientos_ventas');
+const { armarCentroControl, sinLoteDeSucursal } = require('../lib/vencimientos_centro');
+const CACHE_SIN_LOTE_MS = 60 * 1000;
 
 // ── Rutas del Control de vencimientos (Sucursales), Etapa 1 ───────────────────
 // Listado compartido de lotes; cada usuario escribe solo en la columna de su sucursal
@@ -28,7 +30,10 @@ function enteroPositivo(valor, campo) {
 }
 
 module.exports = function crearRutasVencimientos(deps) {
-  const { store, idSucursalDe, actualizarUsuario, getPool } = deps;
+  const { store, idSucursalDe, actualizarUsuario, getPool, tienePermiso = () => false, sucursalesSiga } = deps;
+  // Sin sucursalesSiga inyectado (tests), las sucursales salen de las columnas de los lotes.
+  const listarSucursales = async () => sucursalesSiga ? sucursalesSiga()
+    : [...new Set((await store.listarLotes()).flatMap(l => Object.keys(l.sucursales).map(Number)))].map(id => ({ id }));
   const router = express.Router();
 
   // Igual que apiRoute pero respeta err.status; los 500 se loguean y no filtran detalles.
@@ -191,20 +196,55 @@ module.exports = function crearRutasVencimientos(deps) {
     const idSucursal = sucursalLectura(ctx, req.query.idSucursal);
     const [config, lotes] = await Promise.all([store.leerConfig(), store.listarLotes()]);
     const hoy = hoyLocal();
-    let porClase;
+    let movimientos;
     try {
-      porClase = await Promise.all(Object.keys(CLASES).map(async clase =>
-        (await consultarMovimientosClase(getPool, { clase, idSucursal, config, hoy, rubros: RUBROS_BUSCADOR })).map(m => ({ clase, ...m }))));
+      movimientos = await sinLoteDeSucursal(getPool, { lotes, config, hoy, idSucursal, rubros: RUBROS_BUSCADOR });
     } catch (err) {
       console.error('[vencimientos] sin-lote SIGA falló', { idSucursal }, err);
       throw httpError(502, 'No se pudieron leer los movimientos de SIGA');
     }
-    const suc = String(idSucursal);
-    const activos = new Set(lotes.filter(l => { const col = l.sucursales[suc]; return col && !(col.vencidosSistema || []).length && pendiente(col) > 0; }).map(l => Number(l.idProducto)));
-    const movimientos = porClase.flat()
-      .filter(m => !activos.has(m.idProducto) && !marcarAsignados([m], lotes, m.idProducto, idSucursal, m.clase)[0].asignadoA)
-      .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.numeroMovimiento - a.numeroMovimiento);
     return { idSucursal, diasMaxOferta: config.diasMaxOferta, diasMaxVencido: config.diasMaxVencido, movimientos };
+  }));
+
+  // Centro de control (todas las sucursales reales). Permiso fino 'vencimientos-control' (admin siempre).
+  // Si SIGA falla, 200 con sinLote.disponible=false. El bloque sin lote se cachea 60 s (N sucursales x 2 consultas).
+  let cacheSinLote = { hasta: 0, valor: null };
+  const leerSinLoteTodas = async (lotes, config, hoy) => {
+    if (cacheSinLote.valor && Date.now() < cacheSinLote.hasta) return cacheSinLote.valor;
+    try {
+      const ids = (await listarSucursales()).filter(s => s.activa !== false && esSucursalReal(s.id)).map(s => s.id);
+      const listas = await Promise.all(ids.map(idSucursal => sinLoteDeSucursal(getPool, { lotes, config, hoy, idSucursal, rubros: RUBROS_BUSCADOR })));
+      const valor = Object.fromEntries(ids.map((id, i) => [id, listas[i]]));
+      cacheSinLote = { hasta: Date.now() + CACHE_SIN_LOTE_MS, valor };
+      return valor;
+    } catch (err) {
+      console.error('[vencimientos] centro-control SIGA falló', err);
+      return null;
+    }
+  };
+  // Nombres para la vista; si SIGA falla quedan 'Sucursal N'.
+  const nombresSucursales = async () => {
+    try { return Object.fromEntries((await listarSucursales()).filter(s => s.nombre).map(s => [s.id, String(s.nombre).trim()])); }
+    catch (err) { console.error('[vencimientos] centro-control nombres de sucursal', err); return {}; }
+  };
+  const exigirControl = req => {
+    const ctx = contexto(req);
+    if (!tienePermiso(ctx.user, 'vencimientos-control')) throw httpError(403, 'No tenés permiso para el centro de control de vencimientos.');
+    return ctx;
+  };
+  const paginaControl = archivo => (req, res) => {
+    if (!tienePermiso(req.session && req.session.user, 'vencimientos-control')) return res.status(403).send('Sin permiso para el centro de control de vencimientos.');
+    res.sendFile(archivo, err => { if (err && !res.headersSent) res.status(404).send('No encontrado'); });
+  };
+  router.get('/vencimientos-control', paginaControl(path.join(__dirname, '..', 'public', 'vencimientos_control.html')));
+  router.get('/js/vencimientos_control.js', paginaControl(path.join(__dirname, '..', 'public', 'js', 'vencimientos_control.js')));
+  router.get('/js/vencimientos_control_mock.js', paginaControl(path.join(__dirname, '..', 'public', 'js', 'vencimientos_control_mock.js')));
+  router.get('/api/vencimientos/centro-control', api(async req => {
+    exigirControl(req);
+    const [config, lotes] = await Promise.all([store.leerConfig(), store.listarLotes()]);
+    const hoy = hoyLocal();
+    const [sinLote, nombres] = await Promise.all([leerSinLoteTodas(lotes, config, hoy), nombresSucursales()]);
+    return armarCentroControl(lotes, config, hoy, sinLote, nombres);
   }));
 
   // Da de alta un registro desde un movimiento sin lote y lo deja asignado.

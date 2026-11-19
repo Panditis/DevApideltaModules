@@ -128,7 +128,8 @@
   <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3">
     <h1 class="font-disp text-2xl font-bold">VENCIMIENTOS</h1>
     <div class="ml-auto flex items-center gap-2">
-      <button id="btnUmbrales" type="button" class="btn btn-mini btn-tenue">Configuración</button>
+      <button id="btnUmbrales" type="button" class="btn btn-mini btn-tenue" hidden>Configuración</button>
+      <a id="lnkControl" href="/vencimientos-control" class="text-sm" hidden>Centro de control</a>
       <a href="/sucursales" class="text-sm">← Sucursales</a>
       <button id="btnLogout" type="button" class="px-3 py-1.5 rounded-lg text-sm" title="Cerrar sesión">Salir</button>
     </div>
@@ -153,9 +154,7 @@
       <h2 class="font-bold text-lg mb-4">Cargar vencimiento</h2>
       <div class="mb-3">
         <span class="lbl">Sucursal</span>
-        <div id="altaSucTxt" class="text-sm font-semibold text-verde"></div>
-        <div id="altaSucWrap" hidden><label class="lbl" for="altaSuc">Sucursal</label><select id="altaSuc" class="campo"></select></div>
-      </div>
+        <div id="altaSucTxt" class="text-sm font-semibold text-verde"></div>      </div>
       <div class="mb-3">
         <label class="lbl" for="altaBuscar">Producto</label>
         <input id="altaBuscar" class="campo" type="search" autocomplete="off" placeholder="Escribí al menos 2 letras o el código">
@@ -177,7 +176,6 @@
     <div id="miaAviso"></div>
     <div id="miaContenido">
       <div class="mb-2 flex flex-wrap items-end gap-3">
-        <div id="miaSelWrap" class="w-60" hidden><label class="lbl" for="miaSucursal">Sucursal</label><select id="miaSucursal" class="campo"></select></div>
         <h2 id="miaTitulo" class="font-bold text-lg pb-1"></h2>
         <span id="umbralesTxt" class="text-xs text-gris ml-auto pb-1" title="Semáforo de vencimiento"></span>
       </div>
@@ -273,17 +271,12 @@
   </div>
 </div>
 
-<!-- Modal: configuración (Mi sucursal para todos; el resto solo admin) -->
+<!-- Modal: configuración (solo admin; el botón se muestra solo a admin) -->
 <div id="mUmb" class="velo" hidden>
   <form class="modal fade-in" role="dialog" aria-modal="true" aria-labelledby="mUmbT" novalidate>
     <h2 id="mUmbT" class="font-bold text-lg mb-3">Configuración</h2>
-    <h3 class="text-sm font-semibold mb-1">Mi sucursal</h3>
-    <div class="mb-3">
-      <label class="lbl" for="cfgMiSucursal">Sucursal asignada (Id)</label>
-      <input id="cfgMiSucursal" class="campo" type="number" min="1" step="1" inputmode="numeric">
-      <div id="cfgMiSucNombre" class="text-xs text-gris mt-1"></div>
-    </div>
-    <div id="umbAdmin" hidden>
+    <p class="text-sm mb-3">Tu sucursal: <strong id="cfgMiSucNombre"></strong> <span class="text-xs text-gris">(se cambia desde Administración)</span></p>
+    <div id="umbAdmin">
         <div class="grid grid-cols-2 gap-3 mb-3">
       <div><label class="lbl" for="umbRojo" title="Rojo: hasta N días o vencido">Rojo (días)</label><input id="umbRojo" class="campo" type="number" min="0" step="1"></div>
       <div><label class="lbl" for="umbAmarillo" title="Amarillo: hasta M días; más allá, verde">Amarillo (días)</label><input id="umbAmarillo" class="campo" type="number" min="0" step="1"></div>
@@ -352,5 +345,12 @@
 <div id="menuFila" class="menu" role="menu" hidden></div>
 
 <script src="/js/vencimientos.js"></script>
+<script>
+// Enlace al centro de control: solo admin o permiso 'vencimientos-control'.
+fetch('/api/session').then(r => r.json()).then(s => {
+  const u = s && s.user;
+  if (u && (u.esAdmin || (u.modulos || []).includes('vencimientos-control'))) document.getElementById('lnkControl').hidden = false;
+}).catch(() => {});
+</script>
 </body>
 </html>
