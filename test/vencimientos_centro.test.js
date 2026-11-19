@@ -251,6 +251,7 @@ test('sucursales sin oferta: vencidosSistema (VENCIDO) suma en vencidos/merma/ra
   assert.deepStrictEqual(r.devueltos.porSucursal, [
     { idSucursal: 7, nombre: 'Sucursal 7', unidades: 8, movimientos: 3, ultimaFecha: '2026-11-18' },
     { idSucursal: 9, nombre: 'Sucursal 9', unidades: 0, movimientos: 0, ultimaFecha: null },
+    { idSucursal: 10, nombre: 'Sucursal 10', unidades: 0, movimientos: 0, ultimaFecha: null },
   ]);
   assert.strictEqual(r.devueltos.total, 8);
   assert.deepStrictEqual(r.devueltos.recientes.map(d => [d.plu, d.fecha, d.cantidad, d.usuario, d.pendiente]),
@@ -267,6 +268,17 @@ test('devueltos: col.devuelto como respaldo sin movimientos y tope 500 en recien
   ], CONFIG, HOY, null);
   assert.strictEqual(r.devueltos.recientes.length, 500);
   assert.strictEqual(r.devueltos.recientes[0].fecha, '2026-10-01');
-  assert.deepStrictEqual(r.devueltos.porSucursal.map(d => [d.idSucursal, d.unidades, d.movimientos]), [[7, 4, 0], [10, 600, 600]]);
+  assert.deepStrictEqual(r.devueltos.porSucursal.map(d => [d.idSucursal, d.unidades, d.movimientos]), [[7, 4, 0], [9, 0, 0], [10, 600, 600]]);
   assert.strictEqual(r.devueltos.total, 604);
+});
+
+test('devueltos: siempre 7, 9 y 10 aunque no tengan lotes', () => {
+  const cero = id => ({ idSucursal: id, nombre: `Sucursal ${id}`, unidades: 0, movimientos: 0, ultimaFecha: null });
+  for (const lotes of [[], [lote(1, '2027-06-01', { 1: col() })]]) {
+    const r = armarCentroControl(lotes, CONFIG, HOY, null, { 9: 'Centro' });
+    assert.deepStrictEqual(r.devueltos, { total: 0, porSucursal: [cero(7), { ...cero(9), nombre: 'Centro' }, cero(10)], recientes: [] });
+  }
+  const r = armarCentroControl([lote(1, '2027-06-01', { 7: col({ movimientos: [{ tipo: 'devuelto-central', cantidad: 3, usuario: 'a', fecha: '2026-11-10T10:00:00.000Z' }] }) })], CONFIG, HOY, null);
+  assert.deepStrictEqual(r.devueltos.porSucursal.map(d => [d.idSucursal, d.unidades, d.movimientos]), [[7, 3, 1], [9, 0, 0], [10, 0, 0]]);
+  assert.strictEqual(r.devueltos.total, 3);
 });
