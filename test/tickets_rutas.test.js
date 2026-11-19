@@ -1081,3 +1081,49 @@ test('Mantenimiento: etiqueta guardada junto al par: renombrar o dar de baja la 
     assert.deepStrictEqual(meta.data.areas, ['Roberto / A', 'Roberto / B', 'Roberto / C']);
   } finally { cerrar(ctx); }
 });
+
+test('Mantenimiento: inicio automático por fecha (GET persiste, sin duplicar; POST fecha; manual previo)', async () => {
+  const HOY = new Date(2026, 10, 19, 10, 0); // 19/11/2026 local
+  const ctx = await montar({ config: {
+    api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
+    areas: require('../lib/tickets').AREAS_MANTENIMIENTO, calendario: true, reloj: () => HOY,
+  } });
+  const archivo = path.join(ctx.dir, 'mantenimiento.json');
+  const leer = () => JSON.parse(fs.readFileSync(archivo, 'utf8'));
+  const t = (id, fecha, estado = 'pendiente') => ({ ...NUEVO, area: 'Mantenimiento', id, estado, fecha, historial: [], creadoPor: 'adriel' });
+  fs.writeFileSync(archivo, JSON.stringify([t(1, '2026-11-18'), t(2, '2026-11-25'), t(3, null), t(4, null)]));
+  try {
+    const l = (await pedir(ctx.base, 'GET', '')).data;
+    assert.strictEqual(l[0].estado, 'en_proceso');
+    assert.strictEqual(l[1].estado, 'pendiente');
+    assert.strictEqual(leer()[0].estado, 'en_proceso');
+    assert.deepStrictEqual(leer()[0].historial.map(e => e.motivo), ['fecha']);
+    await pedir(ctx.base, 'GET', '');
+    assert.strictEqual(leer()[0].historial.length, 1);
+
+    const hoy = await pedir(ctx.base, 'POST', '/3/fecha', { fecha: '2026-11-19' });
+    assert.strictEqual(hoy.status, 200);
+    assert.strictEqual(hoy.data.estado, 'en_proceso');
+    assert.strictEqual(leer()[2].estado, 'en_proceso');
+    const fut = await pedir(ctx.base, 'POST', '/4/fecha', { fecha: '2026-12-01' });
+    assert.strictEqual(fut.data.estado, 'pendiente');
+
+    const man = await pedir(ctx.base, 'PATCH', '/2', { estado: 'en_proceso' });
+    assert.strictEqual(man.status, 200);
+    assert.strictEqual(man.data.estado, 'en_proceso');
+    const ev = leer()[1].historial;
+    assert.ok(ev.every(e => !e.auto));
+    await pedir(ctx.base, 'GET', '');
+    assert.strictEqual(leer()[1].historial.length, ev.length);
+  } finally { cerrar(ctx); }
+});
+
+test('/tickets sin calendario: un pendiente con fecha pasada no se inicia solo', async () => {
+  const ctx = await montar({ config: { reloj: () => new Date(2026, 10, 19) } });
+  const archivo = path.join(ctx.dir, 'tickets.json');
+  fs.writeFileSync(archivo, JSON.stringify([{ ...NUEVO, id: 1, estado: 'pendiente', fecha: '2026-01-01', historial: [] }]));
+  try {
+    assert.strictEqual((await pedir(ctx.base, 'GET', '')).data[0].estado, 'pendiente');
+    assert.strictEqual(JSON.parse(fs.readFileSync(archivo, 'utf8'))[0].estado, 'pendiente');
+  } finally { cerrar(ctx); }
+});

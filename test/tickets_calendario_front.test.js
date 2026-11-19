@@ -1,7 +1,16 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { grillaMes, moverMes, agruparPorDia, ordenSinFecha, formatoFecha, hoyISO } = require('../public/js/tickets_calendario.js');
+const { grillaMes, moverMes, agruparPorDia, ordenSinFecha, formatoFecha, hoyISO, esInicioPorFecha } = require('../public/js/tickets_calendario.js');
+
+test('esInicioPorFecha: solo el auto de estado con motivo fecha', () => {
+  const base = { fecha: 'x', usuario: 'sistema', tipo: 'estado', de: 'pendiente', a: 'en_proceso', auto: true };
+  assert.strictEqual(esInicioPorFecha({ ...base, motivo: 'fecha' }), true);
+  assert.strictEqual(esInicioPorFecha(base), false); // auto de etapas: sin motivo
+  assert.strictEqual(esInicioPorFecha({ ...base, auto: false, motivo: 'fecha' }), false);
+  assert.strictEqual(esInicioPorFecha({ ...base, tipo: 'nota', motivo: 'fecha' }), false);
+  assert.strictEqual(esInicioPorFecha(undefined), false);
+});
 
 const RANGO = { baja: 0, media: 1, alta: 2, urgente: 3 };
 const rango = p => RANGO[p];

@@ -572,3 +572,32 @@ test('etiquetaResponsable y normalizarResponsables: con cuenta, sin cuenta y leg
   falla(() => normalizarResponsables({}, usuarios), 400);
   falla(() => normalizarResponsables([1], usuarios), 400);
 });
+
+test('iniciarPorFecha: pendiente con fecha hoy/pasada → en_proceso con evento auto; resto intacto; pura', () => {
+  const { iniciarPorFecha, hoyLocal } = require('../lib/tickets');
+  const AHORA = '2026-11-19T13:00:00.000Z';
+  const lista = Object.freeze([
+    { id: 1, estado: 'pendiente', fecha: '2026-11-19', historial: [] },
+    { id: 2, estado: 'pendiente', fecha: '2026-11-01' },
+    { id: 3, estado: 'pendiente', fecha: '2026-11-20' },
+    { id: 4, estado: 'pendiente', fecha: null },
+    { id: 5, estado: 'stand_by', fecha: '2026-11-01' },
+    { id: 6, estado: 'terminado', fecha: '2026-11-01' },
+    { id: 7, estado: 'pendiente', fecha: '2026-02-30' },
+    { id: 8, estado: 'falta_aprobacion', fecha: '2026-11-01' },
+  ].map(t => Object.freeze(t)));
+  const { lista: nueva, cambiados } = iniciarPorFecha(lista, '2026-11-19', AHORA);
+  assert.strictEqual(cambiados, 2);
+  const evento = { fecha: AHORA, usuario: 'sistema', tipo: 'estado', de: 'pendiente', a: 'en_proceso', auto: true, motivo: 'fecha' };
+  for (const i of [0, 1]) {
+    assert.strictEqual(nueva[i].estado, 'en_proceso');
+    assert.strictEqual(nueva[i].actualizadoEn, AHORA);
+    assert.deepStrictEqual(nueva[i].historial, [evento]);
+  }
+  for (const i of [2, 3, 4, 5, 6, 7]) assert.strictEqual(nueva[i], lista[i]);
+  assert.strictEqual(lista[0].estado, 'pendiente');
+  const otra = iniciarPorFecha(nueva, '2026-11-19', AHORA);
+  assert.strictEqual(otra.lista, nueva);
+  assert.strictEqual(otra.cambiados, 0);
+  assert.strictEqual(hoyLocal(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
+});

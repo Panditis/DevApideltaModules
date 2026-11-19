@@ -1523,6 +1523,10 @@
     const quien = `<b class="font-semibold">${esc(nombreDe(h.usuario))}</b>`;
     const nombres = v => esc(comoLista(v).map(nombreDe).join(', ') || 'nadie');
     if (h.tipo === 'creado') return [`${quien} creó el ticket`];
+    if (Calendario.esInicioPorFecha(h)) {
+      return [`Iniciado automáticamente por la fecha programada: ${badgeEstado(h.de)} <span class="text-gris">→</span> ${badgeEstado(h.a)}
+        <span class="chip-auto" title="Lo cambió el sistema al llegar la fecha asignada">automático</span>`];
+    }
     if (h.tipo === 'estado' && h.auto) {
       return [`Estado actualizado por las etapas: ${badgeEstado(h.de)} <span class="text-gris">→</span> ${badgeEstado(h.a)}
         <span class="chip-auto" title="Lo cambió el sistema tras una acción de ${esc(nombreDe(h.usuario))}">automático</span>`];
@@ -1668,6 +1672,7 @@
     let texto = `${n} se actualizó · ${quien}`;
     if (asignado) texto = `Te asignaron ${previo ? '' : 'un ticket nuevo: '}${n} «${t.tarea}» · por ${quien}`;
     else if (!previo) texto = `Nuevo ticket ${n} «${t.tarea}» · por ${quien}`;
+    else if (Calendario.esInicioPorFecha(h)) texto = `${n} se inició automáticamente por la fecha programada`;
     else if (h.tipo === 'estado' && h.auto) {
       texto = h.a === 'falta_aprobacion' ? `${n} pasó a ${etiqueta('estados', h.a)} (todas las etapas terminadas)`
         : `${n} volvió a ${etiqueta('estados', h.a)} (se reabrió una etapa)`;

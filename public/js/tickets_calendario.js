@@ -163,7 +163,12 @@
     return { pintar };
   }
 
-  const api = { grillaMes, moverMes, agruparPorDia, ordenSinFecha, formatoFecha, hoyISO, crearUI };
+  // Evento del historial que el server agrega solo al llegar la fecha asignada (no lo hizo una persona).
+  function esInicioPorFecha(h) {
+    return !!h && h.tipo === 'estado' && h.auto === true && h.motivo === 'fecha';
+  }
+
+  const api = { grillaMes, moverMes, agruparPorDia, ordenSinFecha, formatoFecha, hoyISO, esInicioPorFecha, crearUI };
   if (typeof window !== 'undefined') window.TicketsCalendario = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

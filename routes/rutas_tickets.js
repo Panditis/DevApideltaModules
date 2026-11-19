@@ -52,7 +52,8 @@ module.exports = function crearRutasTickets(deps) {
     areaCerrada = false, // true: el área tiene que ser una de `areas` (Mantenimiento)
     calendario = false, // true: habilita POST /:id/fecha (Mantenimiento)
     crearSoloGestion = false, // true: dar de alta también pide el permiso de gestión (Mantenimiento)
-    usuarios: fuenteUsuarios, // () => [{ usuario, nombre }] (sync o async): destinatarios propios en vez de los de SIGA
+    reloj = () => new Date(), // inyectable en tests (inicio por fecha)
+    usuarios: fuenteUsuarios,// () => [{ usuario, nombre }] (sync o async): destinatarios propios en vez de los de SIGA
   } = deps;
   const router = express.Router();
   const TICKETS_PATH = path.join(DATA_DIR, archivo);
@@ -68,7 +69,15 @@ module.exports = function crearRutasTickets(deps) {
     catch { return tickets.normalizarResponsables(areas, usuarios); }
   };
 
-  const leerTickets = () => leerJSON(TICKETS_PATH, []);
+  // Con calendario, cada lectura inicia los pendientes cuya fecha llegó y persiste si cambió algo.
+  const conInicioPorFecha = lista => {
+    if (!calendario) return lista;
+    const ahora = reloj();
+    const r = tickets.iniciarPorFecha(lista, tickets.hoyLocal(ahora), ahora.toISOString());
+    if (r.cambiados) guardarJSON(TICKETS_PATH, r.lista);
+    return r.lista;
+  };
+  const leerTickets = () => conInicioPorFecha(leerJSON(TICKETS_PATH, []));
   const usuarioSesion = req => (req.session && req.session.user && req.session.user.usuario) || 'anonimo';
   const userSesion = req => (req.session && req.session.user) || null;
   // Sin sesión (o sin tienePermiso inyectado) → sin permiso.
@@ -270,9 +279,11 @@ module.exports = function crearRutasTickets(deps) {
     if (!calendario) throw Object.assign(new Error('No encontrado.'), { status: 404 });
     if (!puedeGestionar(req)) throw prohibido('No tenés permiso para asignar fechas.');
     const fecha = (req.body || {}).fecha;
-    const { lista, ticket } = tickets.asignarFecha(leerTickets(), idValido(req.params.id, 'ticket'), fecha === undefined ? '' : fecha);
-    guardarJSON(TICKETS_PATH, lista);
-    return ticket;
+    const id = idValido(req.params.id, 'ticket');
+    const asignada = tickets.asignarFecha(leerTickets(), id, fecha === undefined ? '' : fecha).lista;
+    const lista = conInicioPorFecha(asignada); // fecha de hoy o pasada → ya sale en_proceso
+    if (lista === asignada) guardarJSON(TICKETS_PATH, lista);
+    return lista.find(t => Number(t.id) === id);
   }));
 
   router.patch(`${api}/:id`, recibirArchivos, manejar(async req => {
