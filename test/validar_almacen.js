@@ -8,7 +8,7 @@
 // Uso: node test/validar_almacen.js
 const fs = require('fs');
 const path = require('path');
-const { calcularAlmacen } = require('../distribucion');
+const { calcularAlmacen } = require('../lib/distribucion');
 
 const D = path.join(__dirname, '..', 'data');
 const a8020  = JSON.parse(fs.readFileSync(path.join(D, 'a8020.json'), 'utf8'));
